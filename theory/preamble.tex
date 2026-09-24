@@ -1,0 +1,86 @@
+% Style of the course's own documents (organisation/src/preamble.tex),
+% extended for a handbook: listings, figures, a few boxes.
+\usepackage[a4paper,margin=2.3cm,headheight=14pt]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,shapes.geometric,decorations.pathreplacing}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{warnbg}{RGB}{255,247,230}
+\definecolor{warnrule}{RGB}{204,136,0}
+\definecolor{newbg}{RGB}{235,245,255}
+\definecolor{newrule}{RGB}{40,110,190}
+\definecolor{keybg}{RGB}{237,247,237}
+\definecolor{keyrule}{RGB}{50,120,60}
+\definecolor{headgray}{RGB}{90,90,90}
+\definecolor{codebg}{RGB}{248,248,248}
+
+\usepackage[most]{tcolorbox}
+
+\newtcolorbox{warnbox}[1][]{colback=warnbg,colframe=warnrule,boxrule=0.8pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,arc=1pt,#1}
+\newtcolorbox{infobox}[1][]{colback=newbg,colframe=newrule,boxrule=0.8pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,arc=1pt,#1}
+% "In SWEB": where the idea shows up in the course's kernel
+\newtcolorbox{swebbox}[1][]{colback=newbg,colframe=newrule,boxrule=0.8pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,arc=1pt,
+  title={In SWEB},fonttitle=\bfseries\small,coltitle=white,colbacktitle=newrule,#1}
+% end-of-chapter summary
+\newtcolorbox{keybox}[1][]{colback=keybg,colframe=keyrule,boxrule=0.8pt,
+  left=6pt,right=6pt,top=5pt,bottom=5pt,arc=1pt,
+  title={Key points},fonttitle=\bfseries\small,coltitle=white,colbacktitle=keyrule,#1}
+
+\newcommand{\tbd}{\textcolor{warnrule}{\textbf{[confirm]}}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\file}[1]{\texttt{\small #1}}
+\newcommand{\module}[1]{\textsf{module~#1}}
+
+\setlist[itemize]{topsep=2pt,itemsep=1.5pt,parsep=0pt,leftmargin=1.3em}
+\setlist[enumerate]{topsep=2pt,itemsep=1.5pt,parsep=0pt,leftmargin=1.6em}
+\setlist[description]{topsep=2pt,itemsep=1.5pt,parsep=0pt,leftmargin=1.3em}
+
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\lstset{
+  language=C,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{newrule}\bfseries,
+  commentstyle=\color{headgray}\itshape,
+  stringstyle=\color{warnrule!80!black},
+  backgroundcolor=\color{codebg},
+  frame=single, rulecolor=\color{black!15}, framesep=3pt,
+  xleftmargin=4pt, xrightmargin=4pt, aboveskip=6pt, belowskip=4pt,
+  columns=fullflexible, keepspaces=true, showstringspaces=false,
+  upquote=true, tabsize=2,
+  morekeywords={size_t,ssize_t,pid_t,pthread_t,pthread_mutex_t,pthread_cond_t,
+                sem_t,uint8_t,uint32_t,uint64_t,bool,_Atomic,atomic_int,
+                atomic_flag,__thread,_Noreturn,__asm__,volatile,pointer,uint64}
+}
+\lstdefinestyle{shell}{language=bash,morekeywords={},keywordstyle=\color{black}}
+\lstdefinestyle{cpp}{language=C++}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\textcolor{headgray}{OS preparation handbook}}
+\fancyhead[R]{\small\textcolor{headgray}{\leftmark}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter\ \ #1}{}}
+\fancypagestyle{plain}{\fancyhf{}\renewcommand{\headrulewidth}{0pt}\fancyfoot[C]{\small\thepage}}
+
+\renewcommand{\arraystretch}{1.25}
+\setlength{\parskip}{3pt}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}   % fewer overfull lines with long \code words

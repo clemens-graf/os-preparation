@@ -1,0 +1,175 @@
+\chapter{Scheduling}
+\label{ch:scheduling}
+
+Whenever more threads are ready than there are CPUs, the scheduler
+decides who runs --- at every timer interrupt, and whenever a thread
+blocks, wakes up, yields or exits. This chapter covers the metrics, the
+classic policies you will be asked to simulate by hand in the exam, how
+real systems combine them, and the question that matters most for your
+\code{pthread\_join}: should a waiting thread spin, yield, or sleep?
+
+% \gantt{chart}: one box per character, '.' = idle
+\newcommand{\gantt}[1]{%
+\begin{tikzpicture}[x=0.52cm,y=0.5cm,font=\scriptsize]
+  \def\t{0}%
+  \foreach \c [count=\i from 0] in {#1} {%
+    \ifx\c.\draw (\i,0) rectangle ++(1,1);%
+    \else\draw[fill=newbg] (\i,0) rectangle ++(1,1) node[pos=0.5] {\c};\fi
+    \node[below] at (\i,0) {\i};
+  }%
+\end{tikzpicture}}
+
+\section{Bursts and metrics}
+
+Threads alternate between \emph{CPU bursts} (computing) and \emph{I/O
+bursts} (waiting for the disk, the network, the keyboard, a lock).
+CPU-bound threads have long CPU bursts, I/O-bound (interactive) threads
+short ones. For a job that arrives at time $a$, first runs at $s$ and
+finishes at $f$ with total CPU time $b$:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Metric} & \textbf{Definition} & \textbf{Who cares} \\
+\midrule
+turnaround time & $f - a$ & batch jobs \\
+waiting time & $f - a - b$ (time spent ready, not running) & fairness \\
+response time & $s - a$ & interactive users \\
+throughput & jobs finished per time unit & the whole system \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The goals conflict: short quanta improve response and cost throughput
+(context switches); favouring short jobs improves the average and can
+starve long ones.
+
+\section{The classic policies}
+
+Example (arrival, burst, priority): A (0, 5, 2), B (1, 3, 1), C (2, 1, 3),
+D (4, 2, 1) --- \module{09}, question 1. One box per time unit.
+
+\paragraph{FCFS} (first come, first served): run jobs to completion in
+arrival order. Simple, no starvation, but short jobs wait behind long ones
+--- the \emph{convoy effect}.
+
+\begin{center}\gantt{A,A,A,A,A,B,B,B,C,D,D}\\ average waiting 3.75\end{center}
+
+\paragraph{SJF} (shortest job first, non-preemptive): when the CPU becomes
+free, pick the job with the shortest burst. When all jobs are present
+from the start, this is provably optimal for the average waiting time
+(exchange argument: a longer job directly in front of a shorter one ---
+swap them, and the sum of waiting times drops). With staggered arrivals
+it is only a good heuristic: a short job arriving just after a long one
+has started still has to wait.
+
+\begin{center}\gantt{A,A,A,A,A,C,D,D,B,B,B}\\ average waiting 3.00\end{center}
+
+\paragraph{SRTF} (shortest remaining time first): SJF with preemption ---
+a new job with less remaining work than the running one takes over.
+Optimal for the average waiting time over all schedules.
+
+\begin{center}\gantt{A,B,C,B,B,D,D,A,A,A,A}\\ average waiting 2.00, response 0.25\end{center}
+
+Both need the length of the next CPU burst, which the OS does not know.
+It can \emph{predict} it by exponential averaging of the past bursts:
+$\tau_{n+1} = \alpha t_n + (1-\alpha)\tau_n$.
+
+\paragraph{Round robin} (RR): a FIFO ready queue; each job runs for at
+most one \emph{quantum} $q$, then goes to the end of the queue. Good
+response time, fair, no starvation. The quantum is the knob: too small and
+the CPU is busy switching (a 0.1~ms switch with $q$ = 1~ms wastes 9\%),
+too large and RR degenerates into FCFS. Typical values: a few
+milliseconds. With $q = 2$:
+
+\begin{center}\gantt{A,A,B,B,C,A,A,D,D,B,A}\\ average waiting 4.25, response 1.50\end{center}
+
+A tie that exams love: at $t = 2$, C arrives \emph{and} A's quantum
+ends. The convention used in \module{09} (and by most textbooks): the
+newcomer is queued first, the preempted job behind it. State your
+convention when you answer.
+
+\paragraph{Priority} scheduling: always run the most important ready job
+(here: smaller number = more important; preemptive):
+
+\begin{center}\gantt{A,B,B,B,D,D,A,A,A,A,C}\\ average waiting 3.25\end{center}
+
+Low-priority jobs can \emph{starve} if higher-priority work keeps
+arriving. Remedy: \emph{aging} --- raise the priority of waiting jobs over
+time. Also watch for priority inversion (chapter~6).
+
+\section{Multi-level feedback queue}
+
+MLFQ learns what kind of job it deals with, without being told:
+
+\begin{enumerate}
+  \item Several queues with decreasing priority; round robin within a
+    queue; higher queues always win, and preempt lower ones.
+  \item A new job enters the top queue.
+  \item A job that uses up its time allotment on a level is moved one
+    level down. The allotment is counted \emph{across} I/O --- otherwise a
+    job could stay on top by blocking just before its quantum ends.
+  \item Periodically, all jobs are boosted back to the top: no
+    starvation, and a job that changed its behaviour gets a new chance.
+\end{enumerate}
+
+Interactive jobs (short bursts) stay high and get quick responses;
+CPU-bound jobs sink and share the rest. \module{09}'s bonus implements it
+with exact rules.
+
+\section{Proportional share and Linux}
+
+Instead of priorities, give each job a \emph{share}: lottery scheduling
+draws tickets, stride scheduling advances a ``pass'' value by
+1/tickets. Linux's scheduler (CFS, since 6.6 EEVDF) is of this kind: each
+task accumulates \emph{virtual runtime}, weighted by its nice value (nice
+0 = weight 1024, each nice step $\approx$ 1.25$\times$ less), and the task
+with the least virtual runtime runs next. A task that sleeps a lot has
+little virtual runtime and runs soon after waking --- interactive tasks
+stay responsive without explicit classification (\module{09}'s examples
+measure both effects).
+
+\section{Spin, yield or sleep?}
+
+A thread that must wait for another thread (a flag, a lock, a join) on a
+\emph{single} CPU:
+
+\begin{description}
+  \item[spin] (\code{while (!flag) \{\}}): burns its whole quantum every
+    round --- and the flag cannot change meanwhile, because the thread
+    that would set it is not running. Pure waste.
+  \item[yield] (\code{while (!flag) yield();}): gives the CPU away at once,
+    but stays \emph{runnable}: it is scheduled again and again just to
+    check and yield. Costs a context switch per round, forever.
+  \item[sleep] (block until woken): leaves the ready queue entirely; costs
+    exactly one switch away and one back.
+\end{description}
+
+A kernel waits by sleeping, except for very short waits on locks held
+for a few instructions.
+
+\begin{swebbox}
+\code{Scheduler::schedule()} (\file{common/source/kernel/Scheduler.cpp})
+is round robin: it picks the first thread in \code{threads\_} that is
+\code{Running} (i.e.\ schedulable) and rotates the list. The timer
+interrupt (\code{irqHandler\_0}) calls it every tick, so the quantum is one
+tick; \code{Scheduler::yield()} triggers the same code voluntarily with
+\code{int \$65}. When nothing is runnable, the idle thread runs.
+\code{sleep()} sets the state to \code{Sleeping}, which removes a thread
+from consideration until \code{wake()} sets it back. For
+\code{pthread\_join}: the joiner must \emph{sleep} until the target has
+exited --- a \code{while (!done) yield();} loop would ``work'' and waste
+every round-robin cycle.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Metrics: turnaround $f-a$, waiting $f-a-b$, response $s-a$.
+  \item FCFS (convoys), SJF (optimal when all jobs start together), SRTF (optimal),
+    RR (response; quantum trade-off), priority (starvation $\to$ aging).
+  \item MLFQ: demote on used allotment (across I/O), boost periodically.
+  \item Linux: weighted virtual runtime, nice changes the weight.
+  \item Wait by sleeping; on one CPU, spinning is pointless and yielding
+    in a loop is wasteful.
+\end{itemize}
+\end{keybox}

@@ -1,0 +1,5 @@
+echo hello world | wc -w
+printf c\na\nb\n | sort
+echo x | false
+false | echo ok
+build/helper pipefds

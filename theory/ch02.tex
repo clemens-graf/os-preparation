@@ -1,0 +1,167 @@
+\chapter{Threads}
+\label{ch:threads}
+
+A thread is one flow of execution: a program counter, registers and a
+stack. A process can contain several threads; they run the same program,
+share its memory and its open files, and are scheduled independently ---
+on a multi-core machine literally at the same time. This is the
+abstraction you implement in SWEB for A1 (\code{pthread\_create},
+\code{pthread\_exit}, \code{pthread\_join}, \code{pthread\_cancel}).
+
+\section{What is shared, what is private}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small,
+    box/.style={draw,minimum width=2.4cm,minimum height=0.62cm,align=center}]
+  \node[box,fill=black!8] (code) {code};
+  \node[box,fill=black!4,above=0pt of code] (data) {globals};
+  \node[box,fill=keybg,above=0pt of data] (heap) {heap};
+  \node[box,fill=newbg,above=0pt of heap] (files) {open files, cwd};
+  \node[box,fill=warnbg,above=0.5cm of files,minimum width=1.1cm] (s1) {stack 1};
+  \node[box,fill=warnbg,right=2pt of s1,minimum width=1.1cm] (s2) {stack 2};
+  \node[draw,dashed,inner sep=6pt,fit=(code)(s1)(s2),
+        label={[font=\small\bfseries]above:one process}] {};
+  \node[right=1.4cm of s2,align=left] (r) {per thread:\\ registers, program counter,\\ stack pointer, stack,\\ thread id, \code{errno}, state};
+  \draw[-Latex] (r.west) -- (s2.east);
+  \node[right=1.4cm of heap,align=left] (sh) {shared by all threads:\\ address space, globals,\\ heap, open files};
+  \draw[-Latex] (sh.west) -- (heap.east);
+\end{tikzpicture}
+\caption{Two threads in one process.}
+\label{fig:threads}
+\end{figure}
+
+Everything reachable through a pointer is shared --- including another
+thread's stack, if somebody hands out the address of a local variable.
+``Private'' only means ``not shared unless you share it''.
+
+\paragraph{Thread vs.\ process.} Creating a thread is much cheaper than
+creating a process: no new address space, no copied page tables, no
+copied descriptor table. Switching between threads of the same process
+does not change the page tables either. The price: no isolation. One
+thread's stray write corrupts every other thread, one thread's crash kills
+the whole process, and every shared variable needs synchronisation
+(chapters 3--5).
+
+\section{The pthreads interface}
+
+\begin{lstlisting}
+int  pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                    void *(*start_routine)(void *), void *arg);
+void pthread_exit(void *retval);                 /* never returns */
+int  pthread_join(pthread_t thread, void **retval);
+int  pthread_detach(pthread_t thread);
+pthread_t pthread_self(void);
+\end{lstlisting}
+
+\begin{description}
+  \item[create] starts \code{start\_routine(arg)} in a new thread and
+    stores its id in \code{*thread}. The new thread may run before or
+    after \code{pthread\_create} returns --- never rely on either.
+  \item[exit] ends the calling thread with a return value. Returning from
+    \code{start\_routine} does the same. Returning from \code{main} (or
+    calling \code{exit}) ends the \emph{whole process}, all threads
+    included.
+  \item[join] waits until the thread has ended and collects its return
+    value. Afterwards the thread's resources are freed. Each thread can be
+    joined once; joining yourself is an error (\code{EDEADLK}).
+  \item[detach] ``nobody will join this thread'': its resources are freed
+    as soon as it ends. A detached thread cannot be joined.
+\end{description}
+
+All functions return 0 or an error number (they do not set \code{errno}).
+
+\section{The lifecycle}
+
+A thread is created \emph{ready}, becomes \emph{running} when the
+scheduler picks it, may \emph{block} (waiting for a lock, for I/O, in
+\code{join}) and becomes ready again when woken, and finally
+\emph{terminates}. A terminated thread that is joinable but not yet
+joined is a \emph{zombie}: its stack can go, but its return value and id
+must stay until somebody joins it --- exactly like a zombie process
+(chapter~1). Neither joined nor detached means leaked: the zombie stays
+forever. Chapter~10 builds this state machine.
+
+\section{Passing arguments and results}
+
+\paragraph{Arguments.} \code{arg} is a single \code{void *}. For more
+than one value, pass a pointer to a struct --- and make sure the struct
+lives long enough:
+
+\begin{lstlisting}
+struct job { int first, count; long result; };
+struct job jobs[N];                      /* one per thread, in the caller's frame */
+for (int i = 0; i < N; i++) {
+  jobs[i] = (struct job){i * chunk, chunk, 0};
+  pthread_create(&tid[i], NULL, worker, &jobs[i]);   /* not &i ! */
+}
+for (int i = 0; i < N; i++)
+  pthread_join(tid[i], NULL);            /* jobs[] must outlive the threads */
+\end{lstlisting}
+
+Two classic bugs (\module{02}, part B): passing \code{\&i} (every thread
+gets the same, changing address), and passing a pointer to a local of a
+function that returns before the threads read it.
+
+\paragraph{Results.} Either the thread writes into its own struct (as
+above --- no sharing, no lock needed: each thread owns one element), or it
+returns a pointer. Never return the address of a local; return heap
+memory, a pointer into the argument, or a small integer cast to
+\code{void *}.
+
+\paragraph{Partition, then combine.} The simplest correct parallel
+program splits the data into disjoint parts, lets each thread work only
+on its part, and combines the partial results \emph{after}
+\code{pthread\_join}. No shared writes, no locks --- and
+\code{pthread\_join} guarantees that the joiner sees everything the
+thread wrote (a happens-before edge, chapter~3).
+
+\section{Thread-local data}
+
+Some state must exist once per thread although it looks global. The
+classic example is \code{errno}: if thread A's failing call and thread
+B's failing call wrote the same variable, A could read B's error. C11 has
+\code{\_Thread\_local} (GCC: \code{\_\_thread}); glibc keeps \code{errno}
+in thread-local storage. \module{07}'s mini libc makes its
+\code{ml\_errno} thread-local for exactly this reason.
+
+\section{Who implements the threads?}
+
+\begin{description}
+  \item[Kernel-level threads (1:1).] Every user thread is a thread the
+    kernel knows and schedules. Blocking in a system call blocks only that
+    thread; threads run in parallel on several cores. Every switch goes
+    through the kernel. Linux (NPTL), Windows --- and SWEB after A1.
+  \item[User-level threads (M:1).] A library switches between threads
+    inside one kernel thread (\module{10}). Switching is a function call,
+    but a blocking system call blocks all threads, and only one core is
+    used.
+  \item[Hybrid (M:N).] M user threads on N kernel threads; complex and
+    mostly abandoned (Go's runtime is a modern variant).
+\end{description}
+
+\begin{swebbox}
+The stubs are in \file{userspace/libc/src/pthread.c}:
+\code{pthread\_create} just \code{return -1;}. P1 turns it into a system
+call that creates a new kernel \code{Thread} in the calling process
+(1:1): it gets its own kernel stack (inside the \code{Thread} object,
+\code{kernel\_stack\_}), its own user stack in the shared address space,
+and its own saved registers --- and starts in user mode at a small libc
+wrapper that calls \code{start\_routine(arg)} and then
+\code{pthread\_exit} (chapter~10).
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Threads share the address space and open files; each has its own
+    registers and stack.
+  \item Returning from the start routine = \code{pthread\_exit}; returning
+    from \code{main} ends every thread.
+  \item Join or detach every thread; an unjoined finished thread is a
+    zombie.
+  \item Pass each thread its own argument object that outlives it; never
+    \code{\&i}, never a dying local.
+  \item Partition-then-combine needs no locks; \code{join} makes the
+    results visible.
+\end{itemize}
+\end{keybox}

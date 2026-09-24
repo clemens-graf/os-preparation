@@ -1,0 +1,196 @@
+\chapter{Processes}
+\label{ch:processes}
+
+A \emph{program} is a file. A \emph{process} is a program being executed:
+an address space with code and data in it, at least one thread of
+execution, and a set of resources the kernel keeps on its behalf (open
+files, the current directory, a process id). This chapter looks at
+processes from the outside --- through the system calls that create,
+replace, wait for and signal them. Team F implements \code{fork} and
+\code{exec} in SWEB for A1; Team P needs the same picture, because a
+thread lives \emph{inside} a process.
+
+\section{What the kernel keeps per process}
+
+For every process the kernel has a record --- textbooks call it the
+\emph{process control block} (PCB):
+
+\begin{itemize}
+  \item identity: process id (PID), parent PID, user id;
+  \item the address space: page tables and the list of mapped regions;
+  \item open files: the file-descriptor table;
+  \item the current working directory, signal handlers, exit status;
+  \item one or more threads, each with its own saved registers, stack and
+    scheduling state (chapter~2).
+\end{itemize}
+
+The last point is exactly what SWEB does not have yet: there, a process
+\emph{is} a thread (\code{class UserProcess : public Thread}), and the
+first thing your group does in A1 (``Phase 0'') is to split the two.
+
+\section{The address space}
+
+Every process sees its own, private range of virtual addresses
+(chapter~8 explains how the hardware makes that possible). On x86-64
+Linux the lower half belongs to the process, the upper half to the
+kernel (figure~\ref{fig:layout}).
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[x=1cm,y=0.55cm,font=\small]
+  \def\w{4}
+  \draw[fill=black!8] (0,0) rectangle (\w,1) node[midway] {text (code)};
+  \draw[fill=black!4] (0,1) rectangle (\w,2) node[midway] {data, bss (globals)};
+  \draw[fill=keybg] (0,2) rectangle (\w,3) node[midway] {heap $\uparrow$};
+  \draw (0,3) rectangle (\w,5) node[midway] {\emph{unmapped}};
+  \draw[fill=newbg] (0,5) rectangle (\w,6) node[midway] {shared libraries, \code{mmap}};
+  \draw (0,6) rectangle (\w,7.5) node[midway] {\emph{unmapped}};
+  \draw[fill=warnbg] (0,7.5) rectangle (\w,8.5) node[midway] {stack $\downarrow$};
+  \draw[fill=black!25] (0,9) rectangle (\w,10) node[midway] {kernel};
+  \node[left] at (0,0) {\code{0x0000\dots}};
+  \node[left] at (0,8.5) {\code{0x7fff\dots}};
+  \node[left] at (0,9.5) {\code{0xffff\dots}};
+  \draw[decorate,decoration={brace,amplitude=5pt}] (\w+0.2,8.5) -- (\w+0.2,0)
+     node[midway,right=6pt,align=left] {user space\\(private per process)};
+  \draw[decorate,decoration={brace,amplitude=5pt}] (\w+0.2,10) -- (\w+0.2,9)
+     node[midway,right=6pt,align=left] {same in every process,\\only accessible in kernel mode};
+\end{tikzpicture}
+\caption{The address space of a process on x86-64 Linux (not to scale).}
+\label{fig:layout}
+\end{figure}
+
+The heap grows upwards (\code{malloc} asks the kernel for more with
+\code{brk}/\code{mmap}), the stack downwards. \file{/proc/<pid>/maps}
+shows the real layout of a running process (\module{08}'s
+\code{demand\_paging} example prints it).
+
+\begin{swebbox}
+The boundary is \code{USER\_BREAK} (\file{arch/x86/64/include/offsets.h}):
+\code{0x0000800000000000}. A new SWEB process gets exactly one stack page,
+the last page below \code{USER\_BREAK}, and its stack pointer starts at
+\code{USER\_BREAK - 8}. Code and data are \emph{not} loaded up front: each
+first access page-faults and \code{Loader::loadPage} copies the page from
+the binary (chapter~8).
+\end{swebbox}
+
+\section{fork, exec, wait, exit}
+
+\paragraph{\code{fork()}} creates a copy of the calling process: same code,
+a copy of all memory, copies of the file descriptors (pointing to the
+same open files). It is called once and \emph{returns twice} --- in the
+parent with the child's PID, in the child with 0:
+
+\begin{lstlisting}
+pid_t pid = fork();
+if (pid < 0)        { perror("fork"); }        /* no child */
+else if (pid == 0)  { /* child */ }
+else                { /* parent: pid = the child's PID */ }
+\end{lstlisting}
+
+``Returns twice'' is less magic than it sounds: the kernel copies the
+parent's saved user registers into the child and then changes one of
+them --- the return-value register (\code{rax} on x86-64) is 0 in the
+child. When each of them is next scheduled, both continue at the
+instruction after the system call. Copying all memory would be slow; real
+kernels share the pages and copy a page only when one side writes to it
+(\emph{copy-on-write}, chapter~8).
+
+\paragraph{\code{exec*()}} replaces the program running in the current
+process: new code, new data, new stack, same PID, same open file
+descriptors (unless marked close-on-exec). On success it does not return
+--- the code that called it no longer exists.
+
+\paragraph{\code{exit(status)} and \code{wait}.} A process ends with an
+exit status; its parent collects it with \code{wait}/\code{waitpid}:
+
+\begin{lstlisting}
+int status;
+waitpid(pid, &status, 0);
+if (WIFEXITED(status))        printf("exit code %d\n", WEXITSTATUS(status));
+else if (WIFSIGNALED(status)) printf("killed by signal %d\n", WTERMSIG(status));
+\end{lstlisting}
+
+The shell does exactly this for every command: \code{fork}, \code{exec}
+in the child, \code{waitpid} in the parent (\module{01}'s \code{minish}).
+
+\paragraph{Zombies and orphans.} A process that has exited but whose
+status has not been collected yet is a \emph{zombie}: its memory is gone,
+but its PCB with the exit status must stay until the parent calls
+\code{wait}. A process whose parent dies first is an \emph{orphan}; it is
+adopted by \code{init} (PID~1), which reaps it. The same idea returns for
+threads: a finished, not yet joined thread keeps its return value
+(chapter~10).
+
+\section{File descriptors and pipes}
+
+A file descriptor is an index into the process's descriptor table; each
+entry points to an \emph{open file} object in the kernel (position,
+flags, the file or pipe itself). By convention 0, 1 and 2 are standard
+input, output and error.
+
+\begin{itemize}
+  \item \code{fork} copies the table: parent and child share the same open
+    files (and the same file position).
+  \item \code{dup2(old, new)} makes \code{new} refer to the same open file
+    as \code{old} --- this is how a shell redirects output.
+  \item \code{pipe(fds)} creates a kernel buffer with a read end
+    (\code{fds[0]}) and a write end (\code{fds[1]}). A reader blocks while
+    the buffer is empty, a writer while it is full.
+\end{itemize}
+
+\begin{warnbox}
+A reader sees end-of-file only when \emph{every} write end is closed ---
+in every process. A forgotten write end in the parent keeps \code{wc}
+waiting forever. Rule: after \code{fork} + \code{dup2}, close every pipe
+end you do not use, in every process.
+\end{warnbox}
+
+\section{Signals}
+
+A signal is an asynchronous notification to a process: \code{SIGINT}
+(Ctrl-C), \code{SIGSEGV} (bad memory access), \code{SIGCHLD} (a child
+changed state), \code{SIGALRM} (a timer expired), \code{SIGKILL} (cannot
+be caught). Each has a default action (terminate, core dump, ignore,
+stop); \code{sigaction} installs a handler instead.
+
+A handler interrupts the program at an arbitrary instruction --- like a
+hardware interrupt interrupts the kernel. Consequently a handler may only
+call \emph{async-signal-safe} functions (\code{write}, \code{\_exit},
+\dots, but not \code{printf} or \code{malloc}, which may hold internal
+locks at the moment of interruption) and should communicate through a
+\code{volatile sig\_atomic\_t} flag. Chapter~10 uses a timer signal to
+preempt user-level threads and runs into exactly this rule.
+
+\section{A trap: buffered output and fork}
+
+\code{printf} does not write immediately: \code{stdio} collects output in
+a buffer inside the process and flushes it at a newline (terminal),
+when the buffer is full (pipe, file) or at exit. \code{fork} copies that
+buffer too --- output that was ``printed'' before \code{fork} but not yet
+flushed appears \emph{twice}, once from each process. Call
+\code{fflush(stdout)} before \code{fork} (\module{01},
+\code{stdio\_trap.c}; \module{08}'s \code{cow\_fork.c} fell into it while
+being written).
+
+\begin{swebbox}
+Baseline SWEB has no \code{fork} and no \code{exec}: the shell starts
+programs with the course's own \code{createprocess} system call
+(\file{common/source/kernel/Syscall.cpp}), which creates a new
+\code{UserProcess} for a binary. Implementing \code{fork} with
+copy-on-write and \code{exec} is Team F's part of A1; tearing down every
+thread of a process on \code{exit} is the joint work of both teams.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item A process = address space + resources + threads; the kernel keeps
+    a record (PCB) for each.
+  \item \code{fork} returns twice because the child gets a copy of the
+    parent's registers with the return value set to 0.
+  \item \code{exec} replaces the program, keeps the PID and the open files.
+  \item An exited process stays a zombie until its parent waits for it.
+  \item Close unused pipe ends; flush \code{stdio} before \code{fork}.
+  \item Signal handlers run at arbitrary points: only async-signal-safe
+    calls inside.
+\end{itemize}
+\end{keybox}

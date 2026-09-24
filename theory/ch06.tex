@@ -1,0 +1,185 @@
+\chapter{Deadlocks}
+\label{ch:deadlocks}
+
+Locks fix races and create the next problem: threads that wait for each
+other forever. With two teams adding locks to shared SWEB structures ---
+the thread list, the address space, the scheduler --- your group has to
+agree on how locks are taken. This chapter gives the theory (Coffman's
+conditions, graphs, prevention, avoidance, detection) and the practice
+(lock ordering, validators), plus the relatives of deadlock: livelock,
+starvation and priority inversion.
+
+\section{Definition and the four conditions}
+
+A set of threads is \emph{deadlocked} if every thread in the set waits
+for an event that only another thread in the set can cause. The smallest
+example: thread 1 holds lock A and waits for B, thread 2 holds B and waits
+for A. A deadlock is possible only if all four \emph{Coffman conditions}
+hold:
+
+\begin{enumerate}
+  \item \textbf{Mutual exclusion}: a resource is held by at most one
+    thread.
+  \item \textbf{Hold and wait}: a thread holds resources while waiting for
+    more.
+  \item \textbf{No preemption}: resources cannot be taken away; the holder
+    releases them voluntarily.
+  \item \textbf{Circular wait}: a cycle T$_1$ $\to$ T$_2$ $\to$ \dots $\to$
+    T$_1$, each waiting for a resource the next one holds.
+\end{enumerate}
+
+Break any one and deadlock becomes impossible.
+
+\section{Resource-allocation and wait-for graphs}
+
+Draw threads as circles and resources as squares; an edge resource
+$\to$ thread means ``held by'', thread $\to$ resource means ``waits
+for''. With one instance per resource, a \emph{cycle means deadlock}.
+Collapsing the resources gives the \emph{wait-for graph}: T$_i$ $\to$
+T$_j$ if T$_i$ waits for something T$_j$ holds.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small,node distance=1.4cm,
+    t/.style={circle,draw,minimum size=0.8cm},
+    r/.style={rectangle,draw,minimum size=0.7cm,fill=black!6},
+    >=Latex]
+  \node[t] (t1) {T$_1$};
+  \node[r,right=of t1] (b) {B};
+  \node[t,right=of b] (t2) {T$_2$};
+  \node[r,below=1.1cm of t2] (c) {C};
+  \node[t,left=of c] (t3) {T$_3$};
+  \node[r,below=1.1cm of t1] (a) {A};
+  \draw[->] (a) -- node[left] {held} (t1);
+  \draw[->,dashed] (t1) -- node[above] {waits} (b);
+  \draw[->] (b) -- node[above] {held} (t2);
+  \draw[->,dashed] (t2) -- node[right] {waits} (c);
+  \draw[->] (c) -- node[below] {held} (t3);
+  \draw[->,dashed,warnrule,thick] (t3) -- node[below] {waits?} (a);
+\end{tikzpicture}
+\caption{T$_1$ holds A and waits for B, T$_2$ holds B and waits for C, T$_3$
+holds C. No cycle: T$_3$ can finish. If T$_3$ now requests A, the cycle
+T$_1\to$T$_2\to$T$_3\to$T$_1$ closes: deadlock.}
+\label{fig:rag}
+\end{figure}
+
+\section{Strategies}
+
+\paragraph{Prevention} --- make one condition impossible:
+\begin{itemize}
+  \item mutual exclusion: share instead (read-only data, lock-free
+    structures) --- only for some resources;
+  \item hold and wait: acquire everything at once, or release everything
+    before waiting (trylock and back off --- risks livelock);
+  \item no preemption: take resources away (roll back a transaction) ---
+    rarely possible for locks;
+  \item circular wait: \textbf{a global lock order}. If every thread takes
+    locks in the same order, no cycle can form. This is the standard
+    technique in kernels.
+\end{itemize}
+
+\paragraph{Avoidance} --- grant a request only if the system stays in a
+\emph{safe state}: one from which some order lets every thread finish,
+even if all of them ask for their declared maximum. The \emph{banker's
+algorithm} checks this. Example with two resource types A (10 units) and
+B (5 units):
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & \textbf{Allocation} & \textbf{Max} & \textbf{Need = Max -- Alloc} \\
+\midrule
+P$_0$ & (2, 1) & (7, 3) & (5, 2) \\
+P$_1$ & (3, 1) & (4, 2) & (1, 1) \\
+P$_2$ & (2, 2) & (5, 4) & (3, 2) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Available = (10, 5) -- (7, 4) = (3, 1). Safety check: P$_1$'s need (1, 1)
+$\le$ (3, 1): it can finish and return its allocation, Work = (6, 2);
+then P$_2$ (3, 2) $\le$ (6, 2), Work = (8, 4); then P$_0$ (5, 2). Safe,
+sequence P$_1$, P$_2$, P$_0$.
+\begin{itemize}
+  \item P$_0$ requests (1, 0): pretend to grant, Available = (2, 1), P$_0$'s
+    need (4, 2). P$_1$, then P$_2$, then P$_0$ can still finish: safe,
+    grant.
+  \item P$_2$ requests (1, 1) instead: Available would be (2, 0). No
+    thread's need fits into (2, 0) --- unsafe: P$_2$ must wait, although
+    the units are free.
+\end{itemize}
+Avoidance needs to know maximum demands in advance; general-purpose
+kernels therefore rarely use it, but it is a classic exam topic.
+
+\paragraph{Detection and recovery} --- let deadlocks happen, find the
+cycle in the wait-for graph, and break it (kill a thread, roll back).
+Databases do this. A kernel can at least \emph{report} a deadlock instead
+of hanging silently.
+
+\paragraph{Ignore it} --- the ``ostrich algorithm''. For locks inside a
+kernel, the real answer is prevention by lock ordering, backed by tools
+that check the ordering.
+
+\section{Lock ordering in practice}
+
+\begin{itemize}
+  \item Document a hierarchy: ``process lock before thread lock before
+    address-space lock''. Code that holds a lower lock never acquires a
+    higher one.
+  \item Same-level locks (two accounts, two threads): order by a key ---
+    the account number, the address of the lock object.
+  \item Never call out into unknown code (callbacks, other subsystems)
+    while holding a lock; you do not know which locks it takes.
+  \item Keep critical sections small, and never sleep while holding a lock
+    somebody else needs to wake you.
+\end{itemize}
+
+\paragraph{Validators.} Deadlocks depend on timing, tests rarely hit
+them. A \emph{lock-order validator} records ``A was held while B was
+acquired'' edges during a normal run and reports a cycle as soon as some
+code path takes B then A --- even if the deadlock never happened. Linux
+calls it \emph{lockdep}; ThreadSanitizer has one built in; \module{06},
+part C builds one.
+
+\section{Relatives of deadlock}
+
+\begin{description}
+  \item[Livelock] threads keep running but make no progress --- two
+    threads that each trylock, fail, back off and retry in lockstep.
+    Randomised back-off breaks the symmetry.
+  \item[Starvation] the system makes progress, but one thread never gets
+    its turn: an unfair lock, a reader-preferring rwlock, a low priority
+    under strict priority scheduling (chapter~9).
+  \item[Priority inversion] a high-priority thread waits for a lock held
+    by a low-priority thread, while a medium-priority thread (which needs
+    no lock) keeps the low one from running. The high thread effectively
+    waits for the medium one. Mars Pathfinder (1997) reset itself because
+    of this. \emph{Priority inheritance}: the lock holder temporarily
+    runs with the priority of its highest waiter.
+\end{description}
+
+\begin{swebbox}
+Every \code{Lock} knows its holder (\code{held\_by\_}); every
+\code{Thread} keeps the locks it holds (\code{holding\_lock\_list\_}) and
+the lock it waits for (\code{lock\_waiting\_on\_}). Before a thread goes
+to sleep on a lock, \code{doChecksBeforeWaiting} can walk ``waits for lock
+held by thread that waits for \dots'' and detect a real deadlock, and it
+catches recursive locking. \code{\~{}Thread} asserts that a dying thread
+holds no locks. Interrupt handlers must not take ordinary locks at all:
+a handler waiting for a lock held by the thread it interrupted waits
+forever --- a deadlock with a single thread.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Deadlock needs all four Coffman conditions; break one.
+  \item Single-instance resources: a cycle in the wait-for graph is a
+    deadlock.
+  \item Kernels prevent deadlock with a documented lock order.
+  \item Banker's algorithm: grant only if a safe sequence still exists.
+  \item Validators find potential deadlocks from one run; SWEB's lock
+    lists support similar checks.
+  \item Livelock, starvation and priority inversion are the neighbours to
+    recognise.
+\end{itemize}
+\end{keybox}

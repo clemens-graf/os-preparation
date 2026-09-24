@@ -1,0 +1,5 @@
+true
+true
+build/helper exit 1
+false
+build/helper zombies

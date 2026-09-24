@@ -1,0 +1,168 @@
+\chapter{Race conditions}
+\label{ch:races}
+
+Two threads that only read shared data never disturb each other. As soon
+as one of them writes, the result can depend on the exact order in which
+the threads' instructions happen to interleave --- an order nobody
+controls. This chapter explains why even \code{counter++} is not safe,
+how to reason about interleavings, and which guarantees (``happens
+before'') you can actually rely on.
+
+\section{The lost update}
+
+\code{counter++} looks like one step. The CPU executes three:
+
+\begin{lstlisting}
+mov  eax, [counter]     ; load
+add  eax, 1             ; modify (in a register - private to the thread)
+mov  [counter], eax     ; store
+\end{lstlisting}
+
+If thread A is interrupted (or simply runs on another core) between its
+load and its store, both threads can load the same old value:
+
+\begin{center}
+\begin{tabular}{llc}
+\toprule
+\textbf{Thread A} & \textbf{Thread B} & \textbf{counter} \\
+\midrule
+load (reads 5)    &                    & 5 \\
+                  & load (reads 5)     & 5 \\
+                  & add, store 6       & 6 \\
+add, store 6      &                    & \textbf{6} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Two increments, one effect: a \emph{lost update}. Two threads with three
+instructions each can interleave in $\binom{6}{3} = 20$ ways; only the 2
+in which one thread's three instructions all come before the other's are
+correct (\module{03}'s \code{interleave.c} lists all 20). With a million
+increments per thread, the final count is usually far too small --- and
+different in every run.
+
+\section{Check-then-act}
+
+A race needs no \code{++}. Any sequence ``look at shared state, then act
+on what you saw'' breaks if the state changes in between:
+
+\begin{lstlisting}
+if (account->balance >= amount)        /* check */
+  account->balance -= amount;          /* act: another thread may have
+                                          withdrawn in between */
+\end{lstlisting}
+
+The same pattern appears as ``if the file does not exist, create it'',
+``if the cache has no entry, compute and insert it'', ``if the pointer is
+NULL, allocate''. In a kernel the dangerous variant is
+\emph{time-of-check to time-of-use} (TOCTOU): the kernel checks a value in
+user memory, then reads it again to use it --- and another user thread
+changed it in between (chapter~7).
+
+\section{Critical sections and atomicity}
+
+A \emph{critical section} is a piece of code that accesses shared state
+and must not run concurrently with other critical sections on the same
+state. Making it \emph{atomic} means: every other thread sees either none
+of its effects or all of them, never an intermediate state. There are
+three ways to get there (\module{03}'s \code{three\_fixes.c} compares
+them):
+
+\begin{enumerate}
+  \item \textbf{Lock it}: a mutex around the whole check-and-act
+    (chapter~4).
+  \item \textbf{Use an atomic operation}: \code{atomic\_fetch\_add} does
+    load--add--store as one indivisible instruction (\code{lock xadd}).
+    Only works when the whole critical section is a single such operation.
+  \item \textbf{Do not share}: give each thread its own copy and combine
+    afterwards (chapter~2's partition-then-combine).
+\end{enumerate}
+
+Invariants are the key to finding critical sections: ``the sum of all
+balances is constant'', ``\code{count} equals the number of elements in
+the list''. Every code path that temporarily breaks an invariant is a
+critical section.
+
+\section{Data race vs.\ race condition}
+
+The two words are often mixed up:
+
+\begin{description}
+  \item[Data race] (a precise, mechanical definition): two threads access
+    the same memory location, at least one access is a write, and the two
+    accesses are not ordered by happens-before (no lock, no atomic, no
+    join between them). In C and C++ a data race is \emph{undefined
+    behaviour} --- the compiler may assume it never happens.
+    ThreadSanitizer finds exactly these.
+  \item[Race condition] (a semantic property): the program's correctness
+    depends on timing. A program can have a race condition without a data
+    race (every access is locked, but the lock is released between check
+    and act) and a data race without visible harm (a statistics counter
+    that may be a little off --- still undefined behaviour).
+\end{description}
+
+\section{Happens-before}
+
+Which writes of thread A is thread B guaranteed to see? Only those that
+\emph{happen before} B's read, where happens-before is built from:
+
+\begin{itemize}
+  \item program order within one thread;
+  \item unlocking a mutex happens before the next lock of the same mutex;
+  \item \code{pthread\_create} happens before the first instruction of the
+    new thread; the thread's last instruction happens before
+    \code{pthread\_join} returns;
+  \item a release store to an atomic happens before an acquire load that
+    reads it (chapter~4);
+  \item transitivity: A before B and B before C gives A before C.
+\end{itemize}
+
+Anything else is unordered, and without an ordering there is no
+guarantee at all --- not even that B ever sees A's write. The compiler
+may keep a variable in a register for the whole loop:
+
+\begin{lstlisting}
+while (!done) {}       /* with a plain `int done`, -O2 may turn this into
+                          `if (!done) for (;;);` - it never re-reads it */
+\end{lstlisting}
+
+and the CPU may make stores visible to other cores in a different order
+than the program wrote them (chapter~4). \code{volatile} stops the
+compiler from caching, but orders nothing between threads; use atomics or
+locks.
+
+\section{Why testing is not enough}
+
+A race that loses one update in a million runs passes every normal test.
+It also depends on the machine: more cores, a different load, an
+optimised build or an extra \code{printf} change the timing. Hence the
+modules test twice --- under ThreadSanitizer, which reports the data race
+whenever the unordered accesses \emph{happen}, whether or not they
+collide in that run, and optimised at full speed, where broken invariants
+become visible.
+
+\begin{swebbox}
+SWEB is preemptive: the timer interrupt can switch threads at almost any
+instruction, even in kernel code (\code{syscallHandler} enables
+interrupts before calling \code{Syscall::syscallException}). After A1,
+several threads of one process can be in the kernel at the same time,
+touching the same process structures --- the thread list, the address
+space, the file descriptors. Every such structure needs a lock, and every
+``check, then act'' in your \code{pthread\_join} (``is the thread
+finished? if not, sleep'') is a critical section. The A1 plan says it
+bluntly: \emph{races appear on the tenth run, not the first.}
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item \code{x++} is load--modify--store; interleavings lose updates.
+  \item Check-then-act is a race even without arithmetic; in the kernel
+    it is TOCTOU.
+  \item Find critical sections through invariants; fix them by locking,
+    atomics, or not sharing.
+  \item Data race = unordered conflicting accesses (undefined behaviour);
+    race condition = timing-dependent correctness.
+  \item Only happens-before edges (locks, create/join, atomics) guarantee
+    visibility; \code{volatile} is not synchronisation.
+\end{itemize}
+\end{keybox}

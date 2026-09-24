@@ -1,0 +1,6 @@
+cd /tmp
+pwd
+cd /definitely/not/here
+pwd
+cd
+pwd

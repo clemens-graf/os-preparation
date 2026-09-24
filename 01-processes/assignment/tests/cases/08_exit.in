@@ -1,0 +1,3 @@
+echo before
+exit 5
+echo never

@@ -1,0 +1,187 @@
+\chapter{The C toolbox}
+\label{ch:c}
+
+Operating-systems code is C (or, in SWEB, a careful subset of C++) with no
+safety net: no garbage collector, no bounds checks, no exceptions. Most
+bugs you will hunt in A1 are pointer and lifetime bugs that corrupt memory
+silently and crash much later, somewhere else. This chapter is the minimum
+toolkit: how to build with the right flags, how to let the compiler's
+sanitizers find those bugs for you, and the three C ideas every later
+chapter relies on --- pointers, lifetimes, and function pointers.
+
+\section{Toolchain: from source to a running program}
+
+\begin{lstlisting}[style=shell]
+gcc -std=gnu17 -Wall -Wextra -g -O1 -fsanitize=address,undefined prog.c -o prog
+\end{lstlisting}
+
+\begin{description}
+  \item[\code{-Wall -Wextra}] turn on the warnings that catch real bugs
+    (unused results, sign mix-ups, missing returns). Treat a warning as a
+    bug report you have not read yet. The course modules also turn a few
+    warnings into errors, e.g.\ \code{-Werror=implicit-function-declaration}:
+    calling a function without a prototype silently truncates pointers to
+    \code{int} on 64-bit machines.
+  \item[\code{-g}] debug information: line numbers in sanitizer reports
+    and in \code{gdb}.
+  \item[\code{-O0/-O1/-O2}] optimisation. Race bugs and missing
+    \code{volatile}s often appear only at \code{-O2}, because the compiler
+    then keeps values in registers and reorders memory accesses. The
+    modules therefore test both a sanitizer build and an optimised build.
+\end{description}
+
+\code{make} rebuilds only what changed. Every module has a
+\code{Makefile} with the targets \code{run} (examples) and \code{test}
+(assignment). \code{make test IMPL=../../solutions/NN-...} builds the tests
+against the reference solution instead of your own files.
+
+\section{Sanitizers: let the compiler find your bugs}
+
+A sanitizer is compiler instrumentation plus a run-time library. The
+instrumented program checks every memory access (or every thread
+interaction) and prints a report at the \emph{first} violation --- not at
+the crash three functions later.
+
+\begin{center}
+\begin{tabular}{L{3.3cm}L{4.4cm}L{6.1cm}}
+\toprule
+\textbf{Sanitizer} & \textbf{Flag} & \textbf{Finds} \\
+\midrule
+AddressSanitizer & \code{-fsanitize=address} & out-of-bounds accesses (heap,
+stack, globals), use after free, use after return, double free, leaks \\
+Undefined\-Behavior\-Sanitizer & \code{-fsanitize=undefined} & signed overflow,
+bad shifts, misaligned pointers, NULL dereference, out-of-range enum values \\
+ThreadSanitizer & \code{-fsanitize=thread} & data races (chapter~3),
+lock-order inversions (chapter~6) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Reading a report: the first lines name the \emph{kind} of error
+(\code{heap-use-after-free}, \code{stack-buffer-overflow}, \dots) and the
+access; then come three stack traces --- where the bad access happened,
+where the memory was allocated, and where it was freed. Start at the
+first frame that is in your code.
+
+\begin{warnbox}
+ASan and TSan cannot be combined (they instrument memory differently),
+and ThreadSanitizer fails on recent kernels with high address-space
+randomisation (\emph{``unexpected memory mapping''}). The modules' test
+runner starts TSan binaries under \code{setarch -R}, which disables
+randomisation for that one process.
+\end{warnbox}
+
+\section{Pointers}
+
+A pointer is an address plus a type. The type says how many bytes
+\code{*p} reads and how far \code{p + 1} moves.
+
+\begin{lstlisting}
+int a[4] = {1, 2, 3, 4};
+int *p = a;            /* an array decays to a pointer to its first element */
+p + 2;                 /* address of a[2]: moves by 2 * sizeof(int) bytes    */
+*(p + 2) == p[2];      /* identical: indexing is pointer arithmetic          */
+sizeof a;              /* 16: the array; sizeof p would be 8: the pointer    */
+\end{lstlisting}
+
+\paragraph{Out-parameters.} C returns one value. A function that must
+produce more writes through pointers the caller passes in ---
+\code{pthread\_create(\&tid, ...)} stores the new thread's id in the
+caller's variable, and every system call that reads data does the same
+with a buffer.
+
+\paragraph{\code{void *}.} A pointer to ``something''. It converts to and
+from any object pointer without a cast in C, but cannot be dereferenced
+or used in arithmetic until it is converted back to a real type. Generic
+code (\code{qsort}, \code{pthread\_create}, a thread library's argument)
+passes \code{void *} and trusts the caller to know the real type.
+
+\paragraph{Integers as pointers.} Kernels constantly convert between
+pointers and integers: a system call receives user pointers as plain
+numbers in registers (SWEB: \code{size\_t}, or its \code{pointer} type).
+\code{uintptr\_t}/\code{size\_t} are wide enough; \code{int} is not. This
+is also why a \emph{number} chosen by a user must be validated before the
+kernel treats it as an address (chapter~7).
+
+\section{Lifetimes: stack, heap, static}
+
+\begin{center}
+\begin{tabular}{L{2.2cm}L{4.4cm}L{7.2cm}}
+\toprule
+\textbf{Storage} & \textbf{Lives} & \textbf{Typical bug} \\
+\midrule
+stack (locals) & until the function returns & returning or storing the
+address of a local; a thread using a pointer to its creator's local after
+the creator returned \\
+heap (\code{malloc}) & until \code{free} & use after free, double free,
+leak (never freed) \\
+static (globals, \code{static}) & the whole program & shared between all
+threads: needs synchronisation (chapter~3) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The stack is the dangerous one for thread code: a loop that passes
+\code{\&i} to every new thread passes the \emph{same} address, which keeps
+changing --- and may no longer exist when the thread reads it
+(\module{02}, \file{bug1\_loop\_index.c} and \file{bug2\_dead\_arguments.c}).
+
+\begin{lstlisting}
+int *broken(void) {
+  int x = 42;
+  return &x;        /* x dies here: the caller gets a dangling pointer */
+}
+\end{lstlisting}
+
+AddressSanitizer reports this as \code{stack-use-after-return} (with
+\code{detect\_stack\_use\_after\_return=1}, which the modules set).
+
+\section{Function pointers and callbacks}
+
+A function's name, used without parentheses, is its address. A function
+pointer stores such an address and calls through it:
+
+\begin{lstlisting}
+int twice(int x) { return 2 * x; }
+int (*f)(int) = twice;           /* pointer to function taking int, returning int */
+f(21);                           /* 42 */
+\end{lstlisting}
+
+\paragraph{The callback pattern: function + context.} A library that
+calls back into your code cannot know what data your code needs, so it
+takes a function pointer \emph{and} an opaque \code{void *} that it hands
+back unchanged:
+
+\begin{lstlisting}
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                   void *(*start_routine)(void *), void *arg);
+\end{lstlisting}
+
+\code{start\_routine} is ``what to run'', \code{arg} is ``with what''. The
+library never looks inside \code{arg} --- which is also why the SWEB
+kernel must \emph{not} validate it as a pointer (chapter~7): it may just
+as well be the number 7 cast to \code{void *}. Returning a value works the
+same way backwards: \code{start\_routine} returns a \code{void *} that
+\code{pthread\_join} hands to the joiner.
+
+\begin{swebbox}
+SWEB is written in C++, but kernel C++: no exceptions, no standard
+library (it brings its own \code{ustl} containers), fixed-width types
+(\code{uint32}, \code{size\_t}, \code{pointer} for addresses). User
+programs in \file{userspace/tests/} are plain C against SWEB's own small
+libc (\file{userspace/libc}); the \code{pthread\_*} functions there are
+empty stubs you will fill in.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Build with warnings on, and test with sanitizers \emph{and} with
+    optimisation.
+  \item Read a sanitizer report from the top: kind of error, bad access,
+    allocation site, free site.
+  \item Know where every object lives and how long; never hand a pointer
+    to a local to code that outlives the function.
+  \item Callbacks come as \emph{function pointer + opaque context}; the
+    library never interprets the context.
+\end{itemize}
+\end{keybox}

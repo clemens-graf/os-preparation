@@ -1,0 +1,161 @@
+\chapter{Locks from the hardware up}
+\label{ch:locks}
+
+A lock turns a critical section into something atomic. But how do you
+build a lock if every load and store can be interleaved with those of
+other threads? This chapter answers it from the bottom: the requirements,
+the one-CPU trick (disable interrupts), a classic software algorithm that
+fails on real hardware, the atomic instructions that make locks possible,
+and the choice between spinning and sleeping --- which is exactly the
+difference between SWEB's \code{SpinLock} and \code{Mutex}.
+
+\section{What a lock must guarantee}
+
+\begin{description}
+  \item[Mutual exclusion] at most one thread in the critical section.
+  \item[Progress] if the lock is free and threads want it, one of them
+    gets it (no deadlock among the contenders).
+  \item[Bounded waiting] a waiting thread gets its turn after a bounded
+    number of others (no starvation) --- ``fairness''.
+\end{description}
+and in practice: cheap when uncontended, and not burning CPU time while
+waiting for long.
+
+\section{Disabling interrupts}
+
+On a single CPU, the only way another thread can run in the middle of
+your critical section is a timer interrupt that makes the scheduler
+switch. Turn interrupts off (\code{cli}), do the work, turn them back on
+(\code{sti}) --- nothing can interrupt you. This is how kernels protected
+data before multi-core, and SWEB still uses it for the scheduler's own
+data (\code{Scheduler::schedule} runs with interrupts off). But:
+\begin{itemize}
+  \item it is privileged --- user code cannot do it;
+  \item it does not stop the \emph{other} cores on a multi-core machine;
+  \item with interrupts off, timer ticks and device interrupts are
+    delayed; the section must be very short, and must not sleep.
+\end{itemize}
+
+\section{Peterson's algorithm --- and why it breaks}
+
+With only loads and stores, two threads can still achieve mutual
+exclusion on paper:
+
+\begin{lstlisting}
+int flag[2], turn;                 /* shared */
+void lock(int me) {
+  int other = 1 - me;
+  flag[me] = 1;                    /* I want in           */
+  turn = other;                    /* but you go first    */
+  while (flag[other] && turn == other) {}   /* wait while you want in and it's your turn */
+}
+void unlock(int me) { flag[me] = 0; }
+\end{lstlisting}
+
+It is correct under \emph{sequential consistency} --- the assumption that
+all memory operations happen in one global order that respects each
+thread's program order. Real CPUs do not guarantee that. On x86, a store
+goes into the core's \emph{store buffer} and becomes visible to the other
+core later; a subsequent load from a \emph{different} address can
+overtake it. Both threads store their \code{flag}, both load the other's
+still-old flag = 0 from memory, and both enter (\module{04}'s
+\code{peterson.c} shows the violation within seconds). A \emph{memory
+fence} (\code{mfence}, \code{atomic\_thread\_fence(memory\_order\_seq\_cst)})
+between the stores and the loads repairs it. The lesson: correct
+synchronisation needs help from the hardware.
+
+\section{Atomic instructions}
+
+\begin{description}
+  \item[Test-and-set / exchange] \code{old = xchg(\&lock, 1)} writes 1 and
+    returns the previous value, atomically. If \code{old} was 0, you have
+    the lock. (\code{xchg} with memory is implicitly locked on x86.)
+  \item[Compare-and-swap] \code{CAS(\&x, expected, new)}: if \code{x ==
+    expected}, write \code{new} --- all at once --- and report success.
+    The universal building block: any read-modify-write can be written as
+    a CAS loop (\code{lock cmpxchg}).
+  \item[Fetch-and-add] \code{old = fetch\_add(\&x, n)} (\code{lock xadd}):
+    counters, and the ticket lock below.
+\end{description}
+
+C11 exposes them in \code{<stdatomic.h>}; GCC also has builtins such as
+\code{\_\_sync\_lock\_test\_and\_set}, which SWEB uses.
+
+\section{Spinlocks}
+
+\begin{lstlisting}
+void spin_lock(atomic_int *l) {
+  for (;;) {
+    if (!atomic_exchange(l, 1)) return;   /* test-and-set: got it */
+    while (atomic_load(l)) {}             /* test: wait with plain reads */
+  }
+}
+void spin_unlock(atomic_int *l) { atomic_store(l, 0); }
+\end{lstlisting}
+
+Waiting with plain reads (\emph{test-and-test-and-set}) matters: every
+\code{xchg} needs exclusive ownership of the cache line, so a crowd of
+cores hammering \code{xchg} keeps moving the line between them and slows
+down even the lock holder. Reads can share the line until the holder's
+unlock invalidates it.
+
+A plain spinlock is unfair --- whoever happens to win the race gets it.
+The \textbf{ticket lock} is FIFO: \code{my = fetch\_add(\&next, 1); while
+(serving != my) \{\}}; unlock increments \code{serving}. Like a
+deli-counter ticket.
+
+\section{Spin or sleep?}
+
+Spinning wastes the CPU for the whole wait. That is fine when the lock is
+held for a few instructions and the holder is running on another core.
+It is disastrous when the holder is \emph{not running} --- on a single
+CPU the spinner burns its entire time slice while the holder cannot make
+progress. Hence the three options:
+
+\begin{enumerate}
+  \item spin (short critical sections, multi-core, holder never sleeps);
+  \item spin, but \code{yield} after a few tries (gives the holder a chance
+    to run);
+  \item \textbf{sleep}: put yourself on a wait queue, block, and let the
+    unlocker wake you. Costs two context switches, wastes no CPU. Linux's
+    \code{futex} makes the uncontended case a single atomic instruction in
+    user space and enters the kernel only to sleep and wake.
+\end{enumerate}
+
+\section{Memory ordering in one paragraph}
+
+Atomic operations also order the \emph{other} memory accesses around
+them. Lock acquisition needs \emph{acquire} semantics (nothing from the
+critical section may move before it), unlock needs \emph{release}
+semantics (nothing may move after it). A release store paired with an
+acquire load that reads it creates a happens-before edge (chapter~3).
+C11's default, \code{memory\_order\_seq\_cst}, is the strongest and
+simplest; use it unless you know exactly why a weaker order suffices.
+
+\begin{swebbox}
+\file{common/source/kernel/}: \code{SpinLock} tries
+\code{ArchThreads::testSetLock} (an \code{xchg}); if the lock is taken it
+records itself as waiting and loops \emph{test-and-set + yield} ---
+spinning without yielding would be pointless on SWEB's single CPU.
+\code{Mutex} sleeps instead: on contention it enqueues the thread in its
+waiters list and calls \code{Scheduler::sleep()}; \code{release} pops a
+waiter and wakes it. Both inherit from \code{Lock}, which keeps the
+per-thread lists used for deadlock checks (chapter~6). User-space locks
+in SWEB (\code{pthread\_spin\_*}, and mutexes that sleep only through a
+small system call) are part of P1's elective.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Requirements: mutual exclusion, progress, bounded waiting.
+  \item Disabling interrupts works only on one CPU and only in the kernel.
+  \item Peterson needs sequential consistency; store buffers break it
+    without fences.
+  \item Locks are built from atomic read-modify-write instructions
+    (xchg, CAS, fetch-and-add).
+  \item Spin briefly, otherwise sleep; on one CPU never spin without
+    yielding.
+  \item Lock = acquire, unlock = release: that is what makes the data
+    written inside visible to the next holder.
+\end{itemize}
+\end{keybox}

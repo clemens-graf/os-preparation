@@ -1,0 +1,189 @@
+\chapter{Implementing threads}
+\label{ch:impl}
+
+Chapter~2 used threads; this chapter builds them. The mechanics are the
+same whether the switching happens in a user-level library
+(\module{10}) or in a kernel (SWEB): a record per thread, a way to save
+and restore registers, a stack per thread, a state machine, and wait
+queues. The hard parts are at the edges --- how a thread starts, how it
+ends, who frees its stack, and what happens when an interrupt arrives in
+the middle of the library's own bookkeeping.
+
+\section{The thread control block and the context}
+
+For each thread the implementation keeps a \emph{thread control block}
+(TCB): id, state, saved registers (the \emph{context}), stack, start
+routine and argument, return value, detached flag, and links for the
+queues it may sit in.
+
+A context switch saves the running thread's registers into its TCB and
+loads the next thread's registers from its TCB. Loading the stack pointer
+switches stacks; loading the instruction pointer continues wherever the
+next thread stopped. From the thread's point of view, the call that
+switched away simply returns --- later. \code{swapcontext(\&old, \&new)}
+does exactly this in user space; SWEB's \code{arch\_contextSwitch}
+restores a \code{Thread}'s saved \code{ArchThreadRegisters}.
+
+\section{States}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small,>=Latex,node distance=3.4cm,
+    st/.style={draw,rounded corners=3pt,minimum width=1.8cm,minimum height=0.75cm,fill=newbg}]
+  \node[st] (ready) {READY};
+  \node[st,right=of ready] (run) {RUNNING};
+  \node[st,below=2.2cm of $(ready)!0.5!(run)$] (blk) {BLOCKED};
+  \node[st,right=2.2cm of run,fill=warnbg] (zom) {ZOMBIE};
+  \node[st,right=1.8cm of zom,fill=black!8] (free) {freed};
+  \node[left=1.2cm of ready] (new) {};
+  \draw[->] (new) -- node[above] {create} (ready);
+  \draw[->] (ready) to[bend left=25] node[above] {scheduled} (run);
+  \draw[->] (run) to[bend left=25] node[below,fill=white,inner sep=1pt] {yield / preempted} (ready);
+  \draw[->] (run.south) -- node[right,pos=0.55] {join, lock, wait} (blk.north east);
+  \draw[->] (blk.north west) -- node[left,pos=0.45] {woken} (ready.south);
+  \draw[->] (run) -- node[above] {exit} (zom);
+  \draw[->] (zom) -- node[above,align=center] {joined /\\detached} (free);
+\end{tikzpicture}
+\caption{Thread states. SWEB's names: \code{Running} covers READY and
+RUNNING, \code{Sleeping} is BLOCKED, \code{ToBeDestroyed} is the way out.}
+\label{fig:states}
+\end{figure}
+
+A BLOCKED thread is in no ready queue; exactly one wait queue (a mutex's,
+a condition's, a joiner slot) knows it, and whoever makes the awaited
+event happen moves it back to READY.
+
+\section{Birth: a stack and a trampoline}
+
+A new thread needs a stack of its own and a first context that ``returns''
+into its code. The first instruction must not be the start routine itself:
+when \code{start\_routine} returns, it would return to whatever garbage
+lies on the fresh stack. Instead the thread starts in a small
+\emph{trampoline}:
+
+\begin{lstlisting}
+static void trampoline(void) {
+  after_switch();                                 /* see "Death" below */
+  uthread_exit(current->start(current->arg));      /* return == exit */
+}
+\end{lstlisting}
+
+Stacks should have a \emph{guard page} below them (mapped without any
+access rights), so that an overflow faults at once instead of silently
+overwriting the neighbouring stack.
+
+\section{Death: exit, zombies, join, detach}
+
+\begin{itemize}
+  \item \textbf{exit}: store the return value, become a ZOMBIE, wake the
+    joiner if one waits, switch away --- forever.
+  \item \textbf{join}: if the target is already a zombie, collect and free
+    it; otherwise block until its exit wakes you, then collect and free.
+    Errors: no such thread (\code{ESRCH}), joining yourself or closing a
+    cycle of joins (\code{EDEADLK}), a detached target or a second joiner
+    (\code{EINVAL}).
+  \item \textbf{detach}: nobody will join; free the thread as soon as it
+    is a zombie (at once, if it already is).
+\end{itemize}
+
+\paragraph{Nobody frees their own stack.} A detached thread that exits
+cannot unmap its stack --- it is still running on it; the next push or
+return would fault. The freeing has to happen \emph{after} the switch, by
+somebody else: \module{10}'s library notes the thread in a variable, and
+the next thread to run frees it right after the switch (in
+\code{after\_switch}, which the trampoline also calls). SWEB solves the
+same problem for kernel stacks with a dedicated thread:
+\code{Thread::kill} only marks the thread \code{ToBeDestroyed}, and the
+cleanup thread \code{delete}s it later.
+
+\section{Blocking primitives}
+
+A blocking mutex is an owner plus a FIFO of waiting TCBs:
+\begin{itemize}
+  \item lock: free $\to$ take it; else enqueue yourself, state BLOCKED,
+    switch away;
+  \item unlock: waiters? either \emph{hand the mutex over} to the first
+    one (FIFO, fair, but every contended unlock forces a switch) or free
+    it and wake a waiter who must compete again (\emph{barging}: faster,
+    unfair --- SWEB's \code{Mutex} does this).
+\end{itemize}
+
+A condition variable is just a wait queue; \code{wait} enqueues,
+unlocks the mutex and blocks \emph{without any switch in between},
+then re-locks after being woken. Deadlock detection comes almost for free:
+if the ready queue is empty but some thread is BLOCKED, nothing can ever
+wake it.
+
+\section{Preemption and interrupt safety}
+
+Without preemption, a thread runs until it calls into the library;
+atomicity inside the library is automatic. With a timer
+(\module{10}'s bonus uses \code{SIGVTALRM}, the kernel uses the timer
+interrupt), a switch can happen \emph{anywhere} --- also in the middle of
+\code{q\_push} or between ``mutex is free'' and ``I am the owner''. The
+library's own data then needs protection: block the signal (user space)
+or disable interrupts (kernel, one CPU) around every operation on it,
+exactly as SWEB's scheduler runs with interrupts off. On several CPUs this
+is not enough; a spinlock is needed as well.
+
+And code that can be interrupted at any instruction must not be
+re-entered through non-reentrant functions: a thread preempted inside
+\code{malloc} holds malloc's lock; another thread on the same kernel
+thread calling \code{malloc} deadlocks. SWEB's version of the rule: no
+\code{new}/\code{delete} with interrupts off or in interrupt handlers.
+
+\section{User-level vs.\ kernel-level, revisited}
+
+\begin{center}
+\begin{tabular}{L{3.6cm}L{4.8cm}L{4.8cm}}
+\toprule
+ & \textbf{User-level (M:1)} & \textbf{Kernel-level (1:1)} \\
+\midrule
+switch cost & function call + registers (\module{10}: $\approx$0.4 µs,
+mostly glibc's signal-mask syscall) & kernel entry, scheduler, exit
+($\approx$3 µs in \module{10}'s measurement) \\
+blocking syscall & blocks \emph{all} threads & blocks only the caller \\
+multiple cores & no & yes \\
+per thread & TCB, user stack & kernel stack, user stack, two register
+sets, kernel TCB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{swebbox}
+After A1 every pthread is a kernel \code{Thread} (1:1). The pieces map
+one to one:
+\begin{itemize}
+  \item TCB = \code{Thread}; its \code{kernel\_stack\_} is 8~KiB inside
+    the object; \code{user\_registers\_} and \code{kernel\_registers\_} are
+    the two contexts (user mode, and the kernel side of a system call or
+    interrupt).
+  \item Birth: \code{ArchThreads::createUserRegisters(regs, entry,
+    user\_stack\_top, kernel\_stack)}; \code{entry} = a libc wrapper that
+    calls \code{start\_routine(arg)} and then \code{pthread\_exit}; the two
+    values reach it in \code{rdi}/\code{rsi}. \code{setAddressSpace} gives
+    the thread the process's page tables.
+  \item The user stack: a new region in the shared address space, below
+    the first thread's stack page, with a guard gap (chapter~8).
+  \item Death and reaping: \code{kill} $\to$ \code{ToBeDestroyed} $\to$
+    cleanup thread. Join data (return value, finished) must survive the
+    \code{Thread} object --- keep it in the process.
+  \item Waiting: \code{Condition}/\code{Mutex} (chapter~5), never a yield
+    loop (chapter~9).
+\end{itemize}
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item A context switch = save registers into one TCB, load them from
+    another; the stack pointer switches the stack.
+  \item Start through a trampoline so that returning means exiting; guard
+    pages catch stack overflows.
+  \item Zombies keep the return value until join; detached threads are
+    freed at exit --- by somebody else, after the switch.
+  \item Blocking = a wait queue + state BLOCKED + switch; hand-off vs.
+    barging.
+  \item Preemption makes the library's own data shared: disable
+    interrupts / block the signal; no non-reentrant calls.
+\end{itemize}
+\end{keybox}

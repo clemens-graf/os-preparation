@@ -1,0 +1,175 @@
+\chapter{System calls and user pointers}
+\label{ch:syscalls}
+
+User programs cannot touch devices, other processes or the kernel's
+memory; the CPU refuses. Everything they need from outside their own
+address space, they must \emph{ask} for --- through a system call, a
+controlled door into the kernel. Your \code{pthread\_create} is such a
+door, and every argument that comes through it is chosen by the user
+program: possibly wrong, possibly malicious.
+
+\section{User mode and kernel mode}
+
+x86 CPUs run in one of four privilege levels (rings); operating systems
+use two. In \emph{kernel mode} (ring~0) every instruction is allowed. In
+\emph{user mode} (ring~3) privileged instructions --- \code{cli},
+loading \code{cr3}, I/O ports --- raise an exception, and pages whose
+page-table entries lack the \emph{user} bit are inaccessible
+(chapter~8). The only ways from user to kernel mode are:
+
+\begin{description}
+  \item[Interrupts] from devices (timer, keyboard) --- asynchronous, not
+    caused by the running code;
+  \item[Exceptions] caused by the current instruction: page fault,
+    division by zero, general protection fault;
+  \item[Traps] deliberate: the program executes \code{int~n} or
+    \code{syscall} to request a service.
+\end{description}
+
+All three enter the kernel at an address the kernel registered in advance
+(the \emph{interrupt descriptor table}, or the \code{syscall} MSRs). The
+program chooses \emph{which} service --- by a number --- never \emph{where}
+the kernel starts executing. An interrupt gate also has a privilege level
+(DPL): user code may only trigger gates with DPL~3 via \code{int~n}.
+
+\section{Calling conventions}
+
+\begin{center}
+\begin{tabular}{L{2.4cm}L{3.2cm}L{4.4cm}L{3.2cm}}
+\toprule
+ & \textbf{Instruction} & \textbf{Number / arguments} & \textbf{Result} \\
+\midrule
+Linux x86-64 & \code{syscall} & \code{rax} / \code{rdi, rsi, rdx, r10, r8, r9}
+& \code{rax}, errors as $-$errno \\
+SWEB x86-64 & \code{int \$0x80} & \code{rax} / \code{rbx, rcx, rdx, rsi, rdi}
+& \code{rax} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Linux uses \code{r10} for the fourth argument because the \code{syscall}
+instruction itself overwrites \code{rcx} (return address) and \code{r11}
+(flags). SWEB passes the number plus five arguments --- exactly enough for
+\code{pthread\_create}'s four arguments plus the address of a start
+wrapper.
+
+\paragraph{Errors.} The Linux kernel returns $-$errno (a value between
+$-4095$ and $-1$). The libc wrapper turns it into $-1$ and stores the
+positive number in \code{errno}, a \emph{thread-local} variable
+(chapter~2). Any other value, even a ``negative'' address, is a valid
+result --- hence the test \code{(unsigned long)r > -4096UL}.
+
+\section{One system call, end to end}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[font=\small,node distance=0.32cm,
+    s/.style={draw,rounded corners=2pt,align=left,inner sep=4pt,text width=10.4cm},
+    >=Latex]
+  \node[s,fill=keybg] (a) {\code{write(1, "hi", 2)} \hfill \file{userspace/libc/src/write.c}};
+  \node[s,fill=keybg,below=of a] (b) {\code{\_\_syscall(sc\_write, 1, buf, 2, 0, 0)}: \code{rax=4, rbx=1, rcx=buf, rdx=2};
+    \code{int \$0x80} \hfill \file{arch/x86/64/userspace/syscalls.c}};
+  \node[s,fill=black!8,below=of b] (c) {CPU: gate 0x80 (DPL 3), ring 3 $\to$ 0, switch to the thread's kernel stack,
+    push user \code{rip, cs, rflags, rsp, ss}};
+  \node[s,fill=newbg,below=of c] (d) {\code{arch\_syscallHandler}: save all user registers into
+    \code{currentThread->user\_registers\_} \hfill \file{arch\_interrupts.S}};
+  \node[s,fill=newbg,below=of d] (e) {\code{syscallHandler()}: interrupts on,
+    \code{Syscall::syscallException(rax, rbx, rcx, rdx, rsi, rdi)} \hfill \file{InterruptUtils.cpp}};
+  \node[s,fill=newbg,below=of e] (f) {\code{Syscall::write}: check the buffer, \code{kprintf} \hfill \file{Syscall.cpp}};
+  \node[s,fill=newbg,below=of f] (g) {\code{user\_registers\_->rax = ret}; interrupts off; \code{arch\_contextSwitch()}
+    restores the user registers, \code{iretq} to ring 3};
+  \foreach \x/\y in {a/b,b/c,c/d,d/e,e/f,f/g} \draw[->] (\x) -- (\y);
+  \draw[decorate,decoration={brace,amplitude=5pt}] ([xshift=4pt]a.north east) -- ([xshift=4pt]b.south east)
+    node[midway,right=6pt] {user};
+  \draw[decorate,decoration={brace,amplitude=5pt}] ([xshift=4pt]d.north east) -- ([xshift=4pt]g.south east)
+    node[midway,right=6pt] {kernel};
+\end{tikzpicture}
+\caption{The path of \code{write} through SWEB (x86-64).}
+\label{fig:syscallpath}
+\end{figure}
+
+Note two details in figure~\ref{fig:syscallpath}. The kernel runs the
+system call on the \emph{thread's own kernel stack}, so every thread needs
+one (in SWEB it is part of the \code{Thread} object). And interrupts are
+\emph{on} during the call: a system call can be preempted, and several
+threads can be inside the kernel at once.
+
+\section{Never trust a user pointer}
+
+For \code{write(fd, buf, len)} the kernel reads \code{len} bytes at
+\code{buf}. If it did so blindly, a program could pass a kernel address
+and have the kernel copy kernel memory into a file --- or an unmapped
+address and crash the kernel. Every pointer from user space must be
+checked:
+
+\begin{enumerate}
+  \item \textbf{The whole range is user memory.} Not just the start:
+    \code{buf + len} must also stay below the user/kernel boundary.
+  \item \textbf{The check cannot overflow.} \code{buf + len > USER\_BREAK}
+    fails when \code{buf + len} wraps around: \code{buf = 0x1000},
+    \code{len = 0xfffffffffffff800} gives \code{0x800}, ``below the
+    break''. Never add two user-controlled numbers; subtract from a
+    constant:
+\begin{lstlisting}
+if (len > USER_BREAK || buf > USER_BREAK - len) return -EFAULT;
+\end{lstlisting}
+  \item \textbf{The pages exist} (or the kernel handles the fault on a bad
+    user page without dying). Linux copies with \code{copy\_from\_user},
+    which turns a fault into $-$\code{EFAULT}; SWEB's page-fault handler
+    loads valid user pages on demand and ends the process otherwise.
+  \item \textbf{Output buffers are writable.}
+  \item \textbf{Strings} have no known length: copy byte by byte (page by
+    page) into a bounded kernel buffer, checking each page as the copy
+    reaches it --- \code{strlen} on a user pointer \emph{is} the unchecked
+    read.
+\end{enumerate}
+
+Not everything that looks like a pointer is one. \code{pthread\_create}'s
+\code{arg} is never dereferenced by the kernel --- it is passed to the new
+thread --- so it must \emph{not} be checked; NULL and 42 are legal.
+\code{start\_routine} is not dereferenced either; it becomes an
+instruction pointer and at most needs to lie below \code{USER\_BREAK}.
+
+\section{TOCTOU and the double fetch}
+
+Once a process has several threads, user memory can change \emph{while}
+the kernel works with it. If the kernel reads a value from user memory to
+check it and reads it again to use it, another thread can swap it in
+between:
+
+\begin{lstlisting}
+if (!access_ok(iov[i].base, iov[i].len)) return -EFAULT;   /* fetch 1 */
+copy_to_device(iov[i].base, iov[i].len);                   /* fetch 2: may differ! */
+\end{lstlisting}
+
+The fix is simple and absolute: copy the user data into kernel memory
+\emph{once}, then check and use only the copy. (Modern CPUs add SMAP, which
+makes the kernel fault on any user-memory access outside explicit
+copy routines.)
+
+\begin{swebbox}
+Syscall numbers live in \file{common/include/kernel/syscall-definitions.h},
+shared by the kernel and the libc. Adding a system call means: a number,
+a \code{case} in \code{Syscall::syscallException}, a static
+\code{Syscall} method, and a libc wrapper calling \code{\_\_syscall}
+(\module{11}, part 5 does it for \code{gettid}). SWEB's own checks are
+the hand-written \code{buffer + size > USER\_BREAK} kind --- including the
+overflow hole above. Your \code{pthread\_create} and \code{pthread\_join}
+receive user pointers (\code{pthread\_t *}, \code{void **}); check them
+properly, and check them \emph{before} you create or free anything.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item The user picks the service number, never the kernel entry point;
+    gates and privilege levels enforce it.
+  \item Linux: \code{syscall}, args in \code{rdi rsi rdx r10 r8 r9},
+    $-$errno; SWEB: \code{int \$0x80}, number in \code{rax}, args in
+    \code{rbx rcx rdx rsi rdi}.
+  \item Every system call runs on the calling thread's kernel stack, with
+    interrupts on.
+  \item Validate the whole user range, overflow-free; copy strings with
+    per-page checks; do not check opaque arguments.
+  \item Fetch user data once; check and use the kernel copy.
+\end{itemize}
+\end{keybox}

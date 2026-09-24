@@ -1,0 +1,177 @@
+\chapter{Condition variables and semaphores}
+\label{ch:condvars}
+
+A mutex answers ``who may touch the data now?''. Threads also need to
+\emph{wait for something}: for an element in a queue, for a thread to
+finish, for the barber to wake up. Waiting correctly --- without burning
+CPU and without missing the moment the condition becomes true --- is what
+condition variables and semaphores are for. Your \code{pthread\_join} in
+SWEB is one such wait; P1's elective asks for mutexes, condition variables
+and semaphores in SWEB's user space.
+
+\section{Waiting: spin or sleep}
+
+\begin{lstlisting}
+while (queue_empty(q)) {}          /* spinning: burns the CPU, and on one CPU
+                                      the producer cannot even run */
+\end{lstlisting}
+
+Waiting should \emph{block}: take the thread off the CPU until another
+thread says ``something changed''. Two problems must be solved together:
+the waiter must not sleep through the signal (the \emph{lost wake-up}),
+and the condition must be checked and the data accessed under a mutex.
+
+\section{Condition variables}
+
+\begin{lstlisting}
+pthread_mutex_lock(&m);
+while (!condition)                 /* ALWAYS a loop */
+  pthread_cond_wait(&cv, &m);      /* atomically: unlock m and sleep;
+                                      on wake-up: lock m again */
+/* condition holds, and we hold m */
+pthread_mutex_unlock(&m);
+
+/* the other side */
+pthread_mutex_lock(&m);
+condition = true;
+pthread_cond_signal(&cv);          /* wake one waiter (broadcast: all) */
+pthread_mutex_unlock(&m);
+\end{lstlisting}
+
+A condition variable has no memory: a signal with nobody waiting is lost
+--- by design. The \emph{condition} lives in ordinary shared variables,
+protected by the mutex; the condition variable only provides ``sleep
+until somebody might have changed it''.
+
+\paragraph{Why \code{wait} must unlock atomically.} Suppose the waiter
+unlocked, and only then went to sleep. In between, the signaller could
+lock, set the condition, signal (nobody waits yet: lost) and unlock --- and
+the waiter sleeps forever. \code{pthread\_cond\_wait} makes ``unlock and
+sleep'' one step with respect to other threads. \module{05}'s
+\code{lost\_wakeup.c} shows the broken and the fixed version.
+
+\paragraph{Why \code{while}, not \code{if}.} Condition variables in
+pthreads (and practically everywhere) have \emph{Mesa semantics}: a
+signal only makes the waiter runnable; by the time it has re-acquired the
+mutex, another thread may have consumed what it was woken for (a
+\emph{stolen} wake-up). POSIX also allows \emph{spurious} wake-ups
+without any signal. Rechecking in a loop handles both. (Under the
+historical \emph{Hoare semantics} the signaller hands the mutex directly
+to the woken thread, so the condition is guaranteed to hold --- simpler
+to reason about, more expensive to implement.)
+
+\paragraph{Signal or broadcast?} \code{signal} wakes one waiter: correct
+when every waiter waits for the same thing and any one of them can
+proceed. When waiters wait for different conditions on the same
+variable, or when a change may allow several to proceed, use
+\code{broadcast} --- a lost signal is a hang, an extra wake-up only costs
+time.
+
+\section{The bounded buffer}
+
+The pattern to memorise (\module{05}, \code{bounded\_buffer.c}):
+
+\begin{lstlisting}
+void put(struct buf *b, int item) {
+  pthread_mutex_lock(&b->m);
+  while (b->count == CAP)
+    pthread_cond_wait(&b->not_full, &b->m);
+  b->item[(b->head + b->count++) % CAP] = item;
+  pthread_cond_signal(&b->not_empty);
+  pthread_mutex_unlock(&b->m);
+}
+int get(struct buf *b) {
+  pthread_mutex_lock(&b->m);
+  while (b->count == 0)
+    pthread_cond_wait(&b->not_empty, &b->m);
+  int item = b->item[b->head];
+  b->head = (b->head + 1) % CAP;
+  b->count--;
+  pthread_cond_signal(&b->not_full);
+  pthread_mutex_unlock(&b->m);
+  return item;
+}
+\end{lstlisting}
+
+\section{Semaphores}
+
+Dijkstra's semaphore is a counter with two atomic operations:
+\code{P} (\code{wait}, \code{sem\_wait}): wait until the value is
+positive, then decrement; \code{V} (\code{signal}, \code{sem\_post}):
+increment, waking a waiter if any. Unlike a condition variable, a
+semaphore \emph{remembers}: a \code{post} with no waiter is kept in the
+value. Three roles:
+
+\begin{center}
+\begin{tabular}{L{2.8cm}L{2cm}L{8.4cm}}
+\toprule
+\textbf{Role} & \textbf{Initial} & \textbf{Use} \\
+\midrule
+mutual exclusion & 1 & \code{wait}; critical section; \code{post} (a
+``binary semaphore'' --- but anyone may \code{post}, unlike a mutex) \\
+signalling & 0 & thread A \code{wait}s until thread B \code{post}s:
+``B's event happened''; the order of the two calls does not matter \\
+counting & $N$ & $N$ identical resources (buffer slots, connections) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The bounded buffer with semaphores: \code{empty = CAP}, \code{full = 0},
+\code{mutex = 1}; the producer does \code{wait(empty); wait(mutex); put;
+post(mutex); post(full)}, the consumer the mirror image. The order of the
+two \code{wait}s matters: \code{wait(mutex)} first and then blocking on
+\code{empty} while holding it deadlocks the consumer.
+
+A semaphore is easily built from a mutex and a condition variable
+(\module{05}, part A) --- and conversely; they are equally powerful.
+
+\section{Classic problems}
+
+\paragraph{Readers--writers.} Many readers may read at once, a writer
+needs exclusive access. The simple solution (readers count themselves;
+the first reader locks writers out, the last one lets them in) lets a
+steady stream of readers \emph{starve} writers. A writer-preferring lock
+makes new readers wait as soon as a writer is waiting (\module{05},
+part~B); a fair lock queues everybody in arrival order.
+
+\paragraph{Sleeping barber.} A barber sleeps when there are no customers;
+a customer wakes him, or waits in one of $N$ chairs, or leaves when all
+chairs are taken. It combines signalling (customer wakes barber, barber
+calls customer) with a counted resource (chairs) and needs care at the
+edges: a customer arriving just as the barber decides to sleep must not
+be lost, and shutdown must wake a sleeping barber (\module{05}, part~C).
+
+\paragraph{Monitors.} A monitor bundles data, a mutex that every
+operation holds, and condition variables --- the ``one object, one lock''
+discipline as a language feature (Java's \code{synchronized} with
+\code{wait}/\code{notify}). The bounded buffer above is a monitor written
+by hand.
+
+\begin{swebbox}
+SWEB's \code{Condition} (\file{common/source/kernel/Condition.cpp}) is a
+Mesa condition variable bound to a \code{Mutex}. \code{wait} puts the
+thread on the waiters list \emph{while holding the list's lock}, releases
+the mutex, and sleeps. The gap between unlocking the list and
+\code{Scheduler::sleep()} is closed from the other side:
+\code{Scheduler::wake} yields until the thread really is
+\code{Sleeping} before it sets it \code{Running} --- no lost wake-up.
+\code{Condition::wait} also asserts that the thread holds no other lock
+while it sleeps. For \code{pthread\_join}: the joiner checks ``is the
+thread finished?'' and waits on such a condition, under the lock that the
+exiting thread takes to set ``finished'' and signal.
+\end{swebbox}
+
+\begin{keybox}
+\begin{itemize}
+  \item Wait by blocking; the condition lives in shared variables under a
+    mutex.
+  \item \code{cond\_wait} unlocks and sleeps atomically --- that is what
+    prevents the lost wake-up.
+  \item Always \code{while (!condition) wait}: Mesa semantics, stolen and
+    spurious wake-ups.
+  \item When unsure, \code{broadcast}.
+  \item Semaphores remember posts: mutex (1), signal (0), count ($N$).
+  \item Readers--writers: watch for writer starvation; barber: watch the
+    edges and the shutdown.
+\end{itemize}
+\end{keybox}

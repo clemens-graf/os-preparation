@@ -1,0 +1,4 @@
+false
+echo after-false
+build/helper exit 2
+echo after-two

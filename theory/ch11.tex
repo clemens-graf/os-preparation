@@ -1,0 +1,170 @@
+\chapter{SWEB: putting it together}
+\label{ch:sweb}
+
+SWEB is the course's teaching kernel: small enough to read, real enough to
+boot on x86-64 hardware (in QEMU). This last chapter is a map --- where
+things are, how the machine gets from power-on to the shell, where each
+idea of chapters 1--10 lives in the code --- and a guide to the A1 work:
+what changes, and how to test it so that it survives the tenth run.
+\module{11}'s worksheet walks through all of it with questions.
+
+\section{The source tree}
+
+\begin{center}
+\begin{tabular}{L{5.4cm}L{8.4cm}}
+\toprule
+\textbf{Path} & \textbf{Contents} \\
+\midrule
+\file{common/source/kernel/} & \code{main.cpp} (\code{startup}), \code{Thread},
+\code{UserProcess}, \code{Scheduler}, \code{Syscall}, \code{Loader},
+\code{ProcessRegistry}, locks (\code{Lock}, \code{Mutex}, \code{SpinLock},
+\code{Condition}), \code{CleanupThread}, \code{IdleThread} \\
+\file{common/source/mm/} & \code{PageManager} (frames),
+\code{KernelMemoryManager} (kernel heap), \code{PageFaultHandler} \\
+\file{common/source/fs/}, \file{console/} & VFS, minix file system, terminal,
+\code{kprintf} and \code{debug()} \\
+\file{common/include/kernel/} & headers, \code{syscall-definitions.h} (numbers,
+shared with the libc), \code{user\_progs.h} \\
+\file{common/include/console/debug.h} & debug categories (switch
+output on/off per category) \\
+\file{arch/x86/64/} & page tables (\code{ArchMemory}), registers and context
+switch (\code{ArchThreads}, \code{arch\_interrupts.S}), the IDT and all
+interrupt handlers (\code{InterruptUtils.cpp}), \code{offsets.h}
+(\code{USER\_BREAK}) \\
+\file{userspace/libc/} & SWEB's own small C library: \code{write.c},
+\code{pthread.c} (stubs), \code{nonstd.c} (\code{\_start}) \\
+\file{userspace/tests/} & user programs; every \code{x.c} becomes
+\code{x.sweb} on the disk image \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{From power-on to the shell}
+
+\begin{enumerate}
+  \item GRUB loads the kernel (the menu has no timeout --- press Enter);
+    early assembly sets up paging and jumps to \code{startup()}.
+  \item \code{startup()} creates the console, the scheduler (with the
+    cleanup and idle threads), mounts the root file system and adds the
+    \code{ProcessRegistry} thread; then it enables interrupts and yields ---
+    from now on the scheduler runs everything.
+  \item \code{ProcessRegistry::Run} mounts the user-program partition at
+    \file{/usr} and creates a \code{UserProcess} for each entry of
+    \code{user\_progs} --- by default only \file{/usr/shell.sweb}.
+  \item The \code{UserProcess} constructor opens the binary, creates a
+    \code{Loader} (reads the ELF headers), maps one stack page below
+    \code{USER\_BREAK}, sets the user registers (\code{rip} = ELF entry =
+    \code{\_start}, \code{rsp} = \code{USER\_BREAK - 8}) and the address
+    space; the scheduler switches to it in user mode.
+  \item Every first touch of code or data page-faults and is loaded by
+    \code{Loader::loadPage}. The shell reads commands with \code{sc\_read}
+    and starts programs with \code{createprocess}.
+\end{enumerate}
+
+\section{Every chapter in the code}
+
+\begin{center}
+\begin{tabular}{L{2.2cm}L{11.6cm}}
+\toprule
+\textbf{Chapter} & \textbf{Where in SWEB} \\
+\midrule
+1 processes & \code{UserProcess} (= a thread today), \code{ProcessRegistry},
+\code{createprocess}; no \code{fork}/\code{exec} yet (Team F) \\
+2 threads & \code{pthread.c} stubs; \code{Thread} with \code{kernel\_stack\_}
+and two register sets \\
+3 races & a preemptive kernel: interrupts are on during system calls \\
+4 locks & \code{SpinLock} (test-and-set + yield), \code{Mutex} (sleeps),
+\code{ArchThreads::testSetLock}, interrupts off in \code{schedule()} \\
+5 condvars & \code{Condition}; \code{Scheduler::sleep}/\code{wake} with the
+wait-until-sleeping loop \\
+6 deadlocks & \code{holding\_lock\_list\_}, \code{lock\_waiting\_on\_},
+\code{doChecksBeforeWaiting}; no locks in interrupt handlers \\
+7 syscalls & \code{int \$0x80}, \code{arch\_syscallHandler},
+\code{Syscall::syscallException}, \code{buffer + size > USER\_BREAK} checks \\
+8 memory & \code{ArchMemory::mapPage/unmapPage}, \code{PageManager},
+\code{PageFaultHandler}, \code{Loader::loadPage}, identity mapping \\
+9 scheduling & round robin in \code{Scheduler::schedule}, one tick per quantum,
+\code{yield} = \code{int \$65} \\
+10 threads & \code{Thread} states, \code{kill} $\to$ \code{ToBeDestroyed} $\to$
+cleanup thread \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{What A1 changes}
+
+\paragraph{Phase 0 (all four, 1--4 Oct): split process from thread.} A
+process owns the address space (\code{Loader}/\code{ArchMemory}), the file
+descriptors and the PID; a thread owns its stacks, registers, state and
+TID. Consequences to design together: how a thread finds its process
+(a pointer; keeping \code{Thread::loader\_} as a non-owning shortcut
+saves many edits), who destroys the process and when (after its
+\emph{last} thread, in the cleanup thread --- never on a stack or in an
+address space that is about to disappear), how ids are handed out (today
+every \code{tid\_} is 0), and what \code{ProcessRegistry} counts.
+
+\paragraph{Team P.} \code{pthread\_create} (P1): the system call, argument
+checks, a new thread with its own user stack and a start wrapper.
+\code{pthread\_exit} (P2): the return value survives the thread, the
+stack is freed, the process keeps running. \code{pthread\_join} (P1): block
+until the target has finished, receive exactly the stored value; a
+detached thread cannot be joined. \code{pthread\_cancel} (P2): end the
+target at a defined cancellation point.
+
+\paragraph{Team F.} \code{fork} with copy-on-write, \code{exec} --- and,
+together with Team P, their behaviour in multi-threaded processes
+(\code{fork} duplicates only the calling thread; \code{exit} tears down
+every thread).
+
+\section{Testing}
+
+The course grades with your own tests and with the Tacos test system;
+neither replaces the other. Practical rules:
+
+\begin{itemize}
+  \item Write the test program first (\file{userspace/tests/}); re-run
+    CMake after adding one, and build twice if the new program is missing
+    from the image.
+  \item Test the edges, not only the happy path: bad user pointers,
+    joining yourself or twice, main exiting first, a thread creating
+    threads, many threads, create/join in a loop (leaks).
+  \item Run every test many times: \module{11}'s \code{sweb\_run.py -n 10}
+    boots SWEB headless ten times and reports hangs (exit 1) and kernel
+    panics (exit 2). Races appear on the tenth run.
+  \item Use the debug categories (\code{debug.h}) instead of scattering
+    \code{kprintf}; switch noisy ones off. For hard cases: \code{make
+    qemugdb} + \code{make rungdb}.
+  \item Assertions are cheap documentation: \code{assert(lock.isHeldBy(currentThread))}
+    at the top of a function that needs the lock.
+\end{itemize}
+
+\section{Pitfalls that cost days}
+
+\begin{itemize}
+  \item \code{new}/\code{delete} with interrupts off or in a handler: the
+    kernel-heap lock may be held by the interrupted thread.
+  \item Sleeping while holding a lock the waker needs; \code{Condition::wait}
+    asserts against extra held locks for a reason.
+  \item Deleting a thread (or an address space) that is still running or
+    still in use --- defer to the cleanup thread.
+  \item Trusting user pointers, or checking them with an overflowing sum.
+  \item Busy-waiting (\code{while (!done) yield();}) instead of sleeping on a
+    condition.
+  \item Two threads faulting on the same missing page table at once:
+    \code{mapPage} needs a lock once a process has several threads.
+  \item Checking once, using later (TOCTOU) --- in user memory and in
+    kernel state: ``is the thread still alive?'' must be answered and acted
+    on under the same lock.
+\end{itemize}
+
+\begin{keybox}
+\begin{itemize}
+  \item Know the map: \file{common/source/kernel}, \file{mm},
+    \file{arch/x86/64}, \file{userspace/libc}, \file{userspace/tests}.
+  \item Boot path: \code{startup} $\to$ \code{ProcessRegistry} $\to$
+    \code{UserProcess} $\to$ lazy loading by page faults.
+  \item A1 starts with the process/thread split --- agree on ownership,
+    lifetime, ids and locking as a group.
+  \item Test the edges, many times, headless; read the debug output.
+\end{itemize}
+\end{keybox}

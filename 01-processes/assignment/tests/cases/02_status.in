@@ -1,0 +1,4 @@
+false
+true
+build/helper exit 3
+build/helper exit 0
