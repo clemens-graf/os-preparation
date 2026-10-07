@@ -1,0 +1,62 @@
+\chapter{The interview}
+\label{ch:interview}
+
+\section{What happens}
+
+In every Abgabegespräch each group member gets a small task, comparable in difficulty to
+the assignment tasks, and implements it live in the group's SWEB while the tutor watches
+(official rules page). You also explain code --- usually a snippet of your own
+implementation, often while you implement. If you are slow or cannot explain or
+implement, you get an \emph{individual} deduction on the assignment's points. The tutor
+stops you as soon as it is clear that you deserve the points: you do not have to finish a
+polished solution, you have to show that you \emph{know where things happen and how to
+change them correctly}.
+
+Students' reports (see \file{a0/README.md}) agree on three things: the tasks are about
+\textbf{syscalls}, the \textbf{page fault handler} and \textbf{page mappings}, threads and
+\textbf{registers}; knowing your way around the code matters more than any single
+algorithm; and the most common reason for deductions is \textbf{locking} --- missing or
+wrong (chapter~\ref{ch:locking}).
+
+\section{A strategy for the 30 minutes}
+
+\begin{enumerate}
+\item \textbf{Restate the task} in one sentence and ask about the edge cases you see
+  (``what should happen if the pointer is invalid?''). Tutors expect questions.
+\item \textbf{Say where it happens.} ``A segfault ends up in
+  \code{PageFaultHandler::handlePageFault}, and for addresses without a segment in
+  \code{Loader::loadPage} --- I'll hook in there.'' Chapter~\ref{ch:map} is the map for this step.
+\item \textbf{List the pieces} before typing: syscall (6 places), per-process state (where?),
+  page-fault branch, libc wrapper, test. Chapter~\ref{ch:recipes} has the checklists.
+\item \textbf{Write the minimal correct version.} No refactoring of existing code, no
+  generality nobody asked for.
+\item \textbf{Locking pass.} For every piece of shared state you touched: which lock, where
+  taken, where released, could anything run in between? Say it out loud.
+\item \textbf{Test} with a tiny program in \file{userspace/tests/} --- and show the error path.
+\end{enumerate}
+
+\begin{infobox}[title=\textbf{Talking while coding}]
+Practise narrating: what you look for, why this file, why this lock. It makes the tutor
+see your understanding even when you have to look something up, and it keeps you from
+silently typing yourself into a corner. The tasks' ``questions a tutor might ask'' are
+there for this.
+\end{infobox}
+
+\section{How to use this course}
+
+\begin{description}
+\item[Examples] (\file{examples/}) --- one mechanism each, complete and tested; read the
+  patch, apply it, run it. They are your reference when a task needs ``that thing with the
+  ident mapping''.
+\item[Tasks] (\file{a0/}, \file{a1/}, \file{a2/}) --- task cards in the tutors' format, a
+  test program, hints behind fold-outs, questions. Time-box them.
+\item[Solutions] (\file{solutions/}) --- patch plus \file{NOTES.md}. Read the \emph{Locking}
+  and \emph{Pitfalls} sections even when your version works.
+\item[Tools] --- you work in a separate training copy of SWEB, \file{repos/sweb-ag}, one git
+  branch per task (created once with \code{task.sh setup}). \code{tools/task.sh} does the bookkeeping:
+  \code{task.sh start a0-01} (fresh branch from the right base, tests copied in),
+  \code{task.sh test} (build + run the tests without a window, with leak check),
+  \code{task.sh run} / \code{kvm} / \code{debug} + \code{gdb} (exactly like \code{sweb-practise}),
+  \code{task.sh reset a0-01} or \code{reset a1} (start over --- your attempt is kept in a
+  \code{backup/} branch), \code{task.sh solution a0-01} and \code{task.sh diff a0-01}.
+\end{description}

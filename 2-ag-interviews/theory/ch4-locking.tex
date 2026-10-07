@@ -1,0 +1,215 @@
+\chapter{Locking --- where the points are lost}
+\label{ch:locking}
+
+Ask students where their deductions came from and the answer is almost always the same:
+a lock forgotten, a lock in the wrong place, a race the tutor spotted in two seconds. This
+chapter is the checklist that prevents it. Every solution's \file{NOTES.md} has a
+\emph{Locking} section that applies it.
+
+\section{Why you need locks on a machine with one CPU}
+
+SWEB runs on one CPU, and still two threads can be ``in the middle of'' the same code:
+
+\begin{itemize}
+\item The \textbf{timer interrupt} can switch to another thread between any two instructions
+  --- in user mode \emph{and in the kernel}: syscalls and page faults run with interrupts
+  enabled (\code{syscallHandler} and \code{enterPageFault} turn them on).
+\item A thread that \textbf{sleeps or yields} inside the kernel (a Mutex, disk I/O,
+  \code{Condition::wait}) lets others run right there.
+\item \textbf{Page faults} happen in the middle of kernel code that touches user memory.
+\end{itemize}
+
+\code{counter++} is a load, an add and a store. Two threads, a switch after the load: one
+increment is lost. \code{if (slot free) map(slot)}: a switch between the check and the map,
+and two threads map the same slot. These are not theoretical --- the timer fires about every
+millisecond, and the tests in this course run many threads to make it happen.
+
+\begin{infobox}[title=\textbf{The core question}]
+For every piece of data you read or write: \emph{can another thread access it at the same
+time?} If yes (shared between threads of a process, between processes, or between a
+thread and a kernel thread), it needs exactly one lock that every access takes.
+\end{infobox}
+
+\section{SWEB's locking toolbox}
+
+\begin{center}
+\small
+\begin{tabular}{L{2.8cm}L{5.8cm}L{6.2cm}}
+\toprule
+\textbf{Tool} & \textbf{Behaviour} & \textbf{Use for} \\
+\midrule
+\code{Mutex} & waiting threads \textbf{sleep}; owner tracked; deadlock and misuse checks & the default: anything that may take long, allocate, page-fault or do I/O \\
+\code{ScopeLock l(m);} & acquires a \code{Mutex} in the constructor, releases in the destructor & functions with several \code{return}s --- no forgotten release \\
+\code{Condition(\&m, name)} & \code{wait()} releases \code{m} and sleeps; \code{signal()}/\code{broadcast()} & waiting until some state becomes true (join, barrier, ``all threads done'') \\
+\code{SpinLock} & waiting threads \textbf{yield in a loop} (busy) & very short sections without sleeping or I/O (the PageManager uses one) \\
+atomics & \code{ArchThreads::testSetLock(x, v)} (exchange), \code{atomic\_add}, \code{atomic\_set} & a single flag or counter, nothing else depends on it \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+What the locks \textbf{check} (and assert on) --- know these, the asserts are your friends:
+\begin{itemize}
+\item acquiring with interrupts disabled $\to$ ``\code{Lock ... with IF=0 ... Now we're dead}''
+  (no locks in interrupt handlers, in \code{schedule()}, or while scheduling is blocked);
+\item acquiring a lock you already hold $\to$ ``\code{Deadlock: ...}'';
+\item a lock-order cycle between threads $\to$ ``\code{CIRCULAR DEADLOCK}'' with the chain;
+\item \code{Condition::wait} while holding \emph{another} lock $\to$ assertion
+  (``holding unrelated locks while waiting'');
+\item a thread destroyed while still holding a lock $\to$ assertion in \code{\textasciitilde Thread};
+\item a lock whose constructor never ran (global object) $\to$ ``\code{name\_ is null}''.
+\end{itemize}
+
+\section{The locks that already exist}
+
+\begin{center}
+\small
+\begin{tabular}{L{5.4cm}L{2cm}L{7.4cm}}
+\toprule
+\textbf{Lock} & \textbf{Type} & \textbf{Protects} \\
+\midrule
+\code{PageManager::lock\_} & SpinLock & the bitmap of free physical pages (inside \code{allocPPN}/\code{freePPN}) \\
+\code{KernelMemoryManager} lock & SpinLock & the kernel heap (inside \code{new}/\code{delete}) \\
+\code{Loader::program\_binary\_lock\_} & Mutex & reading the binary file, \code{phdrs\_} (in \code{loadPage}) \\
+\code{ProcessRegistry::counter\_lock\_} + \code{all\_processes\_killed\_} & Mutex + Cond. & number of running processes \\
+\code{Console} / \code{Terminal} locks & Mutex & screen and input buffers \\
+Scheduler (\code{lockScheduling}) & internal & the thread list --- not for you \\
+\midrule
+\textbf{page tables} (\code{ArchMemory}) & \textbf{none!} & one thread per process in base SWEB. \textbf{You add a per-process lock} (this course: \code{Loader::arch\_memory\_lock\_}) the moment a process can have two threads or another path touches its tables \\
+anything you add & --- & you decide, and you document it next to the declaration \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{The rules}
+\label{sec:rules}
+
+\begin{enumerate}
+\item \textbf{One lock per piece of shared state, documented where it is declared.}
+  \code{Mutex arch\_memory\_lock\_; // protects arch\_memory\_ and heap\_size\_}. Every access
+  --- reads too --- takes it. A lock taken in the syscall but not in the page fault handler
+  protects nothing.
+\item \textbf{Check and act in one critical section.} ``Is the slot free?'' + ``take it'',
+  ``below the limit?'' + ``map'', ``count reached zero?'' + ``signal''. Releasing the lock
+  between check and act is the race (A0-02, A0-03).
+\item \textbf{Keep critical sections short, but not shorter than the invariant.} Allocate
+  (\code{allocPPN}, \code{new}) before taking the lock, commit under the lock, undo outside
+  if the commit failed (free the unused page).
+\item \textbf{A fixed lock order.} If you ever hold two locks, always take them in the same
+  order everywhere. This course: page-table lock $\to$ PageManager/KMM (inside \code{mapPage},
+  \code{new}). Never the reverse. Better still: do not nest at all (A0-08 releases the thread
+  counter lock before creating the thread, which takes the page-table lock).
+\item \textbf{Never sleep, yield or do I/O while holding a SpinLock.} With a Mutex it is
+  allowed but blocks everybody else for that time --- think about whether it must be.
+\item \textbf{Never die holding a lock.} \code{Syscall::exit}, \code{kill()} and anything that
+  may kill the process (a page fault on a bad user pointer!) only after releasing every lock.
+  A dead owner never releases: every other thread of the process hangs.
+\item \textbf{Condition variables: state + mutex + while.} The state lives in variables
+  protected by the mutex; change it and \code{signal} while holding the mutex; the waiter
+  loops \code{while (!state) wait();}. A signal without a waiter is lost --- the state is not.
+\item \textbf{No other lock while waiting} on a Condition (SWEB asserts it).
+\item \textbf{Locks must outlive their users.} Do not delete (or let the CleanupThread delete)
+  an object while another thread may still be inside one of its locks. Put the lock where
+  the lifetime is clear (ex06: on the waiter's stack; A0-08: \code{threadFinished()} as the
+  last line of the destructor).
+\item \textbf{No locks with interrupts off.} Interrupt handlers, \code{schedule()}, the
+  keyboard IRQ: set an atomic flag, do the work later in a thread (ex07).
+\item \textbf{Sleep, don't spin.} \code{while (!done) yield();} burns the CPU and is a classic
+  remark in interviews. Wait on a Condition.
+\item \textbf{Removing rights $\Rightarrow$ TLB flush, inside the critical section}, before
+  anyone can rely on the change (unmap, read-only, swap-out).
+\end{enumerate}
+
+\section{Wrong and right}
+
+\begin{enumerate}
+\item \textbf{The unprotected counter.}
+\begin{lstlisting}[style=cpp]
+++num_threads_;                                      // WRONG: two creators lose one increment
+threads_lock_.acquire(); ++num_threads_; threads_lock_.release();   // right
+\end{lstlisting}
+
+\item \textbf{The lock in one path only.}
+\begin{lstlisting}[style=cpp]
+// syscall:            ScopeLock l(loader->arch_memory_lock_); arch_memory_.mapPage(...)
+// Loader::loadPage:   arch_memory_.mapPage(...)        // WRONG: the page fault path ignores it
+\end{lstlisting}
+Two threads mapping under the same not-yet-existing page table both allocate one and write
+it into the same page-directory entry: one table, its mapping and its page are lost.
+
+\item \textbf{Check, release, act.}
+\begin{lstlisting}[style=cpp]
+lock.acquire(); bool inside = addr < HEAP_START + heap_size_; lock.release();
+if (inside) mapPage(...);            // WRONG: heapLimit() may shrink the heap right here
+lock.acquire(); if (addr < HEAP_START + heap_size_) mapPage(...); lock.release();  // right
+\end{lstlisting}
+
+\item \textbf{\code{if} instead of \code{while}.}
+\begin{lstlisting}[style=cpp]
+if (!done) cond.wait();              // WRONG: woken up != condition true (broadcast, other waiter)
+while (!done) cond.wait();           // right
+\end{lstlisting}
+
+\item \textbf{State changed outside the mutex.}
+\begin{lstlisting}[style=cpp]
+done = true; lock.acquire(); cond.signal(); lock.release();   // WRONG: lost wake-up window
+lock.acquire(); done = true; cond.signal(); lock.release();   // right
+\end{lstlisting}
+
+\item \textbf{Early return without release} --- use \code{ScopeLock}:
+\begin{lstlisting}[style=cpp]
+lock.acquire(); if (bad) return -1; ...  // WRONG: lock held forever
+ScopeLock l(lock); if (bad) return -1;   // right: released on every path
+\end{lstlisting}
+
+\item \textbf{Dying with the lock.}
+\begin{lstlisting}[style=cpp]
+lock.acquire(); if (!ok) Syscall::exit(9998); ...   // WRONG
+lock.acquire(); bool ok_ = ...; lock.release(); if (!ok_) Syscall::exit(9998);   // right
+\end{lstlisting}
+
+\item \textbf{Touching user memory under a lock.} \code{*(size\_t*) user\_ptr = x;} may
+  page-fault (and kill) --- do it after releasing, or write through
+  \code{checkAddressValid}'s kernel address under the page-table lock.
+
+\item \textbf{Lock order inversion.} Thread A: \code{a.acquire(); b.acquire();} Thread B:
+  \code{b.acquire(); a.acquire();} $\to$ circular deadlock. Pick one order, write it down.
+
+\item \textbf{Lifetime.} A mutex inside a kernel-thread object that the CleanupThread
+  deletes while the waiter is still waking up inside \code{wait()} on it $\to$ use after
+  free. Put it where it outlives every user (ex06).
+
+\item \textbf{Work in the wrong context.} Changing a process's page tables from the Console
+  thread's key handler, or taking a Mutex in an interrupt handler $\to$ flag + deferred work.
+
+\item \textbf{Spinning.} \code{while (thread\_alive) yield();} in \code{pthread\_join} $\to$
+  works, but it is busy waiting; the tutor asks you to make it sleep.
+\end{enumerate}
+
+\section{How to explain your locking}
+
+Tutors ask \emph{``why do you need a lock here?''}, \emph{``what happens if a thread switch
+happens right here?''}, \emph{``can this deadlock?''}. Answer in this pattern:
+
+\begin{enumerate}
+\item \emph{What} is shared: ``the page tables of the process and \code{heap\_size\_}.''
+\item \emph{Who else} touches it: ``other threads' page faults, \code{heapLimit} from another
+  thread, the CleanupThread when a thread dies.''
+\item \emph{Which} lock and \emph{where}: ``\code{arch\_memory\_lock\_}, around check + map in
+  \code{mapHeapPage}, and in \code{heapLimit}.''
+\item \emph{Why no deadlock}: ``I hold only this one; \code{mapPage} takes the PageManager's
+  lock inside, never the other way round.''
+\item \emph{Why no lost wake-up / no early death}: ``\code{exit} only after the release.''
+\end{enumerate}
+
+\begin{lockbox}[title={Checklist after every task}]
+\begin{enumerate}
+\item List every variable/structure you read or wrote that is not local.
+\item For each: which lock? Taken on \emph{every} access path (syscall, page fault, destructor, kernel thread)?
+\item Every check-then-act inside one critical section?
+\item Every \code{return}/\code{exit}/\code{kill}/user-memory access: no lock held, or \code{ScopeLock}?
+\item Two locks at once anywhere? Same order everywhere?
+\item Every wait: \code{while}, state under the mutex, no other lock held?
+\item Every object that contains a lock: who deletes it, and can someone still be inside?
+\item Rights removed? TLB flushed?
+\end{enumerate}
+\end{lockbox}

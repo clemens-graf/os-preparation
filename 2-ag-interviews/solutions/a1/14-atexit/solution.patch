@@ -1,0 +1,56 @@
+diff --git a/userspace/libc/src/exec.c b/userspace/libc/src/exec.c
+index 7316ef7..a49f89e 100644
+--- a/userspace/libc/src/exec.c
++++ b/userspace/libc/src/exec.c
+@@ -70,7 +70,10 @@ void _exit(int status)
+ {
+   __syscall(sc_exit, status, 0x00, 0x00, 0x00, 0x00);
+ }
++extern void __runAtexitFunctions(void);   // A1-14, stdlib.c
++
+ void exit(int status)
+ {
++  __runAtexitFunctions();
+   __syscall(sc_exit, status, 0x00, 0x00, 0x00, 0x00);
+ }
+diff --git a/userspace/libc/src/stdlib.c b/userspace/libc/src/stdlib.c
+index 5f07407..74a636c 100644
+--- a/userspace/libc/src/stdlib.c
++++ b/userspace/libc/src/stdlib.c
+@@ -9,9 +9,35 @@ void free(void *ptr)
+ {
+ }
+ 
++// A1-14: the registered functions, called in reverse order by exit()
++#define ATEXIT_MAX 32
++static void (*atexit_functions[ATEXIT_MAX])(void);
++static size_t atexit_count = 0;
++
+ int atexit(void (*function)(void))
+ {
+-  return -1;
++  if (!function)
++    return -1;
++  // two threads may register at the same time: reserve the slot atomically
++  size_t slot = __atomic_fetch_add(&atexit_count, 1, __ATOMIC_SEQ_CST);
++  if (slot >= ATEXIT_MAX)
++  {
++    __atomic_fetch_sub(&atexit_count, 1, __ATOMIC_SEQ_CST);
++    return -1;
++  }
++  atexit_functions[slot] = function;
++  return 0;
++}
++
++// A1-14: called by exit() (not by _exit())
++void __runAtexitFunctions(void)
++{
++  while (atexit_count > 0)
++  {
++    void (*function)(void) = atexit_functions[--atexit_count];   // pop first: if function calls exit(),
++    if (function)                                               // it continues with the rest
++      function();
++  }
+ }
+ 
+ void *calloc(size_t nmemb, size_t size)

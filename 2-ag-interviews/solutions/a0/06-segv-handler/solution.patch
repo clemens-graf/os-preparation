@@ -1,0 +1,243 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..c7e5f95 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -8,6 +8,7 @@
+ #include <ulist.h>
+ 
+ class Stabs2DebugInfo;
++class ArchThreadRegisters;
+ 
+ class Loader
+ {
+@@ -26,7 +27,14 @@ class Loader
+      * Gets a free physical page, copies the contents of the binary to it, and then maps it.
+      * @param virtual_address virtual address where to find the page to load
+      */
+-    void loadPage(pointer virtual_address);
++    bool loadPage(pointer virtual_address); // A0-06: false = no segment covers the address
++
++    /**
++     * A0-06: if a segv handler is registered, makes the thread continue in it:
++     * entry(address, handler) on the user stack below the red zone. One-shot.
++     * @return false if there is no handler or the user stack is unusable
++     */
++    bool deliverSegv(ArchThreadRegisters* registers, size_t address);
+ 
+     Stabs2DebugInfo const* getDebugInfos() const;
+ 
+@@ -34,6 +42,14 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
++    // A0-06: registered with set_segv_handler(), protected by arch_memory_lock_
++    size_t segv_entry_;      // libc function that calls the handler, then exit(139)
++    size_t segv_handler_;    // the user's handler, 0 = none
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..609b778 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A0-06
++    static size_t setSegvHandler(size_t entry, size_t handler);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..68e5ce2 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-06
++#define sc_setsegvhandler 1530
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..ca0e913 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -9,8 +9,10 @@
+ #include "File.h"
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), segv_entry_(0), segv_handler_(0), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -22,7 +24,7 @@ Loader::~Loader()
+   hdr_ = nullptr;
+ }
+ 
+-void Loader::loadPage(pointer virtual_address)
++bool Loader::loadPage(pointer virtual_address)
+ {
+   debug(LOADER, "Loader:loadPage: Request to load the page for address %p.\n", (void*)virtual_address);
+   const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
+@@ -67,16 +69,42 @@ void Loader::loadPage(pointer virtual_address)
+   {
+     PageManager::instance()->freePPN(ppn);
+     debug(LOADER, "Loader::loadPage: ERROR! No section refers to the given address.\n");
+-    Syscall::exit(666);
++    return false;   // A0-06: the page fault handler decides (segv handler or kill)
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+     PageManager::instance()->freePPN(ppn);
+   }
+   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
++  return true;
++}
++
++bool Loader::deliverSegv(ArchThreadRegisters* registers, size_t address)
++{
++  ScopeLock lock(arch_memory_lock_);
++  if (!segv_handler_)
++    return false;
++
++  // a "call" without a call instruction: below the red zone, 16-byte aligned minus 8
++  size_t rsp = ((registers->rsp - 128) & ~0xFULL) - sizeof(size_t);
++  if (registers->rsp >= USER_BREAK || rsp >= USER_BREAK)
++    return false;
++  pointer slot = arch_memory_.checkAddressValid(rsp);  // kernel (ident) address of that stack slot
++  if (!slot)
++    return false;            // stack not mapped (e.g. the fault WAS the stack): nothing can run
++
++  *(size_t*) slot = 0;       // fake return address; entry never returns anyway
++  registers->rsp = rsp;
++  registers->rip = segv_entry_;
++  registers->rdi = address;          // 1st argument: the faulting address
++  registers->rsi = segv_handler_;    // 2nd argument: the user's handler
++  segv_handler_ = 0;                 // one-shot: a fault inside the handler kills the process
++  return true;
+ }
+ 
+ bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..540caa3 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,8 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +51,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_setsegvhandler:
++      return_value = setSegvHandler(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +186,15 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A0-06: handler == 0 unregisters
++size_t Syscall::setSegvHandler(size_t entry, size_t handler)
++{
++  if (entry == 0 || entry >= USER_BREAK || handler >= USER_BREAK)
++    return (size_t) -1;
++  Loader* loader = currentThread->loader_;
++  ScopeLock lock(loader->arch_memory_lock_);
++  loader->segv_entry_ = entry;
++  loader->segv_handler_ = handler;
++  return 0;
++}
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 3224b05..673ba52 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -59,9 +59,15 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   ArchThreads::printThreadRegisters(currentThread, false);
+ 
+-  if (checkPageFaultIsValid(address, user, present, switch_to_us))
++  if (checkPageFaultIsValid(address, user, present, switch_to_us) && currentThread->loader_->loadPage(address))
+   {
+-    currentThread->loader_->loadPage(address);
++    // normal case: the page was loaded
++  }
++  else if (user && currentThread->loader_->deliverSegv(currentThread->user_registers_, address))
++  {
++    // A0-06: only for faults in user mode - a fault inside a syscall cannot be redirected,
++    // the kernel code that faulted would never finish
++    debug(PAGEFAULT, "segfault at %zx delivered to the segv handler\n", address);
+   }
+   else
+   {
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..10b19be 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,10 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A0-06: handler(fault_address) is called once on the next segmentation fault;
++// if it returns, the process exits with 139. NULL unregisters.
++extern int set_segv_handler(void (*handler)(size_t address));
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..b2dcbf4 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,18 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++// A0-06: the kernel makes the faulting thread continue here
++static void segvEntry(size_t address, void (*handler)(size_t))
++{
++  handler(address);
++  exit(139);
++}
++
++int set_segv_handler(void (*handler)(size_t address))
++{
++  return __syscall(sc_setsegvhandler, (size_t) segvEntry, (size_t) handler, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

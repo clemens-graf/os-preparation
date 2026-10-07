@@ -1,0 +1,115 @@
+\chapter{A2: swapping, copy-on-write, page-table bits}
+\label{ch:a2}
+
+A2 tasks change what a page-table entry means and where a page's content lives. Three ideas
+carry all of them: \textbf{a non-present entry can carry information}, \textbf{take the page
+away before you touch its content}, and \textbf{a physical page may have more than one owner}.
+
+\section{A page-table entry, three meanings}
+
+\begin{center}
+\small
+\begin{tabular}{L{3.6cm}L{4.4cm}L{6.8cm}}
+\toprule
+\textbf{State} & \textbf{Bits} & \textbf{Meaning} \\
+\midrule
+not mapped & all zero & no page here (lazy: \code{loadPage} on the first access) \\
+present & \code{present = 1}, \code{page\_ppn} = frame & normal; \code{writeable}, NX, \code{dirty}, \code{accessed} apply \\
+swapped out (A2-01) & \code{present = 0}, marker in \code{ignored\_2}, \code{page\_ppn} = slot & the CPU ignores all bits of a non-present entry --- they are yours \\
+present + clean copy (A2-05) & \code{present = 1}, \code{ignored\_1} = slot + 1 & content also on disk; \code{dirty} tells whether it is still equal \\
+shared zero page (A2-09) & \code{present = 1}, \code{writeable = 0}, \code{page\_ppn} = zero page & the first write copies \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{trapbox}
+\code{ArchMemory::unmapPage} frees a page table as soon as no entry in it is \emph{present}. With
+swapped entries that is wrong: it would throw away the slot numbers. Treat ``all entries zero'' as
+empty (A2-01). Likewise \code{\textasciitilde ArchMemory} frees every \emph{present} page: shared
+pages (A1-10) and the zero page (A2-09) must be excluded, swap slots (A2-01) freed separately.
+\end{trapbox}
+
+\section{Swap out and in --- the order is the whole task}
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, fill=codebg, align=left, font=\footnotesize,
+              inner sep=4pt, text width=6.2cm},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+  \node[box] (a) {\textbf{swapOut(vpn)} --- page-table lock held throughout};
+  \node[box, below=2mm of a] (b) {1. \code{present = 0}, flush the TLB: nobody can write any more};
+  \node[box, below=2mm of b] (c) {2. write the frame to a slot (via the ident address) --- the lock stays held:
+     a thread that touches the page faults and \emph{waits}};
+  \node[box, below=2mm of c] (d) {3. entry = marker + slot, free the frame};
+  \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d);
+  \node[box, right=6mm of a] (e) {\textbf{page fault on a swapped page}};
+  \node[box, below=2mm of e] (f) {page-table lock: still swapped? (another thread may have swapped it in already)};
+  \node[box, below=2mm of f] (g) {allocate a frame, read the slot into it, free (or keep, A2-05) the slot};
+  \node[box, below=2mm of g] (h) {entry = frame, marker off, \code{present = 1} \textbf{last}};
+  \draw[arr] (e) -- (f); \draw[arr] (f) -- (g); \draw[arr] (g) -- (h);
+\end{tikzpicture}
+\end{center}
+
+\begin{lockbox}
+\begin{itemize}
+\item \textbf{Disk I/O while holding the page-table Mutex is allowed} --- and here it is what keeps
+  other threads off the half-written page. A SpinLock would be wrong: the request sleeps.
+\item One lock order for all of A2: page-table lock $\to$ PageManager $\to$ swap bookkeeping
+  (\code{SwapManager}). Your team's swap thread must use the same order.
+\item Read the \code{dirty} bit only after \code{present = 0} + flush --- before that a write can still set it.
+\item Removing rights (present, writable, NX) $\Rightarrow$ TLB flush in the critical section.
+  Changing the frame of a present mapping (COW, relocation) $\Rightarrow$ flush.
+\end{itemize}
+\end{lockbox}
+
+\section{The swap device}
+
+\code{idea2} is a 50\,MiB partition of type 0x82 that base SWEB never uses:
+\begin{lstlisting}[style=cpp]
+BDVirtualDevice* swap = BDManager::getInstance()->getDeviceByName("idea2");
+\end{lstlisting} Slot $s$ = bytes
+$[s \cdot 4096, (s+1) \cdot 4096)$, written and read through the frame's ident address
+(\code{readData}/\code{writeData}, ex08). Create the bookkeeping object in \code{startup()} after
+\code{BDManager::doDeviceDetection()}; do disk I/O only from threads (the request yields until the
+IDE interrupt) --- \code{startup()} itself is too early (A2-11 reads its record in
+\code{ProcessRegistry::Run()}). \code{run\_test.sh} boots with a throw-away disk; \code{--keep-disk}
+keeps one copy over several boots.
+
+\section{Copy-on-write}
+
+A write to a present read-only page faults with \code{present = 1, writing = 1} --- such faults are
+rejected by \code{checkPageFaultIsValid}, so the COW branch goes \emph{before} it. CR0.WP is set
+(\code{boot.32.C}), so the \textbf{kernel's} writes into user memory fault as well: a COW branch that
+requires \code{user} breaks every syscall that writes into a fresh buffer. The copy is
+\code{allocPPN} + \code{memcpy} between ident addresses; the zero-page case (A2-09) needs no
+\code{memcpy}. Fork's COW (your mandatory part) adds reference counts per frame and two processes'
+page tables --- lock both in a fixed order (e.g.\ by address) or copy the entries under the parent's
+lock only.
+
+\section{Moving pages behind a process's back}
+
+Swap-out, relocation (A2-10), defragmentation, ``swap out all pages'' (F3): the process may run at any
+moment (preemption!) and touch the page. The pattern is always the same: \emph{present = 0 first,
+work, present = 1 last}, under the page-table lock; and the page-fault handler, finding a non-present
+page, must first take that lock and check whether the page is back --- \emph{before} treating it as a
+new page (\code{loadPage} would kill the process for a stack page). A thread that works on
+\emph{other} processes' memory needs a list of address spaces with its own lock, taken
+\emph{before} any page-table lock, and must keep each process alive while it works on it.
+
+\section{Sketches for the tasks not in the course}
+
+\begin{description}
+\item[Defragmentation (F7)] Walk all swapped entries of all processes (list of address spaces as in
+  A2-10), move slot contents so the used slots are contiguous, update each entry --- under each
+  process' page-table lock, one slot at a time; the slot bitmap under its own lock.
+\item[Deduplication of arbitrary pages] Hash present pages (a kernel thread), compare equal hashes
+  byte by byte, map one frame read-only into both with a reference count, COW on write (A2-09).
+\item[mmap a file] A region per process; the page fault reads the file part through
+  \code{VfsSyscall::read} (like \code{Loader::readFromBinary}); \code{msync}/\code{munmap} write dirty pages back.
+\item[ASLR] Randomise the stack top in \code{UserProcess} (and the heap start) with \code{rdtsc};
+  the code segment needs position-independent binaries.
+\item[Checksum check] Keep a checksum per swapped page (in a table or in the entry's free bits),
+  verify after swap-in, kill the process (or panic) on mismatch.
+\item[Unswappable pages / pages of the own process may not be swapped] A flag in the entry's free
+  bits that the swap policy checks; \code{mlock}-like syscall to set it.
+\end{description}

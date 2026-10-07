@@ -1,0 +1,165 @@
+\chapter{A0: syscalls, page faults, mappings, registers, threads}
+\label{ch:a0}
+
+\section{What the hints say}
+
+\begin{center}
+\small
+\begin{tabular}{L{6.6cm}L{8.2cm}}
+\toprule
+\textbf{Reported} & \textbf{Trained by} \\
+\midrule
+``add to syscalls and page fault interrupts'' & every A0 task; recipes \S\ref{sec:syscall}, \S\ref{sec:pagefault} \\
+``allocate a page and map it for the user'' & A0-02 allocpage, A0-03 heaplimit, A0-04 magic page; ex02 \\
+``register manipulation'' & A0-07 upcall, A0-06 segv handler; ex05 \\
+``segfault $\to$ call a function the user registered'' & A0-06 \\
+``something with the loader'' & A0-05 read-only code; ex09 \\
+``syscalls and pages'' & A0-01 meminfo (page-table walk) \\
+``the mechanics of \code{pthread\_create}'' & A0-08 \\
+``\code{pthread\_multi}: one thread runs a list of functions'' & A0-09 \\
+A0 tutorial 1: a user string, a debug flag, per-thread data & ex11 (as written there), A0-11 (done right) \\
+A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 (as written there), A0-12 (done right) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{What you must know without looking it up}
+
+\begin{enumerate}
+\item The six places of a syscall, and the path \code{int \$0x80} $\to$ \code{syscallHandler}
+  $\to$ \code{syscallException} (\S\ref{sec:syscall}).
+\item The page fault path and where a new case goes (before \code{loadPage}); the two places
+  that kill on a segfault (\code{handlePageFault} 9999, \code{Loader::loadPage} 666).
+\item \code{allocPPN} $\to$ (fill via ident mapping) $\to$ \code{mapPage(vpn, ppn, 1)}; what
+  \code{unmapPage} frees; when to flush the TLB.
+\item \code{user\_registers\_} during a syscall/page fault = the state the thread continues
+  with; red zone, alignment, \code{rdi/rsi/rdx}.
+\item A thread = address space (\code{loader\_}) + stack + registers + scheduler entry;
+  \code{createUserRegisters}, \code{setAddressSpace}, \code{addNewThread}; destructor in the
+  CleanupThread.
+\item Per-process state: where (base: \code{Loader}; team repo: \code{UserProcess}) and which lock.
+\item The page-table lock --- and why base SWEB does not have one.
+\item Address arithmetic: \code{vpn = addr >> 12}, \code{offset = addr \& 0xfff},
+  \code{addr = (vpn << 12) + offset}; a frame mapped twice is freed twice at exit.
+\end{enumerate}
+
+\section{The mechanics of \code{pthread\_create} in one picture}
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, fill=codebg, align=left, font=\footnotesize,
+              inner sep=4pt, text width=6.6cm},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+  \node[box] (a) {\textbf{user}: \code{pthread\_create(\&t, 0, f, arg)} $\to$
+     \code{\_\_syscall(sc\_pthread\_create, \&t, f, arg, pthreadStart)}};
+  \node[box, below=3mm of a] (b) {\textbf{kernel}: check pointers, touch \code{\&t};
+     \code{process->createThread()}: slot + count under \code{threads\_lock\_}};
+  \node[box, below=3mm of b] (c) {\code{new UserThread}: \code{loader\_} = the process's;
+     map stack pages (page-table lock); \code{createUserRegisters(rip = pthreadStart,
+     rsp = top - 8)}, \code{rdi = f}, \code{rsi = arg}; \code{setAddressSpace}};
+  \node[box, below=3mm of c] (d) {\code{*\&t = id}; \code{Scheduler::addNewThread(thread)} --- from now on it may run};
+  \node[box, below=3mm of d] (e) {first schedule: \code{arch\_contextSwitch} loads its user registers
+     $\to$ \code{pthreadStart(f, arg)} $\to$ \code{f(arg)} $\to$ \code{pthread\_exit(result)}};
+  \node[box, below=3mm of e] (f) {\code{kill()} $\to$ CleanupThread: \code{\textasciitilde UserThread}: unmap stack,
+     \code{process->threadFinished()} (last!)};
+  \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d); \draw[arr] (d) -- (e); \draw[arr] (e) -- (f);
+\end{tikzpicture}
+\end{center}
+
+\section{Tutorial 1: a string from user space}
+\label{sec:tutorial1}
+
+The first A0 tutorial --- reproduced unchanged in ex11 --- added a syscall that copies a user
+string (at most 15 characters) into a \code{ustl::string s} member of the calling thread,
+under a per-thread \code{Mutex s\_mutex} (\code{ScopeLock}), with a debug flag of its own:
+
+\begin{lstlisting}[style=cpp]
+const size_t TUTORIAL = Ansi_Blue | OUTPUT_ENABLED;      // debug.h: one line per flag
+
+    case sc_tutorial:
+      tutorial((char*)arg1);                             // the result is dropped!
+      break;
+\end{lstlisting}
+
+\textbf{What a tutor would ask about it} (all fixed in A0-11):
+\begin{itemize}
+\item the \code{case} has no \code{return\_value =} --- every call returns 0, also for \code{NULL};
+  and \code{return -1U} is \code{0xFFFFFFFF}, not -1;
+\item only the \emph{first} byte is checked against \code{USER\_BREAK}: a string without NUL
+  right below it makes \code{strncpy} read \code{0x800000000000} $\to$ General Protection Fault in
+  the kernel, the process is killed (exit 888). A string's end is unknown: copy byte by byte,
+  check each address before reading it;
+\item \code{strncpy(temp, string, 15)} leaves \code{temp} without NUL for long strings --- write
+  it yourself;
+\item \code{debug(TUTORIAL, "\%s", string)} prints the \emph{user} string again: a second,
+  unbounded read after the copy --- print the copy;
+\item the per-thread Mutex: needed only if another thread or kernel path touches the field.
+  Be ready to say which accesses a lock orders --- and when none does.
+\end{itemize}
+
+\section{Tutorial 2: one page at two addresses}
+\label{sec:tutorial2}
+
+The second A0 tutorial (7 Oct) added two syscalls --- reproduced unchanged in ex12:
+
+\begin{lstlisting}[style=cpp]
+size_t Syscall::get_physical_address(size_t virtual_address)
+{
+  UserProcess *process = (UserProcess*)currentThread;
+  ArchMemoryMapping m = process->loader_->arch_memory_.resolveMapping(virtual_address >> 12);
+  return m.page_ppn;
+}
+void Syscall::map_address(size_t virtual_address, size_t ppn)
+{
+  UserProcess *process = (UserProcess*)currentThread;
+  bool mapped = process->loader_->arch_memory_.mapPage(virtual_address >> 12, ppn, 1);
+  assert(mapped);
+}
+\end{lstlisting}
+
+The user program asks for the frame of a global, maps it at \code{0x424242424242}'s page, and
+reaches the global through \code{(vpn << 12) + (\&global \& 0xfff)}: the page table translates
+only the page number, the 12-bit offset is the same in the virtual and the physical address.
+
+\textbf{Why it panics at exit.} \code{exit} $\to$ \code{kill} $\to$ CleanupThread $\to$
+\code{\textasciitilde UserProcess} $\to$ \code{\textasciitilde Loader} $\to$
+\code{\textasciitilde ArchMemory}, which frees \emph{every} present user page. The global's frame is
+present twice $\to$ \code{freePPN} twice $\to$ \code{Assertion "Double free PPN"}. The program
+itself had finished correctly; the backtrace names the CleanupThread.
+
+\textbf{What a tutor would ask about it} (all fixed in A0-12):
+\begin{itemize}
+\item any \code{ppn} is accepted --- a process can map another process's frame or the kernel's
+  code, writable. Only frames already mapped in the caller's own address space (walk the user
+  half like \code{\textasciitilde ArchMemory}; there is no reverse map);
+\item no \code{USER\_BREAK} check, and \code{assert(mapped)}: a user program crashes the kernel by
+  mapping an address that is in use --- return \code{-1}, asserts are for kernel bugs;
+\item \code{page\_ppn} of an unmapped page is 0, a real frame number --- check
+  \code{m.page\_size == PAGE\_SIZE}, else \code{-1} (an untouched page is unmapped: lazy loading);
+\item no page-table lock (ex02) --- needed as soon as a process has threads;
+\item the double free: remember the alias vpns, unmap them with \code{unmapPage(vpn, false)} in
+  \code{Loader::\textasciitilde Loader} --- which runs before \code{arch\_memory\_} is destroyed;
+\item \code{(UserProcess*)currentThread}: not needed in base SWEB, wrong in the team repo
+  (\code{getLoader()}).
+\end{itemize}
+No TLB flush is needed after \code{mapPage}: the entry was not present before.
+
+\section{Variants to expect}
+
+Practise these as ``five-minute variations'' of the tasks:
+\begin{itemize}
+\item \code{mmap}-like: map \code{n} pages at an address chosen by the kernel / by the user
+  (A0-02 with a length); \code{munmap} with partial ranges.
+\item the page fault handler counts faults per process; a syscall returns the count.
+\item a special address that does something else: returns the time, the tid, a page shared by
+  all processes (careful: \code{unmapPage} frees the page --- shared pages need a reference count).
+\item tutorial-2 style: the physical page of an address; map a frame of the process a second
+  time; ``give me a second address for this variable'' --- remember: a frame mapped twice is
+  freed twice at exit (\S\ref{sec:tutorial2}).
+\item ``when a process writes to page X, print a message and continue'' (map it on demand,
+  read-only first, then writable on the write fault).
+\item the segv handler for division by zero (\code{errorHandler}); with a second argument
+  (read/write); resumable (needs a sigreturn syscall).
+\item \code{pthread\_create} variants: thread starts with two arguments; a thread that runs a
+  function \code{n} times; \code{pthread\_multi} with one thread \emph{per} function.
+\end{itemize}

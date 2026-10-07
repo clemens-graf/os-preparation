@@ -1,18 +1,12 @@
-# test builds
+# rules for the courses' own files are in 1-foundations/.gitignore; these apply everywhere
 build/
 *.o
-
-# example binaries: everything in example/ except sources and Makefiles
-/*/example/*
-!/*/example/*.c
-!/*/example/*.h
-!/*/example/Makefile
-
-# LaTeX build files (the PDFs themselves are committed)
-/theory/build/
-
-# editors, Python
-.vscode/
-.idea/
 __pycache__/
 *.swp
+
+# editors
+.idea/
+.vscode/
+
+# LaTeX build files of the AG guide (guide.pdf itself is committed)
+/2-ag-interviews/theory/build/

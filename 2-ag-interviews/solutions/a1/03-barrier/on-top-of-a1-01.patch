@@ -1,0 +1,258 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index dab9817..1b122ae 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -23,5 +23,8 @@ class Syscall
+     static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
+     static void pthreadExit(size_t value);
+     static size_t pthreadJoin(size_t thread_id, size_t value_ptr);
++    static size_t barrierInit(size_t barrier_ptr, size_t count);
++    static size_t barrierWait(size_t barrier_ptr);
++    static size_t barrierDestroy(size_t barrier_ptr);
+ };
+ 
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 2790d82..67710c0 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -21,6 +21,16 @@ struct ThreadSlot
+ #define STACK_SLOT_SIZE (64 * PAGE_SIZE)
+ #define USER_THREAD_STACK_PAGES 4
+ #define MAX_USER_THREADS 64
++#define MAX_BARRIERS 16          // A1-03
++
++// A1-03: a barrier of this process
++struct Barrier
++{
++  bool used;
++  size_t count;        // threads needed to open it
++  size_t waiting;      // threads that arrived in the current round
++  size_t generation;   // +1 every time it opens
++};
+ 
+ class UserProcess : public Thread
+ {
+@@ -56,6 +66,13 @@ class UserProcess : public Thread
+     /** A0-08: the main thread sleeps here until all other threads are gone */
+     void waitForThreads();
+ 
++    /** A1-03: @return barrier id (> 0) or -1 */
++    size_t barrierInit(size_t count);
++    /** A1-03: @return 1 for exactly one thread per round, 0 for the others, -1 on error */
++    size_t barrierWait(size_t id);
++    /** A1-03: @return 0, or -1 if unknown or threads are waiting */
++    size_t barrierDestroy(size_t id);
++
+   private:
+     int32 fd_;
+ 
+@@ -64,4 +81,8 @@ class UserProcess : public Thread
+     size_t num_threads_;           // threads besides the main thread that still exist
+     size_t next_thread_id_;        // ids are never reused - slots are
+     ThreadSlot slots_[MAX_USER_THREADS + 1];
++
++    Mutex barriers_lock_;          // A1-03: protects barriers_
++    Condition barrier_opened_;     // broadcast whenever any barrier opens
++    Barrier barriers_[MAX_BARRIERS];
+ };
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 2df47df..dc2e8ea 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -23,4 +23,7 @@
+ 
+ // A1 tasks use 1600-1699
+ #define sc_pthread_join 1600
++#define sc_barrier_init 1610
++#define sc_barrier_wait 1611
++#define sc_barrier_destroy 1612
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 31e8ee2..e546334 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -60,6 +60,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, arg2);
+       break;
++    case sc_barrier_init:
++      return_value = barrierInit(arg1, arg2);
++      break;
++    case sc_barrier_wait:
++      return_value = barrierWait(arg1);
++      break;
++    case sc_barrier_destroy:
++      return_value = barrierDestroy(arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -235,3 +244,43 @@ size_t Syscall::pthreadJoin(size_t thread_id, size_t value_ptr)
+     *(size_t*) value_ptr = value;   // after joinThread released its lock: this write may page-fault
+   return 0;
+ }
++
++// A1-03: a pthread_barrier_t in user space holds the id of a kernel barrier
++static bool readBarrierId(size_t barrier_ptr, size_t* id)
++{
++  if (barrier_ptr == 0 || barrier_ptr >= USER_BREAK - sizeof(size_t))
++    return false;
++  *id = *(size_t*) barrier_ptr;                 // copy in once, then only use the copy
++  return true;
++}
++
++size_t Syscall::barrierInit(size_t barrier_ptr, size_t count)
++{
++  if (count == 0 || barrier_ptr == 0 || barrier_ptr >= USER_BREAK - sizeof(size_t))
++    return (size_t) -1;
++  *(size_t*) barrier_ptr = 0;                   // touch first: fault before a barrier is allocated
++  size_t id = currentThread->process_->barrierInit(count);
++  if (id == (size_t) -1)
++    return (size_t) -1;
++  *(size_t*) barrier_ptr = id;
++  return 0;
++}
++
++size_t Syscall::barrierWait(size_t barrier_ptr)
++{
++  size_t id;
++  if (!readBarrierId(barrier_ptr, &id))
++    return (size_t) -1;
++  return currentThread->process_->barrierWait(id);
++}
++
++size_t Syscall::barrierDestroy(size_t barrier_ptr)
++{
++  size_t id;
++  if (!readBarrierId(barrier_ptr, &id))
++    return (size_t) -1;
++  size_t result = currentThread->process_->barrierDestroy(id);
++  if (result == 0)
++    *(size_t*) barrier_ptr = 0;
++  return result;
++}
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index bad9b33..395e28a 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -15,11 +15,14 @@
+ UserProcess::UserProcess(ustl::string filename, FileSystemInfo *fs_info, uint32 terminal_number) :
+     Thread(fs_info, filename, Thread::USER_THREAD), fd_(VfsSyscall::open(filename, O_RDONLY)),
+     threads_lock_("UserProcess::threads_lock_"), threads_changed_(&threads_lock_, "UserProcess::threads_changed_"),
+-    num_threads_(0), next_thread_id_(1)
++    num_threads_(0), next_thread_id_(1), barriers_lock_("UserProcess::barriers_lock_"),
++    barrier_opened_(&barriers_lock_, "UserProcess::barrier_opened_")
+ {
+   process_ = this;
+   for (ThreadSlot& slot : slots_)
+     slot.state = SLOT_FREE;
++  for (Barrier& barrier : barriers_)
++    barrier.used = false;
+   ProcessRegistry::instance()->processStart(); //should also be called if you fork a process
+ 
+   if (fd_ >= 0)
+@@ -133,3 +136,49 @@ void UserProcess::waitForThreads()
+     threads_changed_.wait();
+   threads_lock_.release();
+ }
++
++size_t UserProcess::barrierInit(size_t count)
++{
++  ScopeLock lock(barriers_lock_);
++  for (size_t i = 0; i < MAX_BARRIERS; ++i)
++  {
++    if (barriers_[i].used)
++      continue;
++    barriers_[i].used = true;
++    barriers_[i].count = count;
++    barriers_[i].waiting = 0;
++    barriers_[i].generation = 0;
++    return i + 1;                                   // 0 is never a valid id
++  }
++  return (size_t) -1;
++}
++
++size_t UserProcess::barrierWait(size_t id)
++{
++  ScopeLock lock(barriers_lock_);
++  if (id == 0 || id > MAX_BARRIERS || !barriers_[id - 1].used)
++    return (size_t) -1;
++  Barrier& barrier = barriers_[id - 1];
++  size_t my_generation = barrier.generation;
++  if (++barrier.waiting == barrier.count)
++  {
++    barrier.waiting = 0;                            // reset for the next round ...
++    ++barrier.generation;                           // ... and open the current one
++    barrier_opened_.broadcast();                    // ALL waiters, not just one
++    return 1;                                       // the "serial" thread
++  }
++  // wait for "my round has opened" - not for waiting == 0: the next round may already
++  // be filling up again when we wake up
++  while (barrier.generation == my_generation)
++    barrier_opened_.wait();
++  return 0;
++}
++
++size_t UserProcess::barrierDestroy(size_t id)
++{
++  ScopeLock lock(barriers_lock_);
++  if (id == 0 || id > MAX_BARRIERS || !barriers_[id - 1].used || barriers_[id - 1].waiting > 0)
++    return (size_t) -1;
++  barriers_[id - 1].used = false;
++  return 0;
++}
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae8..084aa5f 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -10,6 +10,12 @@ extern "C" {
+ typedef size_t pthread_t;
+ typedef unsigned int pthread_attr_t;
+ 
++// A1-03: barriers - the value is the id of a kernel barrier
++typedef size_t pthread_barrier_t;
++typedef unsigned int pthread_barrierattr_t;
++// SWEB convention: -1 means error, so the serial thread gets 1 here (Linux: -1)
++#define PTHREAD_BARRIER_SERIAL_THREAD 1
++
+ //pthread mutex typedefs
+ typedef unsigned int pthread_mutex_t;
+ typedef unsigned int pthread_mutexattr_t;
+@@ -56,6 +62,11 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
++// A1-03
++extern int pthread_barrier_init(pthread_barrier_t* barrier, const pthread_barrierattr_t* attr, unsigned int count);
++extern int pthread_barrier_wait(pthread_barrier_t* barrier);
++extern int pthread_barrier_destroy(pthread_barrier_t* barrier);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 214e83e..2bee1a1 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -50,6 +50,21 @@ int pthread_cancel(pthread_t thread)
+  * function stub
+  * posix compatible signature - do not change the signature!
+  */
++int pthread_barrier_init(pthread_barrier_t* barrier, const pthread_barrierattr_t* attr, unsigned int count)
++{
++  return __syscall(sc_barrier_init, (size_t) barrier, count, 0x00, 0x00, 0x00);
++}
++
++int pthread_barrier_wait(pthread_barrier_t* barrier)
++{
++  return __syscall(sc_barrier_wait, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++}
++
++int pthread_barrier_destroy(pthread_barrier_t* barrier)
++{
++  return __syscall(sc_barrier_destroy, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++}
++
+ int pthread_join(pthread_t thread, void **value_ptr)
+ {
+   return __syscall(sc_pthread_join, thread, (size_t) value_ptr, 0x00, 0x00, 0x00);

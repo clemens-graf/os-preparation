@@ -1,0 +1,157 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..2f6fe36 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // EX02: protects arch_memory_ (the page tables of this process).
++    // Every mapPage/unmapPage/PTE change for this process happens while holding it.
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..50b1694 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // EX02
++    static size_t scratchPage();
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..1416718 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// EX02
++#define sc_scratchpage 1410
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..012218d 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..44408d1 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,10 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "kstring.h"
++#include "ArchMemory.h"
++#include "PageManager.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +53,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_scratchpage:
++      return_value = scratchPage();
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +188,30 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// EX02: map one page for the user at a fixed address (idempotent).
++#define SCRATCH_PAGE_ADDRESS 0x0000700000000000ULL
++
++size_t Syscall::scratchPage()
++{
++  Loader* loader = currentThread->loader_;
++  size_t vpn = SCRATCH_PAGE_ADDRESS / PAGE_SIZE;
++
++  // 1. get a physical page (PageManager hands it out zeroed)
++  size_t ppn = PageManager::instance()->allocPPN();
++
++  // 2. fill it through the ident mapping: every physical page is visible to the kernel
++  //    at IDENT_MAPPING_START + ppn * PAGE_SIZE, independent of the current page tables
++  char* kernel_view = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
++  const char greeting[] = "hello from the kernel";
++  memcpy(kernel_view, greeting, sizeof(greeting)); // strcpy is banned in SWEB (it asserts)
++
++  // 3. map it into the process (user_access = 1, otherwise only the kernel could use it)
++  loader->arch_memory_lock_.acquire();
++  bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
++  loader->arch_memory_lock_.release();
++
++  if (!mapped)                                 // already mapped by an earlier call:
++    PageManager::instance()->freePPN(ppn);     // keep the old page, give ours back
++  return SCRATCH_PAGE_ADDRESS;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..f12a4d0 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,9 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// EX02
++extern void* scratchpage(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..93261c3 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++void* scratchpage(void)
++{
++  return (void*) __syscall(sc_scratchpage, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

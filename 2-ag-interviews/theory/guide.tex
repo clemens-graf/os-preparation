@@ -1,0 +1,36 @@
+\documentclass[11pt]{report}
+\input{preamble}
+
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries SWEB Interview Guide\par}
+  \vspace{0.6cm}
+  {\Large What happens where, how to change it --- and how to lock it\par}
+  \vspace{2cm}
+  {\large Theory for the live-coding part of the Abgabegespräche A0, A1, A2\par}
+  \vfill
+  \begin{infobox}
+  Companion to \file{preparation/2-ag-interviews/}: the examples (\code{exNN}), the tasks
+  (\code{a0/}, \code{a1/}, \code{a2/}) and their solutions refer to the sections here, and
+  the sections point back to them. Every claim about SWEB in this guide was checked against
+  the code (upstream \code{f6fcb2ab}) and, where it matters, by running it.
+  \end{infobox}
+  \vspace{1cm}
+  {\small A self-study companion for Operating Systems at TU Graz,\\ winter semester 2026/27 --- not official course material\par}
+\end{titlepage}
+
+\tableofcontents
+
+\input{ch1-interview}
+\input{ch2-map}
+\input{ch3-recipes}
+\input{ch4-locking}
+\input{ch5-a0}
+\input{ch6-a1}
+\input{ch7-a2}
+\input{ch8-team}
+
+\end{document}

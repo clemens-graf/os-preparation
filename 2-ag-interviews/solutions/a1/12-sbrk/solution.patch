@@ -1,0 +1,210 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..b7128c6 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -7,6 +7,10 @@
+ #include <uvector.h>
+ #include <ulist.h>
+ 
++// A1-12: the program break lives in [BRK_START, BRK_START + BRK_MAX)
++#define BRK_START 0x0000600000000000ULL
++#define BRK_MAX (4096 * PAGE_SIZE)
++
+ class Stabs2DebugInfo;
+ 
+ class Loader
+@@ -34,6 +38,19 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
++    // A1-12: current program break (first byte after the heap), protected by arch_memory_lock_
++    size_t brk_;
++
++    /**
++     * A1-12: maps a zero page at vpn if it lies below the program break
++     * @return false if it is above the break
++     */
++    bool mapBrkPage(size_t vpn);
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..d22b59b 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A1-12
++    static size_t sbrk(ssize_t increment);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..8a9f606 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A1-12
++#define sc_sbrk 1700
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..7a8891a 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), brk_(BRK_START), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+@@ -79,6 +82,18 @@ void Loader::loadPage(pointer virtual_address)
+   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
+ }
+ 
++bool Loader::mapBrkPage(size_t vpn)
++{
++  size_t ppn = PageManager::instance()->allocPPN();
++  arch_memory_lock_.acquire();
++  bool below = vpn * PAGE_SIZE < brk_;                  // check and map in one critical section
++  bool mapped = below && arch_memory_.mapPage(vpn, ppn, 1);
++  arch_memory_lock_.release();
++  if (!mapped)
++    PageManager::instance()->freePPN(ppn);
++  return below;
++}
++
+ bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
+ {
+   assert(program_binary_lock_.isHeldBy(currentThread));
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..c3b80f9 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,8 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +51,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_sbrk:
++      return_value = sbrk((ssize_t) arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +186,29 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A1-12: move the program break by increment bytes, return the OLD break
++size_t Syscall::sbrk(ssize_t increment)
++{
++  Loader* loader = currentThread->loader_;
++  ScopeLock lock(loader->arch_memory_lock_);
++  size_t old_brk = loader->brk_;
++  size_t new_brk = old_brk + increment;
++  if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)   // also catches wrap-around
++    return (size_t) -1;
++
++  if (increment < 0)
++  {
++    // shrinking: every page that now lies completely above the break goes away
++    size_t first_vpn = (new_brk + PAGE_SIZE - 1) / PAGE_SIZE;
++    size_t end_vpn = (old_brk + PAGE_SIZE - 1) / PAGE_SIZE;
++    for (size_t vpn = first_vpn; vpn < end_vpn; ++vpn)
++    {
++      if (loader->arch_memory_.resolveMapping(vpn).page_size != 0)
++        loader->arch_memory_.unmapPage(vpn);
++    }
++    ArchMemory::flushTlb();
++  }
++  loader->brk_ = new_brk;            // growing: nothing to map, the page fault handler does it
++  return old_brk;
++}
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 3224b05..952b4c5 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -61,7 +61,16 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   if (checkPageFaultIsValid(address, user, present, switch_to_us))
+   {
+-    currentThread->loader_->loadPage(address);
++    if (address >= BRK_START && address < BRK_START + BRK_MAX)      // A1-12: the heap
++    {
++      if (!currentThread->loader_->mapBrkPage(address / PAGE_SIZE))
++      {
++        debug(PAGEFAULT, "access above the program break\n");
++        Syscall::exit(9997);
++      }
++    }
++    else
++      currentThread->loader_->loadPage(address);
+   }
+   else
+   {
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..5b70858 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+diff --git a/userspace/libc/src/unistd.c b/userspace/libc/src/unistd.c
+index 7467120..ae83210 100644
+--- a/userspace/libc/src/unistd.c
++++ b/userspace/libc/src/unistd.c
+@@ -1,4 +1,6 @@
+ #include "unistd.h"
++#include "sys/syscall.h"
++#include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ 
+ /**
+@@ -16,7 +18,8 @@ int brk(void *end_data_segment)
+  */
+ void* sbrk(intptr_t increment)
+ {
+-  return (void*) -1;
++  // A1-12: the kernel returns the old break, or -1 - which is exactly (void*) -1
++  return (void*) __syscall(sc_sbrk, (size_t) increment, 0x00, 0x00, 0x00, 0x00);
+ }
+ 
+ 

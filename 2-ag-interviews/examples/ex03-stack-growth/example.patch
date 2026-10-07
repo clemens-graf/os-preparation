@@ -1,0 +1,100 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..1bb565d 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -28,12 +28,22 @@ class Loader
+      */
+     void loadPage(pointer virtual_address);
+ 
++    /**
++     * maps a new, zeroed physical page at virtual page vpn (user accessible)
++     * @return false if vpn was already mapped (then nothing changes)
++     */
++    bool mapZeroPage(size_t vpn);
++
+     Stabs2DebugInfo const* getDebugInfos() const;
+ 
+     void* getEntryFunction() const;
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..e7cf6e6 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+@@ -79,6 +82,17 @@ void Loader::loadPage(pointer virtual_address)
+   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
+ }
+ 
++bool Loader::mapZeroPage(size_t vpn)
++{
++  size_t ppn = PageManager::instance()->allocPPN(); // allocate outside the lock: keeps the critical section short
++  arch_memory_lock_.acquire();
++  bool mapped = arch_memory_.mapPage(vpn, ppn, 1);
++  arch_memory_lock_.release();
++  if (!mapped)
++    PageManager::instance()->freePPN(ppn);          // somebody else was faster - give the page back
++  return mapped;
++}
++
+ bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
+ {
+   assert(program_binary_lock_.isHeldBy(currentThread));
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 3224b05..3216e6f 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -11,6 +11,11 @@ extern "C" void arch_contextSwitch();
+ 
+ const size_t PageFaultHandler::null_reference_check_border_ = PAGE_SIZE;
+ 
++// EX03: the top 64 pages below USER_BREAK are the stack. Only the topmost page is mapped
++// when the process starts (UserProcess ctor); the others are mapped when first touched.
++#define STACK_MAX_PAGES 64
++#define STACK_BOTTOM (USER_BREAK - STACK_MAX_PAGES * PAGE_SIZE)
++
+ inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
+                                                     bool present, bool switch_to_us)
+ {
+@@ -61,7 +66,13 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   if (checkPageFaultIsValid(address, user, present, switch_to_us))
+   {
+-    currentThread->loader_->loadPage(address);
++    if (address >= STACK_BOTTOM)                               // EX03: stack growth
++    {
++      debug(PAGEFAULT, "growing the stack: mapping page %zx\n", address / PAGE_SIZE);
++      currentThread->loader_->mapZeroPage(address / PAGE_SIZE); // false = another fault was faster: fine
++    }
++    else
++      currentThread->loader_->loadPage(address);
+   }
+   else
+   {

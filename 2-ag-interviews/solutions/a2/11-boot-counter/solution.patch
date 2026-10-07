@@ -1,0 +1,266 @@
+diff --git a/common/include/kernel/BootRecord.h b/common/include/kernel/BootRecord.h
+new file mode 100644
+index 0000000..52fd96c
+--- /dev/null
++++ b/common/include/kernel/BootRecord.h
+@@ -0,0 +1,41 @@
++#pragma once
++
++#include "types.h"
++
++class Mutex;
++class BDVirtualDevice;
++
++#define MOTD_SIZE 256
++
++/**
++ * A2-11: block 0 of the swap partition idea2 holds a boot counter and a message of the day
++ * that survive reboots.
++ */
++class BootRecord
++{
++  public:
++    static void init();                 // from ProcessRegistry::Run(): needs a thread (disk I/O)
++    static BootRecord* instance();
++
++    size_t bootCount();
++    void getMotd(char* buffer);         // MOTD_SIZE bytes, 0-terminated
++    bool setMotd(const char* text);     // kernel copy, written to disk at once
++
++  private:
++    BootRecord();
++    static BootRecord* instance_;
++
++    struct OnDisk                       // exactly one 512-byte block
++    {
++      uint64 magic;
++      uint64 boot_count;
++      char motd[MOTD_SIZE];
++      char unused[512 - 16 - MOTD_SIZE];
++    };
++    static_assert(sizeof(OnDisk) == 512, "the record must be one block");
++    static const uint64 MAGIC = 0x5357454242304F54ULL;   // "SWEBB0OT"
++
++    BDVirtualDevice* device_;
++    Mutex* lock_;                       // protects record_ and the disk block
++    OnDisk record_;
++};
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..5d334ff 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,9 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A2-11
++    static size_t getMotd(size_t user_buffer);
++    static size_t setMotd(size_t user_text);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..4148bc5 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,8 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A2-11
++#define sc_bootcount 1790
++#define sc_getmotd 1791
++#define sc_setmotd 1792
++
+diff --git a/common/source/kernel/BootRecord.cpp b/common/source/kernel/BootRecord.cpp
+new file mode 100644
+index 0000000..c0d0708
+--- /dev/null
++++ b/common/source/kernel/BootRecord.cpp
+@@ -0,0 +1,61 @@
++#include "BootRecord.h"
++#include "BDManager.h"
++#include "BDVirtualDevice.h"
++#include "Mutex.h"
++#include "ScopeLock.h"
++#include "kstring.h"
++#include "kprintf.h"
++#include "assert.h"
++
++BootRecord* BootRecord::instance_ = nullptr;
++
++void BootRecord::init()
++{
++  instance_ = new BootRecord();
++}
++
++BootRecord* BootRecord::instance()
++{
++  return instance_;
++}
++
++BootRecord::BootRecord() : device_(BDManager::getInstance()->getDeviceByName("idea2")),
++                           lock_(new Mutex("BootRecord::lock_"))
++{
++  assert(device_);
++  // disk I/O waits for the IDE interrupt and yields meanwhile: this needs a running thread with
++  // interrupts on - so init() is called by the ProcessRegistry thread, not in startup()
++  int32 read = device_->readData(0, sizeof(record_), (char*) &record_);
++  assert(read == sizeof(record_));
++  if (record_.magic != MAGIC)           // fresh disk: start counting
++  {
++    memset(&record_, 0, sizeof(record_));
++    record_.magic = MAGIC;
++  }
++  ++record_.boot_count;
++  int32 written = device_->writeData(0, sizeof(record_), (char*) &record_);
++  assert(written == sizeof(record_));
++  record_.motd[MOTD_SIZE - 1] = 0;
++  kprintf("This is boot number %zu. Message of the day: %s\n", (size_t) record_.boot_count,
++          record_.motd[0] ? record_.motd : "(none)");
++}
++
++size_t BootRecord::bootCount()
++{
++  ScopeLock lock(*lock_);
++  return record_.boot_count;
++}
++
++void BootRecord::getMotd(char* buffer)
++{
++  ScopeLock lock(*lock_);
++  memcpy(buffer, record_.motd, MOTD_SIZE);
++}
++
++bool BootRecord::setMotd(const char* text)
++{
++  ScopeLock lock(*lock_);              // two processes setting it at once: one record, one write
++  strncpy(record_.motd, text, MOTD_SIZE - 1);
++  record_.motd[MOTD_SIZE - 1] = 0;
++  return device_->writeData(0, sizeof(record_), (char*) &record_) == sizeof(record_);
++}
+diff --git a/common/source/kernel/ProcessRegistry.cpp b/common/source/kernel/ProcessRegistry.cpp
+index f60baa0..7b82644 100644
+--- a/common/source/kernel/ProcessRegistry.cpp
++++ b/common/source/kernel/ProcessRegistry.cpp
+@@ -6,6 +6,7 @@
+ #include "VfsSyscall.h"
+ #include "VirtualFileSystem.h"
+ #include "PageManager.h"
++#include "BootRecord.h"
+ 
+ ProcessRegistry* ProcessRegistry::instance_ = 0;
+ 
+@@ -31,6 +32,8 @@ void ProcessRegistry::Run()
+   if (!progs_ || !progs_[0])
+     return;
+ 
++  BootRecord::init();   // A2-11: count this boot, before the first program can ask
++
+   debug(PROCESS_REG, "mounting userprog-partition \n");
+ 
+   debug(PROCESS_REG, "mkdir /usr\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..05fa0b7 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,8 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "BootRecord.h"
++#include "kstring.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +51,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_bootcount:
++      return_value = BootRecord::instance()->bootCount();
++      break;
++    case sc_getmotd:
++      return_value = getMotd(arg1);
++      break;
++    case sc_setmotd:
++      return_value = setMotd(arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +192,24 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A2-11
++size_t Syscall::getMotd(size_t user_buffer)
++{
++  if (user_buffer == 0 || user_buffer >= USER_BREAK - MOTD_SIZE)
++    return (size_t) -1;
++  char motd[MOTD_SIZE];
++  BootRecord::instance()->getMotd(motd);
++  memcpy((void*) user_buffer, motd, MOTD_SIZE);
++  return 0;
++}
++
++size_t Syscall::setMotd(size_t user_text)
++{
++  if (user_text == 0 || user_text >= USER_BREAK - MOTD_SIZE)
++    return (size_t) -1;
++  char text[MOTD_SIZE];
++  memcpy(text, (void*) user_text, MOTD_SIZE);    // copy in (at most MOTD_SIZE bytes) ...
++  text[MOTD_SIZE - 1] = 0;                       // ... and terminate the copy ourselves
++  return BootRecord::instance()->setMotd(text) ? 0 : (size_t) -1;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..4a4afd0 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,11 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A2-11: boot counter and message of the day, kept on the swap partition across reboots
++extern size_t bootcount(void);
++extern int getmotd(char* buffer256);
++extern int setmotd(const char* text);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..75c32e1 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,21 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++size_t bootcount(void)
++{
++  return __syscall(sc_bootcount, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
++
++int getmotd(char* buffer256)
++{
++  return __syscall(sc_getmotd, (size_t) buffer256, 0x00, 0x00, 0x00, 0x00);
++}
++
++int setmotd(const char* text)
++{
++  return __syscall(sc_setmotd, (size_t) text, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

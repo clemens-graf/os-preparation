@@ -1,0 +1,196 @@
+diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
+index e05ce60..edabd58 100644
+--- a/arch/x86/64/include/ArchMemory.h
++++ b/arch/x86/64/include/ArchMemory.h
+@@ -80,7 +80,8 @@ class ArchMemory
+ 
+     /**
+      * A2-01: calls callback(slot) for every swapped-out page of this address space
+-     * (used when the process dies: its swap slots must be freed)
++     * (used when the process dies: its swap slots must be freed).
++     * A2-05: also for present pages that still have a clean copy on disk (ignored_1 = slot + 1)
+      */
+     void forEachSwappedPage(void (*callback)(size_t slot));
+ 
+diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
+index 616dfa4..1c0f57a 100644
+--- a/arch/x86/64/source/ArchMemory.cpp
++++ b/arch/x86/64/source/ArchMemory.cpp
+@@ -182,6 +182,8 @@ void ArchMemory::forEachSwappedPage(void (*callback)(size_t slot))
+         {
+           if (!pt[pti].present && pt[pti].ignored_2 == PTE_SWAPPED)
+             callback(pt[pti].page_ppn);
++          else if (pt[pti].present && pt[pti].ignored_1)
++            callback(pt[pti].ignored_1 - 1);
+         }
+       }
+     }
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 86d73ea..ec71949 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -20,4 +20,5 @@
+ // A2 tasks use 1720-1799
+ #define sc_swapout 1720
+ #define sc_swapinfo 1721
++#define sc_swapwrites 1750
+ 
+diff --git a/common/include/mm/SwapManager.h b/common/include/mm/SwapManager.h
+index 801f850..7a64348 100644
+--- a/common/include/mm/SwapManager.h
++++ b/common/include/mm/SwapManager.h
+@@ -23,6 +23,11 @@ class SwapManager
+     void freeSlot(size_t slot);
+     size_t usedSlots();
+ 
++    /** A2-05: copies ppn into an already reserved slot (the old copy is outdated) */
++    void writeSlot(size_t slot, size_t ppn);
++    /** A2-05: number of pages written to disk so far */
++    size_t writes();
++
+     static void freeSlotCallback(size_t slot);  // for ArchMemory::forEachSwappedPage
+ 
+   private:
+@@ -33,4 +38,5 @@ class SwapManager
+     size_t num_slots_;
+     Bitmap* slots_;          // bit set = slot in use
+     Mutex* lock_;            // protects slots_ and serialises our disk requests
++    size_t writes_;          // A2-05: protected by lock_
+ };
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index f96df95..1df8e61 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -101,12 +101,28 @@ size_t Loader::swapOut(size_t vpn)
+   ArchMemory::flushTlb();
+   // 2. copy it to disk. We keep holding arch_memory_lock_: a thread that touches the page now
+   //    page-faults and waits for the lock in swapIn
+-  size_t slot = SwapManager::instance()->writeOut(ppn);
+-  if (slot == (size_t) -1)
++  //    A2-05: unless there is a copy on disk already and the page was not written since.
++  //    The dirty bit is read AFTER present = 0 + TLB flush: no write can set it any more.
++  size_t slot;
++  if (pte.ignored_1 && !pte.dirty)
+   {
+-    pte.present = 1;                          // device full: undo
+-    return (size_t) -1;
++    slot = pte.ignored_1 - 1;                 // clean: the disk copy is still correct
+   }
++  else if (pte.ignored_1)
++  {
++    slot = pte.ignored_1 - 1;                 // dirty: overwrite its old slot, no new one
++    SwapManager::instance()->writeSlot(slot, ppn);
++  }
++  else
++  {
++    slot = SwapManager::instance()->writeOut(ppn);
++    if (slot == (size_t) -1)
++    {
++      pte.present = 1;                        // device full: undo
++      return (size_t) -1;
++    }
++  }
++  pte.ignored_1 = 0;
+   // 3. the entry now says "swapped, at slot" - present stays 0
+   pte.page_ppn = slot;
+   pte.ignored_2 = PTE_SWAPPED;
+@@ -126,7 +142,9 @@ bool Loader::swapIn(size_t vpn)
+   size_t slot = pte.page_ppn;
+   size_t ppn = PageManager::instance()->allocPPN();   // lock order: arch_memory_lock_ -> PageManager
+   SwapManager::instance()->readIn(slot, ppn);         // -> SwapManager: always this order
+-  SwapManager::instance()->freeSlot(slot);
++  // A2-05: keep the slot - its content equals the page until the page is written
++  pte.ignored_1 = slot + 1;
++  pte.dirty = 0;                              // was not present: no TLB entry can hold an old dirty bit
+   pte.ignored_2 = 0;
+   pte.page_ppn = ppn;
+   pte.present = 1;                            // last: only now may the process use it again
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 3f1baac..48ed963 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -57,6 +57,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_swapinfo:
+       return_value = SwapManager::instance()->usedSlots();
+       break;
++    case sc_swapwrites:
++      return_value = SwapManager::instance()->writes();
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
+index f96581e..ba6badb 100644
+--- a/common/source/mm/SwapManager.cpp
++++ b/common/source/mm/SwapManager.cpp
+@@ -22,10 +22,12 @@ SwapManager* SwapManager::instance()
+ }
+ 
+ SwapManager::SwapManager() : device_(BDManager::getInstance()->getDeviceByName("idea2")),
+-                             num_slots_(0), slots_(nullptr), lock_(new Mutex("SwapManager::lock_"))
++                             num_slots_(0), slots_(nullptr), lock_(new Mutex("SwapManager::lock_")), writes_(0)
+ {
+   assert(device_ && "no swap partition idea2");
+   num_slots_ = (size_t) device_->getNumBlocks() * device_->getBlockSize() / PAGE_SIZE;
++  if (num_slots_ > 2047)
++    num_slots_ = 2047;     // A2-05: slot + 1 must fit into the 11 bits of ignored_1
+   slots_ = new Bitmap(num_slots_);
+   debug(PM, "SwapManager: %zu slots on %s\n", num_slots_, device_->getName());
+ }
+@@ -43,6 +45,7 @@ size_t SwapManager::writeOut(size_t ppn)
+   // to be mapped anywhere, and it is not: the caller has already unmapped it
+   int32 written = device_->writeData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
+   assert(written == PAGE_SIZE && "swap write failed");
++  ++writes_;
+   return slot;
+ }
+ 
+@@ -71,3 +74,18 @@ void SwapManager::freeSlotCallback(size_t slot)
+ {
+   instance()->freeSlot(slot);
+ }
++
++void SwapManager::writeSlot(size_t slot, size_t ppn)
++{
++  ScopeLock lock(*lock_);
++  assert(slots_->getBit(slot) && "writing a slot that is not reserved");
++  int32 written = device_->writeData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
++  assert(written == PAGE_SIZE && "swap write failed");
++  ++writes_;
++}
++
++size_t SwapManager::writes()
++{
++  ScopeLock lock(*lock_);
++  return writes_;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 6729610..fbb0fc3 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -23,6 +23,9 @@ extern int createprocess(const char* path, int sleep);
+ extern int swapout(void* address);
+ extern size_t swapinfo(void);
+ 
++// A2-05: number of pages written to the swap device so far
++extern size_t swapwrites(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index f28f131..5a07043 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -20,6 +20,11 @@ size_t swapinfo(void)
+   return __syscall(sc_swapinfo, 0x00, 0x00, 0x00, 0x00, 0x00);
+ }
+ 
++size_t swapwrites(void)
++{
++  return __syscall(sc_swapwrites, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

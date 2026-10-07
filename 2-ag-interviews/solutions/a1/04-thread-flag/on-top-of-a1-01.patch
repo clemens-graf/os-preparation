@@ -1,0 +1,216 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index dab9817..217397a 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -23,5 +23,6 @@ class Syscall
+     static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
+     static void pthreadExit(size_t value);
+     static size_t pthreadJoin(size_t thread_id, size_t value_ptr);
++    static size_t pthreadSetDouble(size_t thread_id, size_t on);
+ };
+ 
+diff --git a/common/include/kernel/Thread.h b/common/include/kernel/Thread.h
+index 6335415..d04830b 100644
+--- a/common/include/kernel/Thread.h
++++ b/common/include/kernel/Thread.h
+@@ -92,6 +92,11 @@ class Thread
+     // A0-08: the process this thread belongs to (nullptr for kernel threads)
+     UserProcess* process_;
+ 
++    // A1-04: read by the scheduler with interrupts off - it cannot take a lock, so these are
++    // single words that are only ever written atomically (flag) or only by the scheduler itself
++    volatile size_t double_slice_;   // 1 = run two time slices in a row
++    size_t extra_slice_used_;        // scheduler-private
++
+ 
+     void setState(ThreadState state);
+ 
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 2790d82..075bff5 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -14,6 +14,7 @@ struct ThreadSlot
+   ThreadSlotState state;
+   size_t id;
+   size_t exit_value;
++  UserThread* thread;  // valid while RUNNING (set after construction, cleared by threadFinished)
+ };
+ 
+ // A0-08: stack layout - slot 0 is the main thread's stack (top page below USER_BREAK),
+@@ -56,6 +57,14 @@ class UserProcess : public Thread
+     /** A0-08: the main thread sleeps here until all other threads are gone */
+     void waitForThreads();
+ 
++    /**
++     * A1: the thread with this id (0 = the main thread), nullptr if it does not exist (any more).
++     * The caller must hold threads_lock_ for as long as it uses the pointer:
++     * a thread's object is freed only after threadFinished(), which needs that lock.
++     */
++    Thread* findThread(size_t id);
++    Mutex& getThreadsLock() { return threads_lock_; }
++
+   private:
+     int32 fd_;
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 2df47df..e3f9489 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -23,4 +23,5 @@
+ 
+ // A1 tasks use 1600-1699
+ #define sc_pthread_join 1600
++#define sc_pthread_setdouble 1620
+ 
+diff --git a/common/source/kernel/Scheduler.cpp b/common/source/kernel/Scheduler.cpp
+index a13b43d..2f416f6 100644
+--- a/common/source/kernel/Scheduler.cpp
++++ b/common/source/kernel/Scheduler.cpp
+@@ -49,6 +49,18 @@ void Scheduler::schedule()
+     debug(SCHEDULER, "schedule: WARNING - cleanup_thread is being descheduled before completing cleanup.\n");
+   }
+ 
++  // A1-04: a flagged thread keeps the CPU for a second time slice
++  if (currentThread && currentThread->double_slice_ && !currentThread->extra_slice_used_ &&
++      currentThread->schedulable())
++  {
++    currentThread->extra_slice_used_ = 1;
++    currentThreadRegisters = currentThread->switch_to_userspace_ ? currentThread->user_registers_ :
++                                                                   currentThread->kernel_registers_;
++    return;
++  }
++  if (currentThread)
++    currentThread->extra_slice_used_ = 0;
++
+   auto it = threads_.begin();
+   for(; it != threads_.end(); ++it)
+   {
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 31e8ee2..4c7cc93 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -8,6 +8,8 @@
+ #include "File.h"
+ #include "Scheduler.h"
+ #include "UserThread.h"
++#include "ScopeLock.h"
++#include "ArchThreads.h"
+ #include "UserProcess.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+@@ -60,6 +62,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, arg2);
+       break;
++    case sc_pthread_setdouble:
++      return_value = pthreadSetDouble(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -235,3 +240,15 @@ size_t Syscall::pthreadJoin(size_t thread_id, size_t value_ptr)
+     *(size_t*) value_ptr = value;   // after joinThread released its lock: this write may page-fault
+   return 0;
+ }
++
++// A1-04: flag a thread of the calling process (0 = main thread)
++size_t Syscall::pthreadSetDouble(size_t thread_id, size_t on)
++{
++  UserProcess* process = currentThread->process_;
++  ScopeLock lock(process->getThreadsLock());   // keeps the thread object alive while we use it
++  Thread* thread = process->findThread(thread_id);
++  if (!thread)
++    return (size_t) -1;
++  ArchThreads::atomic_set((uint64&) thread->double_slice_, on ? 1 : 0);   // the scheduler may read it any moment
++  return 0;
++}
+diff --git a/common/source/kernel/Thread.cpp b/common/source/kernel/Thread.cpp
+index 9a827a2..ad1abea 100644
+--- a/common/source/kernel/Thread.cpp
++++ b/common/source/kernel/Thread.cpp
+@@ -30,7 +30,7 @@ extern "C" void threadStartHack()
+ }
+ 
+ Thread::Thread(FileSystemInfo *working_dir, ustl::string name, Thread::TYPE type) :
+-    kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0), loader_(0), process_(0),
++    kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0), loader_(0), process_(0), double_slice_(0), extra_slice_used_(0),
+     next_thread_in_lock_waiters_list_(0), lock_waiting_on_(0), holding_lock_list_(0), state_(Running), tid_(0),
+     my_terminal_(0), working_dir_(working_dir), name_(ustl::move(name))
+ {
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index bad9b33..46031ef 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -86,11 +86,16 @@ UserThread* UserProcess::createThread(size_t entry, size_t start_routine, size_t
+   size_t id = next_thread_id_++;
+   slots_[slot].state = SLOT_RUNNING;
+   slots_[slot].id = id;
++  slots_[slot].thread = nullptr;
+   ++num_threads_;
+   threads_lock_.release();
+ 
+   // outside threads_lock_: the constructor takes arch_memory_lock_ and allocates
+-  return new UserThread(this, slot, id, entry, start_routine, argument);
++  UserThread* thread = new UserThread(this, slot, id, entry, start_routine, argument);
++  threads_lock_.acquire();
++  slots_[slot].thread = thread;
++  threads_lock_.release();
++  return thread;
+ }
+ 
+ void UserProcess::threadFinished(size_t slot, size_t exit_value)
+@@ -98,6 +103,7 @@ void UserProcess::threadFinished(size_t slot, size_t exit_value)
+   threads_lock_.acquire();
+   slots_[slot].state = SLOT_FINISHED;
+   slots_[slot].exit_value = exit_value;
++  slots_[slot].thread = nullptr;     // the object is about to be freed
+   --num_threads_;
+   threads_changed_.broadcast();   // joiners of this thread AND the main thread waiting in exit
+   threads_lock_.release();
+@@ -133,3 +139,16 @@ void UserProcess::waitForThreads()
+     threads_changed_.wait();
+   threads_lock_.release();
+ }
++
++Thread* UserProcess::findThread(size_t id)
++{
++  assert(threads_lock_.isHeldBy(currentThread));
++  if (id == 0)
++    return this;
++  for (size_t slot = 1; slot <= MAX_USER_THREADS; ++slot)
++  {
++    if (slots_[slot].state == SLOT_RUNNING && slots_[slot].id == id)
++      return (Thread*) slots_[slot].thread;   // may still be nullptr right after creation
++  }
++  return nullptr;
++}
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae8..ac5db86 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -56,6 +56,9 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
++// A1-04: a flagged thread is scheduled twice as often (two time slices in a row); 0 = main thread
++extern int pthread_setdouble(pthread_t thread, int on);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 214e83e..231181e 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -50,6 +50,11 @@ int pthread_cancel(pthread_t thread)
+  * function stub
+  * posix compatible signature - do not change the signature!
+  */
++int pthread_setdouble(pthread_t thread, int on)
++{
++  return __syscall(sc_pthread_setdouble, thread, on, 0x00, 0x00, 0x00);
++}
++
+ int pthread_join(pthread_t thread, void **value_ptr)
+ {
+   return __syscall(sc_pthread_join, thread, (size_t) value_ptr, 0x00, 0x00, 0x00);

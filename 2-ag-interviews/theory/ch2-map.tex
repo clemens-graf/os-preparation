@@ -1,0 +1,212 @@
+\chapter{The map: what happens where}
+\label{ch:map}
+
+This chapter answers ``which file do I have to touch?''. Read it once completely, then
+use the tables as a lookup during practice.
+
+\section{The source tree --- the parts you touch}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{L{7.0cm}L{8.6cm}}
+\toprule
+\textbf{Path} & \textbf{What lives there} \\
+\midrule
+\file{common/include/kernel/syscall-definitions.h} & syscall numbers (\code{sc\_...}) --- included by kernel \emph{and} libc \\
+\file{common/source/kernel/Syscall.cpp} & \code{syscallException}: the big switch; all syscall implementations \\
+\file{common/source/mm/PageFaultHandler.cpp} & \code{enterPageFault}, \code{checkPageFaultIsValid}, \code{handlePageFault} \\
+\file{common/source/kernel/Loader.cpp} & the ELF binary of a process, \code{loadPage} (lazy loading), owns the address space \code{arch\_memory\_} \\
+\file{common/source/kernel/UserProcess.cpp} & process start: loader, first stack page, user registers \\
+\file{common/source/kernel/Thread.cpp} & \code{Thread}: kernel stack, registers, state, \code{kill()} \\
+\file{common/source/kernel/Scheduler.cpp} & thread list, \code{schedule()} (round robin), \code{yield}, \code{sleep}/\code{wake}, cleanup \\
+\file{common/source/kernel/ProcessRegistry.cpp} & starts the programs of \code{user\_progs.h} (the shell) and \code{createprocess} \\
+\file{common/source/kernel/}\newline\file{\{Mutex,SpinLock,Condition,ScopeLock,Lock\}.cpp} & locks, with deadlock and misuse checks \\
+\file{common/source/kernel/main.cpp} & \code{startup()}: boot order; create kernel-wide objects here \\
+\file{common/source/mm/PageManager.cpp} & physical pages: \code{allocPPN} (zeroed), \code{freePPN}, free/total counts \\
+\file{common/source/mm/KernelMemoryManager.cpp} & the kernel heap behind \code{new}/\code{delete} \\
+\file{common/source/console/Console.cpp} & \code{handleKey}: F-keys (F9--F12 debug output, Shift+Fn terminal switch) \\
+\file{common/source/fs/BDManager.cpp},\newline\file{BDVirtualDevice.cpp} & block devices: \code{idea0}, \code{idea1} (\file{/usr}), \code{idea2} (swap partition) \\
+\file{common/include/console/debug.h} & debug flags: \code{debug(FLAG, ...)} on/off per category \\
+\midrule
+\file{arch/x86/64/source/InterruptUtils.cpp} & C entry of every interrupt: \code{syscallHandler}, \code{pageFaultHandler}, \code{errorHandler}, timer \code{irqHandler\_0}, keyboard \code{irqHandler\_1} \\
+\file{arch/x86/64/source/arch\_interrupts.S} & the assembly stubs: save registers, call the C handler, \code{iretq} \\
+\file{arch/x86/64/source/ArchMemory.cpp} & page tables: \code{mapPage}, \code{unmapPage}, \code{resolveMapping}, \code{checkAddressValid}, \code{flushTlb} \\
+\file{arch/x86/64/include/paging-definitions.h} & the page-table entry bit fields (\code{PageTableEntry}: present, writeable, user\_access, dirty, ignored\_*, execution\_disabled) \\
+\file{arch/x86/64/source/ArchThreads.cpp} & \code{createUserRegisters}, \code{createKernelRegisters}, \code{setAddressSpace}, atomics \\
+\file{arch/x86/64/include/ArchThreads.h} & \code{struct ArchThreadRegisters} (rip, rsp, rax, rdi, \ldots, cr3) \\
+\file{arch/x86/64/include/offsets.h} & \code{USER\_BREAK}, \code{KERNEL\_START}, \code{IDENT\_MAPPING\_START} \\
+\midrule
+\file{arch/x86/64/userspace/syscalls.c} & \code{\_\_syscall}: \code{int \$0x80}, number in \code{rax}, args in \code{rbx, rcx, rdx, rsi, rdi} \\
+\file{userspace/libc/src/*.c},\newline\file{userspace/libc/include/*.h} & the libc: \code{nonstd.c} (SWEB extras), \code{pthread.c}, \code{stdlib.c} (\code{malloc} is a stub!), \ldots \\
+\file{userspace/tests/*.c} & one program per file, \code{name.c} $\to$ \code{name.sweb} on the disk image \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{When X happens --- the call chains}
+
+\begin{center}
+\small
+\begin{longtable}{L{2.6cm}L{12.2cm}}
+\toprule
+\textbf{Event} & \textbf{Chain (file)} \\
+\midrule
+\endhead
+System call &
+user: libc wrapper (\file{nonstd.c}) $\to$ \code{\_\_syscall} (\file{arch/x86/64/userspace/syscalls.c}): \code{int \$0x80}
+$\to$ \code{arch\_syscallHandler} (\file{arch\_interrupts.S}): save user registers into \code{currentThread->user\_registers\_}
+$\to$ \code{syscallHandler} (\file{InterruptUtils.cpp}): \code{switch\_to\_userspace\_ = 0}, interrupts \textbf{on}
+$\to$ \code{Syscall::syscallException(rax, rbx, rcx, rdx, rsi, rdi)} (\file{Syscall.cpp})
+$\to$ return value into \code{user\_registers\_->rax}, \code{arch\_contextSwitch()} loads the user registers. \\
+\addlinespace
+Page fault (\#PF, vector 14) &
+\code{arch\_pageFaultHandler} (asm: \code{cr2} = address, error code from the stack)
+$\to$ \code{pageFaultHandler(address, error)} (\file{InterruptUtils.cpp}): decodes present / write / user / fetch
+$\to$ \code{PageFaultHandler::enterPageFault} (kernel registers, interrupts \textbf{on})
+$\to$ \code{handlePageFault}: \code{checkPageFaultIsValid}? no: backtrace + \code{Syscall::exit(9999)};
+yes: \code{loader\_->loadPage(address)} (\file{Loader.cpp}): no segment covers it $\to$ \code{Syscall::exit(666)}
+$\to$ back: the faulting instruction is executed again. \\
+\addlinespace
+CPU exception (div by 0, \#GP, \ldots) &
+\code{errorHandler} (\file{InterruptUtils.cpp}): prints the error and registers; user thread $\to$ \code{Syscall::exit(888)}, kernel thread $\to$ \code{kill()}. \\
+\addlinespace
+Timer tick (IRQ 0) &
+\code{irqHandler\_0}: \code{Scheduler::incTicks()}, \code{Scheduler::schedule()} (picks the next schedulable thread, sets \code{currentThreadRegisters}), \code{arch\_contextSwitch()} --- a thread can lose the CPU \textbf{between any two instructions} when interrupts are on. \\
+\addlinespace
+\code{yield()} &
+\code{Scheduler::yield} $\to$ \code{int \$65} $\to$ \code{irqHandler\_65}: \code{schedule()} + context switch. \\
+\addlinespace
+Key press &
+IRQ 1 $\to$ \code{KeyboardManager::serviceIRQ} (\file{arch/x86/common}) queues the key $\to$ the \textbf{Console kernel thread} (\code{Console::Run}) takes it: printable $\to$ terminal; F-keys $\to$ \code{Console::handleKey}. \\
+\addlinespace
+Program start &
+boot: \code{startup()} (\file{main.cpp}) adds the \code{ProcessRegistry} thread $\to$ \code{Run()} mounts \file{/usr}, \code{createProcess(path)} for each entry of \code{user\_progs.h} (the shell).
+Shell runs \code{foo.sweb} $\to$ \code{createprocess} syscall $\to$ \code{ProcessRegistry::createProcess} $\to$ \code{new UserProcess(path)}:
+open file, \code{new Loader(fd)}, read ELF headers, map \textbf{one} stack page at \code{USER\_BREAK - PAGE\_SIZE},
+\code{createUserRegisters(rip = ELF entry, rsp = USER\_BREAK - 8)}, \code{setAddressSpace} $\to$ \code{Scheduler::addNewThread}.
+The first schedule loads the user registers: the program starts in \code{\_start} (\file{nonstd.c}) $\to$ \code{main}. \\
+\addlinespace
+Kernel thread start &
+\code{new MyThread} (\code{Thread(..., KERNEL\_THREAD)}: kernel registers with \code{rip = threadStartHack}) $\to$ \code{addNewThread} $\to$ first schedule: \code{threadStartHack} $\to$ \code{Run()} $\to$ \code{kill()}. \\
+\addlinespace
+Thread / process end &
+\code{exit()} $\to$ \code{Syscall::exit} $\to$ \code{currentThread->kill()}: state \code{ToBeDestroyed}, \code{yield()}, never returns.
+The \textbf{CleanupThread} (\code{cleanupDeadThreads}) removes it from the list and \code{delete}s it $\to$ \code{\textasciitilde UserProcess}: \code{delete loader\_} $\to$ \code{\textasciitilde ArchMemory} frees every user page and page table; \code{ProcessRegistry::processExit}. \\
+\addlinespace
+Disk I/O &
+\code{BDVirtualDevice::readData/writeData} $\to$ \code{BDRequest} into the driver's queue $\to$ the thread yields until the IDE interrupt (IRQ 14/15) marks it done. \\
+\addlinespace
+Kernel \code{new} &
+\code{KernelMemoryManager} (own lock), pages come from the \code{PageManager}. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\section{The two paths you will change most}
+
+\begin{center}
+\begin{tikzpicture}[
+  box/.style={draw, rounded corners=2pt, fill=codebg, align=left, font=\footnotesize\ttfamily,
+              inner sep=4pt, text width=5.6cm},
+  lab/.style={font=\footnotesize\sffamily\bfseries},
+  arr/.style={-{Stealth[length=2mm]}, thick}]
+  \node[lab] (s0) at (0,0) {System call};
+  \node[box, below=2mm of s0] (s1) {user: getticks() \\ \_\_syscall(): int \$0x80};
+  \node[box, below=3mm of s1] (s2) {arch\_syscallHandler (asm) \\ $\to$ user\_registers\_ saved};
+  \node[box, below=3mm of s2] (s3) {syscallHandler() \\ interrupts on};
+  \node[box, below=3mm of s3, fill=newbg] (s4) {Syscall::syscallException() \\ case sc\_...: \textrm{\itshape your code}};
+  \node[box, below=3mm of s4] (s5) {rax = return value \\ arch\_contextSwitch() $\to$ user};
+  \draw[arr] (s1) -- (s2); \draw[arr] (s2) -- (s3); \draw[arr] (s3) -- (s4); \draw[arr] (s4) -- (s5);
+
+  \node[lab] (p0) at (7.2,0) {Page fault};
+  \node[box, below=2mm of p0] (p1) {user/kernel touches an address \\ CPU: \#PF, cr2 = address};
+  \node[box, below=3mm of p1] (p2) {pageFaultHandler(addr, error) \\ decode flags};
+  \node[box, below=3mm of p2] (p3) {enterPageFault: interrupts on \\ handlePageFault: valid?};
+  \node[box, below=3mm of p3, fill=newbg] (p4) {\textrm{\itshape your new case} \\ else loader\_->loadPage()};
+  \node[box, below=3mm of p4] (p5) {return $\to$ instruction runs again \\ (invalid: Syscall::exit(9999))};
+  \draw[arr] (p1) -- (p2); \draw[arr] (p2) -- (p3); \draw[arr] (p3) -- (p4); \draw[arr] (p4) -- (p5);
+\end{tikzpicture}
+\end{center}
+
+Both run \textbf{in the context of the thread that caused them}: \code{currentThread} is that
+thread, its page tables are active, \code{currentThread->user\_registers\_} holds its user
+state, and interrupts are enabled --- you may take Mutexes, allocate, sleep, do disk I/O.
+That is not true in the timer interrupt, in \code{schedule()}, or in the keyboard IRQ.
+
+\section{Who owns what}
+
+\begin{center}
+\small
+\begin{tabular}{L{3.4cm}L{11.4cm}}
+\toprule
+\textbf{Object} & \textbf{Owns / knows} \\
+\midrule
+\code{Thread} & kernel stack (\code{kernel\_stack\_}, 8 KiB), \code{kernel\_registers\_}, \code{user\_registers\_} (user threads), \code{switch\_to\_userspace\_}, state (\code{Running}/\code{Sleeping}/\code{ToBeDestroyed}), \code{loader\_}, terminal, working dir \\
+\code{UserProcess} & base SWEB: \emph{is} the one thread of a process (\code{: public Thread}); owns the \code{Loader} and the file descriptor of the binary \\
+\code{Loader} & the binary (\code{fd\_}, ELF header, \code{phdrs\_}), \code{program\_binary\_lock\_}, and \code{arch\_memory\_} --- \textbf{the address space} \\
+\code{ArchMemory} & the PML4 of one address space (\code{page\_map\_level\_4\_}) and everything below it \\
+\code{PageManager} & which physical pages are free (bitmap), SpinLock \\
+\code{Scheduler} & the list of all threads; ticks \\
+\code{ProcessRegistry} & the number of running processes; starting programs \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In base SWEB, \textbf{per-process state belongs into the \code{Loader}} (the only per-process
+object every thread can reach: \code{currentThread->loader\_}). In the team repo it belongs
+into \code{UserProcess} (chapter~\ref{ch:team}).
+
+\section{The address space}
+
+\begin{center}
+\small
+\begin{tabular}{L{5.2cm}L{9.6cm}}
+\toprule
+\textbf{Address} & \textbf{What} \\
+\midrule
+\code{0x0 -- 0xFFF} & never mapped: null pointer accesses fault \\
+\code{0x400000}, \code{0x8000000}\ldots & the program: \code{.text} (R E) at \code{0x8000000}, \code{.rodata} (R), \code{.data}/\code{.bss} (RW) --- \code{readelf -lW prog.sweb} \\
+\code{0x5000\,0000\,0000} etc. & free: this course's tasks put regions here (alloc region, heap at \code{0x6000\ldots}, scratch \code{0x7000\ldots}) \\
+\code{USER\_BREAK - 4096} & the main thread's stack page (only this one is mapped at start) \\
+\code{USER\_BREAK} = \code{0x8000\,0000\,0000} & end of user space (lower canonical half) \\
+\code{0x8000\ldots{} -- 0xFFFF\,7FFF\ldots} & non-canonical: any access is a \#GP \\
+\code{KERNEL\_START} = \code{0xFFFF\,8000\,0000\,0000} & kernel half: identical in every PML4 \\
+\code{IDENT\_MAPPING\_START} = \code{0xFFFF\,F000\,0000\,0000} & \textbf{ident mapping}: all physical memory, \code{getIdentAddressOfPPN(ppn)} \\
+\code{0xFFFF\,FFFF\,8000\,0000} & the kernel image (code, data, the threads' kernel stacks) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{swebbox}
+Because the kernel half is the same in every address space and the kernel runs with the
+current process's \code{cr3}, a syscall can read and write that process's user memory
+directly through the user pointer. Through the \emph{ident mapping} the kernel can read and
+write \emph{any} physical page, including pages of other processes and pages not mapped
+anywhere --- that is how page contents are prepared (A0-04), copied (fork, A1), and written
+to disk (swap, A2).
+\end{swebbox}
+
+\section{Registers: user, kernel, current}
+
+\code{struct ArchThreadRegisters} (\file{arch/x86/64/include/ArchThreads.h}) holds a full
+register set: \code{rip, cs, rflags, rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8--r15,
+ds, es, fs, gs, ss, rsp0, cr3, fpu}. A user thread has two sets:
+
+\begin{description}
+\item[\code{user\_registers\_}] the user-mode state. Saved on every entry into the kernel
+  from user mode (syscall, page fault, interrupt). \textbf{While you are in a syscall or a
+  user page fault, it is exactly the state the user thread will continue with} ---
+  change it and the thread continues differently (ex05, A0-06, A0-07).
+\item[\code{kernel\_registers\_}] the kernel-mode state, saved when the thread is
+  interrupted \emph{in} the kernel.
+\end{description}
+
+\code{currentThreadRegisters} points to the set that the next \code{arch\_contextSwitch()}
+loads; \code{switch\_to\_userspace\_} says which one it is. The syscall and page-fault
+entries set it to the kernel set while the kernel works, and back to the user set before
+returning.
+
+Calling convention (System V AMD64): arguments in \code{rdi, rsi, rdx, rcx, r8, r9}, result
+in \code{rax}; at function entry \code{rsp \% 16 == 8}; the 128 bytes below \code{rsp} are the
+\textbf{red zone} of the running function. SWEB's syscall ABI is different: number in
+\code{rax}, arguments in \code{rbx, rcx, rdx, rsi, rdi}.

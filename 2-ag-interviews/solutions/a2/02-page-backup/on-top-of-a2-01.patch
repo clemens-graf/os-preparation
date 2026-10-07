@@ -1,0 +1,244 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index 3d0cc9a..bfb93b9 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -37,6 +37,11 @@ class Loader
+      */
+     bool swapIn(size_t vpn);
+ 
++    /** A2-02: backup of page vpn on the swap device (overwrites an older backup) @return 0 or -1 */
++    size_t createPageBackup(size_t vpn);
++    /** A2-02: overwrites page vpn with its backup @return 0 or -1 */
++    size_t loadPageBackup(size_t vpn);
++
+     Stabs2DebugInfo const* getDebugInfos() const;
+ 
+     void* getEntryFunction() const;
+@@ -47,6 +52,14 @@ class Loader
+     // every mapPage/unmapPage/PTE change for this process happens while holding it
+     Mutex arch_memory_lock_;
+ 
++    // A2-02: which page has a backup in which slot (protected by arch_memory_lock_)
++    static const size_t MAX_BACKUPS = 32;
++    struct PageBackup
++    {
++      size_t vpn;      // 0 = entry unused
++      size_t slot;
++    } backups_[MAX_BACKUPS];
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8962818..f2ea437 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -21,5 +21,6 @@ class Syscall
+ 
+     // A2-01
+     static size_t swapOut(size_t address);
++    static size_t pageBackup(size_t address, bool load);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 86d73ea..1259b54 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -20,4 +20,6 @@
+ // A2 tasks use 1720-1799
+ #define sc_swapout 1720
+ #define sc_swapinfo 1721
++#define sc_createpagebackup 1730
++#define sc_loadpagebackup 1731
+ 
+diff --git a/common/include/mm/SwapManager.h b/common/include/mm/SwapManager.h
+index 801f850..dcbbabb 100644
+--- a/common/include/mm/SwapManager.h
++++ b/common/include/mm/SwapManager.h
+@@ -21,6 +21,11 @@ class SwapManager
+     /** copies slot into physical page ppn */
+     void readIn(size_t slot, size_t ppn);
+     void freeSlot(size_t slot);
++
++    /** A2-02: reserves a free slot @return the slot or -1 */
++    size_t allocSlot();
++    /** A2-02: copies physical page ppn into an already reserved slot (overwrites it) */
++    void writeSlot(size_t slot, size_t ppn);
+     size_t usedSlots();
+ 
+     static void freeSlotCallback(size_t slot);  // for ArchMemory::forEachSwappedPage
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index f96df95..bbfe2e9 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -12,7 +12,7 @@
+ #include "SwapManager.h"
+ #include "ScopeLock.h"
+ 
+-Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), backups_(), fd_(fd), hdr_(0), phdrs_(),
+     program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+@@ -20,6 +20,11 @@ Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_
+ Loader::~Loader()
+ {
+   arch_memory_.forEachSwappedPage(SwapManager::freeSlotCallback);   // A2-01: give back the slots
++  for (PageBackup& backup : backups_)                                // A2-02: and the backups
++  {
++    if (backup.vpn)
++      SwapManager::instance()->freeSlot(backup.slot);
++  }
+ 
+   delete userspace_debug_info_;
+   delete hdr_;
+@@ -133,6 +138,55 @@ bool Loader::swapIn(size_t vpn)
+   return true;
+ }
+ 
++size_t Loader::createPageBackup(size_t vpn)
++{
++  ScopeLock lock(arch_memory_lock_);
++  ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
++  if (m.page_size != PAGE_SIZE)
++    return (size_t) -1;                        // not present: nothing to back up
++  PageBackup* entry = nullptr;
++  for (PageBackup& backup : backups_)
++  {
++    if (backup.vpn == vpn)
++      entry = &backup;                         // existing backup: overwrite its slot
++  }
++  if (!entry)
++  {
++    for (PageBackup& backup : backups_)
++    {
++      if (!entry && backup.vpn == 0)
++        entry = &backup;
++    }
++    if (!entry)
++      return (size_t) -1;                      // table full
++    size_t slot = SwapManager::instance()->allocSlot();
++    if (slot == (size_t) -1)
++      return (size_t) -1;
++    entry->vpn = vpn;
++    entry->slot = slot;
++  }
++  // the page stays present: we write it through its ident address while holding the
++  // page-table lock (so it cannot be swapped out or unmapped meanwhile)
++  SwapManager::instance()->writeSlot(entry->slot, m.page_ppn);
++  return 0;
++}
++
++size_t Loader::loadPageBackup(size_t vpn)
++{
++  ScopeLock lock(arch_memory_lock_);
++  for (PageBackup& backup : backups_)
++  {
++    if (backup.vpn != vpn)
++      continue;
++    ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
++    if (m.page_size != PAGE_SIZE)
++      return (size_t) -1;                      // swapped out / unmapped since
++    SwapManager::instance()->readIn(backup.slot, m.page_ppn);   // overwrite the page in place
++    return 0;                                  // the backup stays: it can be loaded again
++  }
++  return (size_t) -1;
++}
++
+ bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
+ {
+   assert(program_binary_lock_.isHeldBy(currentThread));
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 3f1baac..975730e 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -57,6 +57,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_swapinfo:
+       return_value = SwapManager::instance()->usedSlots();
+       break;
++    case sc_createpagebackup:
++      return_value = pageBackup(arg1, false);
++      break;
++    case sc_loadpagebackup:
++      return_value = pageBackup(arg1, true);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -197,3 +203,12 @@ size_t Syscall::swapOut(size_t address)
+     return (size_t) -1;
+   return currentThread->loader_->swapOut(address / PAGE_SIZE);
+ }
++
++// A2-02
++size_t Syscall::pageBackup(size_t address, bool load)
++{
++  if (address >= USER_BREAK)
++    return (size_t) -1;
++  Loader* loader = currentThread->loader_;
++  return load ? loader->loadPageBackup(address / PAGE_SIZE) : loader->createPageBackup(address / PAGE_SIZE);
++}
+diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
+index f96581e..3b7f9e8 100644
+--- a/common/source/mm/SwapManager.cpp
++++ b/common/source/mm/SwapManager.cpp
+@@ -71,3 +71,23 @@ void SwapManager::freeSlotCallback(size_t slot)
+ {
+   instance()->freeSlot(slot);
+ }
++
++size_t SwapManager::allocSlot()
++{
++  ScopeLock lock(*lock_);
++  size_t slot = 0;
++  while (slot < num_slots_ && slots_->getBit(slot))
++    ++slot;
++  if (slot == num_slots_)
++    return (size_t) -1;
++  slots_->setBit(slot);
++  return slot;
++}
++
++void SwapManager::writeSlot(size_t slot, size_t ppn)
++{
++  ScopeLock lock(*lock_);
++  assert(slots_->getBit(slot) && "writing a slot that is not reserved");
++  int32 written = device_->writeData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
++  assert(written == PAGE_SIZE && "backup write failed");
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 6729610..83b64dd 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -23,6 +23,10 @@ extern int createprocess(const char* path, int sleep);
+ extern int swapout(void* address);
+ extern size_t swapinfo(void);
+ 
++// A2-02: 0 if a backup is possible / was loaded, otherwise -1
++extern int createPageBackup(void* address);
++extern int loadPageBackup(void* address);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index f28f131..ae54f74 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -20,6 +20,16 @@ size_t swapinfo(void)
+   return __syscall(sc_swapinfo, 0x00, 0x00, 0x00, 0x00, 0x00);
+ }
+ 
++int createPageBackup(void* address)
++{
++  return __syscall(sc_createpagebackup, (size_t) address, 0x00, 0x00, 0x00, 0x00);
++}
++
++int loadPageBackup(void* address)
++{
++  return __syscall(sc_loadpagebackup, (size_t) address, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

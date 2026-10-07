@@ -1,0 +1,182 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 57228e6..64a11fe 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -22,5 +22,6 @@ class Syscall
+     // A0-08
+     static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
+     static void pthreadExit(size_t value);
++    static size_t pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry);
+ };
+ 
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index fd3b486..13678f9 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -19,6 +19,13 @@ class UserThread : public Thread
+ 
+     size_t getThreadId() const;
+ 
++    /**
++     * A0-09: copies size bytes to the top of this thread's user stack (16-byte aligned)
++     * and moves its rsp below them. Only call before the thread runs for the first time.
++     * @return the user address of the copy
++     */
++    size_t pushToStack(const void* data, size_t size);
++
+   private:
+     size_t stack_slot_;  // also used as the thread id
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 528b9b9..0bc61d3 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -20,4 +20,5 @@
+ // A0-08
+ #define sc_pthread_create 1550
+ #define sc_pthread_exit 1551
++#define sc_pthread_multi 1552
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 37c52df..ba882fb 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -8,6 +8,8 @@
+ #include "File.h"
+ #include "Scheduler.h"
+ #include "UserThread.h"
++#include "ArchThreads.h"
++#include "kstring.h"
+ #include "UserProcess.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+@@ -57,6 +59,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_exit:
+       pthreadExit(arg1);
+       break;
++    case sc_pthread_multi:
++      return_value = pthreadMulti(arg1, arg2, arg3, arg4, arg5);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -218,3 +223,39 @@ void Syscall::pthreadExit(size_t value)
+     exit(0);                  // main thread: like exit(), waits for the others
+   currentThread->kill();
+ }
++
++// A0-09: one new thread runs functions[0](arguments[0]), functions[1](arguments[1]), ... in order
++#define PTHREAD_MULTI_MAX 16
++
++size_t Syscall::pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry)
++{
++  size_t bytes = count * sizeof(size_t);
++  if (count == 0 || count > PTHREAD_MULTI_MAX || thread_id == 0 || thread_id >= USER_BREAK - sizeof(size_t) ||
++      functions == 0 || functions >= USER_BREAK - bytes || arguments == 0 || arguments >= USER_BREAK - bytes ||
++      entry == 0 || entry >= USER_BREAK)
++    return (size_t) -1;
++
++  // copy the arrays NOW: after the syscall returns the caller may reuse or free them,
++  // while the new thread reads them much later
++  size_t function_copy[PTHREAD_MULTI_MAX];
++  size_t argument_copy[PTHREAD_MULTI_MAX];
++  memcpy(function_copy, (void*) functions, bytes);
++  memcpy(argument_copy, (void*) arguments, bytes);
++  for (size_t i = 0; i < count; ++i)
++  {
++    if (function_copy[i] == 0 || function_copy[i] >= USER_BREAK)
++      return (size_t) -1;
++  }
++  *(size_t*) thread_id = 0;
++
++  UserThread* thread = currentThread->process_->createThread(entry, 0, 0);
++  if (!thread)
++    return (size_t) -1;
++  // not scheduled yet: nobody else can touch its stack or registers
++  thread->user_registers_->rdi = thread->pushToStack(function_copy, bytes);
++  thread->user_registers_->rsi = thread->pushToStack(argument_copy, bytes);
++  thread->user_registers_->rdx = count;
++  *(size_t*) thread_id = thread->getThreadId();
++  Scheduler::instance()->addNewThread(thread);
++  return 0;
++}
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 28949e8..2944d4b 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -5,6 +5,8 @@
+ #include "ArchThreads.h"
+ #include "PageManager.h"
+ #include "kprintf.h"
++#include "ScopeLock.h"
++#include "kstring.h"
+ 
+ UserThread::UserThread(UserProcess* process, size_t stack_slot, size_t entry, size_t start_routine,
+                        size_t argument) :
+@@ -57,6 +59,27 @@ size_t UserThread::getThreadId() const
+   return stack_slot_;
+ }
+ 
++size_t UserThread::pushToStack(const void* data, size_t size)
++{
++  size_t user_address = (user_registers_->rsp - size) & ~0xFULL;
++  assert(user_address >= stackTop() - USER_THREAD_STACK_PAGES * PAGE_SIZE && "does not fit on the mapped stack");
++
++  // write through the ident mapping, page by page: correct no matter which address space
++  // is active right now (for a thread of the same process it is ours - in fork it would not be)
++  ScopeLock lock(loader_->arch_memory_lock_);
++  for (size_t done = 0; done < size;)
++  {
++    size_t address = user_address + done;
++    size_t chunk = ustl::min(size - done, PAGE_SIZE - address % PAGE_SIZE);
++    pointer kernel_address = loader_->arch_memory_.checkAddressValid(address);
++    assert(kernel_address && "stack page not mapped");
++    memcpy((void*) kernel_address, (const char*) data + done, chunk);
++    done += chunk;
++  }
++  user_registers_->rsp = user_address - sizeof(pointer);  // as if the entry function had been called
++  return user_address;
++}
++
+ size_t UserThread::stackTop() const
+ {
+   return USER_BREAK - stack_slot_ * STACK_SLOT_SIZE;
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae8..5df48d0 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -56,6 +56,9 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
++// A0-09: one new thread calls functions[i](arguments[i]) for i = 0 .. count-1, in order
++extern int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index c3452cf..8ace1f7 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -12,6 +12,20 @@ static void pthreadStart(void* (*start_routine)(void*), void* arg)
+   pthread_exit(start_routine(arg));
+ }
+ 
++// A0-09: the thread created by pthread_multi starts here
++static void pthreadMultiStart(void* (**functions)(void*), void** arguments, size_t count)
++{
++  for (size_t i = 0; i < count; ++i)
++    functions[i](arguments[i]);
++  pthread_exit(0);
++}
++
++int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count)
++{
++  return __syscall(sc_pthread_multi, (size_t) thread, (size_t) functions, (size_t) arguments, count,
++                   (size_t) pthreadMultiStart);
++}
++
+ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                    void *(*start_routine)(void *), void *arg)
+ {

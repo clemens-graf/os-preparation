@@ -1,0 +1,35 @@
+\chapter{Base SWEB vs.\ your team repo}
+\label{ch:team}
+
+The interview happens in \textbf{your group's repository}, not in base SWEB. Since Phase 0 it
+separates process and thread. The mechanisms are identical; some names and the place for
+per-process state differ. State of \code{osw26e3} \code{main} on 6 Oct 2026 --- check again
+before the interview, the team keeps changing it.
+
+\begin{center}
+\small
+\begin{tabular}{L{6.4cm}L{8.4cm}}
+\toprule
+\textbf{Base SWEB / this course} & \textbf{Team repo (osw26e3)} \\
+\midrule
+\code{class UserProcess : public Thread} (the process \emph{is} its only thread) &
+\code{class UserProcess} (no thread), \code{class UserThread : public Thread}, \code{createMainThread()} \\
+\code{currentThread->loader\_} & \code{currentThread->getLoader()} (the loader belongs to the process) \\
+\code{currentThread->process\_} (added in A0-08) & \code{currentThread->getProcess()} (\code{Thread::process\_}) \\
+per-process state in \code{Loader} (\code{heap\_size\_}, segv handler, \ldots) & per-process state in \code{UserProcess} \\
+\code{Loader::arch\_memory\_lock\_} (added by this course) & whatever lock your team uses for the page tables --- \textbf{find it before the interview}; if there is none, that is the first thing a tutor asks about \\
+\code{UserProcess::createThread} (A0-08) & your team's \code{pthread\_create} (P1) --- know its steps \\
+syscall numbers 1400--1799 & your own block (1500--1999) --- avoid collisions with the team's syscalls \\
+\code{process\_->waitForThreads()} in \code{exit} & your team's exit/join design \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{infobox}[title=\textbf{Before the interview: 15 minutes in the team repo}]
+\begin{enumerate}
+\item Where is the page-table lock? Which locks does \code{UserProcess} have, what do they protect?
+\item Where does \code{pthread\_create} map the stack, set the registers, add the thread?
+\item Where are a process's threads listed, and who frees the address space when?
+\item Add a trivial syscall in a scratch branch and run it --- so the six places are fresh.
+\end{enumerate}
+\end{infobox}

@@ -1,0 +1,308 @@
+\chapter{Recipes}
+\label{ch:recipes}
+
+Checklists and code templates for every kind of change the tasks need. Each recipe names
+the example that shows it working.
+
+\section{Add a syscall (ex01)}
+\label{sec:syscall}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{cL{6.6cm}L{8.2cm}}
+\toprule
+& \textbf{File} & \textbf{Add} \\
+\midrule
+1 & \file{common/include/kernel/syscall-definitions.h} & \code{\#define sc\_foo 1500} \\
+2 & \file{common/include/kernel/Syscall.h} & \code{static size\_t foo(size\_t a, size\_t b);} \\
+3 & \file{common/source/kernel/Syscall.cpp} & \code{case sc\_foo: return\_value = foo(arg1, arg2); break;} \\
+4 & \file{common/source/kernel/Syscall.cpp} & the implementation \\
+5 & \file{userspace/libc/include/nonstd.h} (or \code{pthread.h}, \ldots) & \code{extern int foo(int a, void* b);} \\
+6 & \file{userspace/libc/src/nonstd.c} & \code{return \_\_syscall(sc\_foo, a, (size\_t) b, 0x00, 0x00, 0x00);} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{lstlisting}[style=cpp]
+size_t Syscall::foo(size_t a, size_t user_ptr)
+{
+  if (user_ptr == 0 || user_ptr >= USER_BREAK - sizeof(Thing))  // check first
+    return (size_t) -1;
+  Thing copy = ...;                                            // work on kernel data
+  *(Thing*) user_ptr = copy;                                    // one copy to user space at the end
+  return 0;
+}
+\end{lstlisting}
+
+\begin{trapbox}
+\begin{itemize}
+\item \code{return -1U;} is \code{0xFFFFFFFF} --- user space sees 4294967295. Use \code{(size\_t) -1}.
+\item Forgotten \code{break;} $\to$ falls through into the next case.
+\item \code{-Werror}: an unused parameter, a missing include, initializers out of
+  declaration order (\code{-Werror=reorder}) all stop the build.
+\item \file{nonstd.h} does not include \file{types.h} $\to$ \code{unknown type name 'size\_t'}.
+\item At most 5 arguments. More: pass a pointer to a struct or array (A1 ``15-argument syscall'').
+\item A new test \code{.c} needs cmake to run again (\code{run\_test.sh} does it) --- and a
+  second \code{make}: a parallel build may copy the programs to the disk image before they
+  are built (\code{loading /usr/shell.sweb failed}).
+\end{itemize}
+\end{trapbox}
+
+\section{User pointers}
+\label{sec:userptr}
+
+\begin{enumerate}
+\item \textbf{Check the whole range} below \code{USER\_BREAK}, overflow-safe:
+  \code{p == 0 || p >= USER\_BREAK - size} $\to$ reject. (\code{p + size > USER\_BREAK} can wrap around.)
+\item \textbf{Copy in, then check, then use.} Another thread of the process can change user
+  memory between your check and your use (TOCTOU). Copy into a kernel variable first,
+  validate the copy (A0-09: function pointers).
+\item \textbf{Write results back at the end}, after all locks are released: a user page that
+  is not mapped yet page-faults --- in kernel mode, on a user address. That is legal (it is
+  loaded like a normal fault), but it must not happen while you hold a lock, and if no
+  segment covers the address the process is killed right there (order your side effects:
+  A0-08 ``touch the id pointer first'').
+\item Never hand a user pointer to a driver or keep it for later: copy into kernel memory.
+\item \textbf{Strings have no known length} --- there is no range to check up front. Copy byte by
+  byte into a bounded kernel buffer, check \emph{each} address against \code{USER\_BREAK} before
+  reading it, stop at the NUL or the limit, write the NUL yourself (\code{strncpy} does not when
+  the source is long). Read user memory directly, not via \code{checkAddressValid}: that one
+  calls a page ``unmapped'' that is merely not loaded yet (ex11, A0-11).
+\end{enumerate}
+
+\section{Physical pages and mappings (ex02, ex04)}
+\label{sec:mapping}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{L{6.6cm}L{8.8cm}}
+\toprule
+\textbf{Call} & \textbf{Does} \\
+\midrule
+\code{PageManager::instance()->allocPPN()} & a free physical page, \textbf{zeroed}; asserts when memory is full \\
+\code{PageManager::instance()->freePPN(ppn)} & gives it back (fills it with \code{0xFF}: use-after-free is detected) \\
+\code{ArchMemory::getIdentAddressOfPPN(ppn)} & kernel address of that page --- valid in every address space \\
+\code{arch\_memory\_.mapPage(vpn, ppn, user)} & maps \textbf{writable}; \code{user = 1}: user may access; \code{false} if vpn already mapped (caller keeps \code{ppn}); allocates page tables on the way \\
+\code{arch\_memory\_.unmapPage(vpn)} & clears the entry, \textbf{frees the physical page}, frees empty page tables; asserts if not mapped; \textbf{no TLB flush} \\
+\code{arch\_memory\_.resolveMapping(vpn)} & \code{ArchMemoryMapping m}: \code{m.pt[m.pti]} is the PTE, \code{m.page\_ppn}, \code{m.page\_size} (\code{PAGE\_SIZE} iff a 4 KiB page is mapped; \code{m.pt} is \code{nullptr} if there is no page table) \\
+\code{arch\_memory\_.checkAddressValid(addr)} & ident address of the byte \code{addr} if mapped, else 0 --- write user memory without risking a fault \\
+\code{ArchMemory::flushTlb()} & reload \code{cr3}: forget cached translations \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\code{vpn} and \code{ppn} are \textbf{page numbers} (\code{address / PAGE\_SIZE}), not addresses.
+\textbf{One frame, one mapping:} \code{\textasciitilde ArchMemory} frees every present user page
+at exit. A frame you map a second time (an alias, a shared page) must be unmapped
+\emph{without} freeing first (\code{unmapPage(vpn, false)}), or it is freed twice: kernel panic
+\code{"Double free PPN"} (ex12, A0-12, A1-10).
+
+\begin{lstlisting}[style=cpp]
+// map a fresh page (outside the lock: allocate; inside: map)
+size_t ppn = PageManager::instance()->allocPPN();
+loader->arch_memory_lock_.acquire();
+bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
+if (mapped && read_only)
+{
+  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(vpn);
+  m.pt[m.pti].writeable = 0;            // same critical section as mapPage
+}
+loader->arch_memory_lock_.release();
+if (!mapped)
+  PageManager::instance()->freePPN(ppn); // someone else mapped it first
+
+// unmap
+loader->arch_memory_lock_.acquire();
+if (loader->arch_memory_.resolveMapping(vpn).page_size)
+  loader->arch_memory_.unmapPage(vpn);   // frees the ppn - don't free it again
+ArchMemory::flushTlb();
+loader->arch_memory_lock_.release();
+\end{lstlisting}
+
+\textbf{TLB rule:} after \emph{removing} rights (unmap, read-only, NX, swap out) flush the TLB;
+after \emph{adding} rights (map a non-present page, make writable) you need not --- a stale,
+weaker entry just causes one more page fault that finds everything in order.
+
+\textbf{The page-table entry} (\code{PageTableEntry}, \file{paging-definitions.h}):
+\code{present, writeable, user\_access, write\_through, cache\_disabled, accessed, dirty,
+size, global, ignored\_2 (3 bits), page\_ppn (28 bits), reserved\_1, ignored\_1 (11 bits),
+execution\_disabled}. The CPU sets \code{accessed} on every access and \code{dirty} on every
+write. When \code{present == 0}, the CPU ignores \emph{all} other bits --- you may store your
+own information there (A2: the swap slot). \code{execution\_disabled} (NX) works: SWEB enables
+\code{EFER.NXE} at boot.
+
+\textbf{Walking all page tables} (A0-01, A2 ``all pages of a process''): copy the loop of
+\code{ArchMemory::\textasciitilde ArchMemory()} --- four nested loops over the present
+entries, PML4 index \code{0 .. 255} only (user half).
+
+\section{A new page fault case (ex03)}
+\label{sec:pagefault}
+
+\begin{itemize}
+\item \textbf{Where:} in \code{PageFaultHandler::handlePageFault}, inside
+  \code{if (checkPageFaultIsValid(...))}, \emph{before} \code{loader\_->loadPage}. Only there
+  you know the fault is a non-present user address.
+\item \textbf{Flags} available: \code{address}, \code{user} (fault in user mode),
+  \code{present} (page was present: protection violation), \code{writing},
+  \code{fetch} (instruction fetch), \code{switch\_to\_us}.
+\item Faults with \code{present == 1} never reach the valid branch: \code{checkPageFaultIsValid}
+  rejects them. A protection case (copy-on-write, A2) needs a branch \emph{before} that check.
+\item The ``kill'' exits: 9999 invalid fault (page fault handler), 666 no segment
+  (\code{Loader::loadPage}), 999 file read failed, 888 CPU exception.
+\item Returning without fixing the cause $\to$ the same fault again, forever.
+\end{itemize}
+
+\section{Changing the user registers (ex05)}
+\label{sec:registers}
+
+Allowed while handling a syscall or a page fault of that thread (its
+\code{user\_registers\_} are saved and will be loaded on return), or for a thread that is
+not scheduled (not yet added, or sleeping).
+
+\begin{lstlisting}[style=cpp]
+ArchThreadRegisters* regs = currentThread->user_registers_;
+size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t); // red zone, align, ret slot
+pointer slot = loader->arch_memory_.checkAddressValid(rsp);  // under the page-table lock
+if (!slot) { /* no usable stack */ }
+*(size_t*) slot = return_address;   // e.g. regs->rip (continue after the syscall) or 0
+regs->rsp = rsp;
+regs->rip = function;
+regs->rdi = first_argument;         // rsi, rdx, rcx, r8, r9 for more
+\end{lstlisting}
+
+The syscall's own return value still goes into \code{rax} afterwards. Why the red zone matters:
+\code{objdump -d prog.sweb} $\to$ \code{<\_\_syscall>} keeps its locals at \code{-0x10(\%rbp)
+... -0x38(\%rbp)} while \code{rsp = rbp - 8} --- \emph{below} \code{rsp}.
+
+\section{Threads (ex06, A0-08)}
+\label{sec:threads}
+
+\textbf{A user thread} = same \code{loader\_} (address space) + own user stack + own
+registers + an entry in the scheduler:
+
+\begin{lstlisting}[style=cpp]
+class UserThread : public Thread { ... };          // Thread(..., Thread::USER_THREAD)
+loader_ = process->loader_;                         // shared address space
+/* map stack pages under the page-table lock */
+ArchThreads::createUserRegisters(user_registers_, (void*) entry,
+                                 (void*) (stack_top - sizeof(pointer)), getKernelStackStartPointer());
+user_registers_->rdi = ...; user_registers_->rsi = ...;
+ArchThreads::setAddressSpace(this, loader_->arch_memory_);
+// later, when everything is set up:
+Scheduler::instance()->addNewThread(thread);
+\end{lstlisting}
+
+\textbf{A kernel thread}: subclass \code{Thread} with \code{KERNEL\_THREAD}, implement
+\code{Run()}, \code{new} it, \code{addNewThread}. When \code{Run()} returns, it is killed
+and the CleanupThread deletes it --- never delete a thread yourself, never put one on
+the stack.
+
+\textbf{Ending a thread}: \code{currentThread->kill()} --- state \code{ToBeDestroyed}, never
+returns. The object lives on until the CleanupThread deletes it: \textbf{destructors run in
+the CleanupThread}, when the thread can never run again --- the right place to free its
+stack. Another thread cannot be killed directly ``from outside'' safely: set a flag that it
+checks (A1 \code{pthread\_cancel}).
+
+\section{Waiting for something}
+\label{sec:waiting}
+
+\begin{lstlisting}[style=cpp]
+// waiter                                   // the one who makes it true
+lock.acquire();                             lock.acquire();
+while (!condition_is_true)                  condition_is_true = true;
+  condition_variable.wait();                condition_variable.signal();   // or broadcast()
+/* use the state, still locked */           lock.release();
+lock.release();
+\end{lstlisting}
+
+\begin{itemize}
+\item \code{Condition(\&mutex, "name")}; \code{wait()} releases the mutex while sleeping and
+  re-acquires it; SWEB \textbf{asserts that you hold no other lock} while waiting.
+\item \code{signal()} wakes one waiter, \code{broadcast()} all (barriers, ``all threads done'').
+\item \code{Scheduler::sleep()} / \code{wake(thread)} are the low-level primitives the locks are
+  built on --- using them directly is easy to get wrong (lost wake-ups); prefer a Condition.
+\item A \code{while (!x) yield();} loop is \emph{busy waiting}: acceptable for a quick test,
+  not for a solution the tutor should accept (``join must sleep, not spin'').
+\end{itemize}
+
+\section{From another context into a process (ex07)}
+
+Key presses are handled in the Console kernel thread, the timer in an interrupt --- neither
+runs in the target process's context. Set a flag there (\code{ArchThreads::testSetLock(flag, 1)}
+is an atomic exchange; \code{atomic\_add}, \code{atomic\_set} exist too) and let the target
+do the work at a safe point in its own context (top of \code{syscallException}, page fault
+handler, or a kernel thread you wake).
+
+\section{Disk (ex08)}
+
+\code{BDManager::getInstance()->getDeviceByName("idea2")} $\to$
+\code{readData(offset, size, kernel\_buffer)} / \code{writeData(...)}: offset and size in
+bytes, multiples of \code{getBlockSize()} (512); returns size or -1; \textbf{blocks} (yields)
+until done --- interrupts on, no SpinLock held. \code{run\_test.sh} boots with a throw-away
+copy of the disk (\code{-snapshot}).
+
+\section{Kernel-wide objects}
+
+\textbf{SWEB never runs constructors of global or static objects.} A global
+\code{Mutex lock("x");} is zeroed memory and asserts on first use. Create such objects with
+\code{new} in \code{startup()} (\file{main.cpp}) before the threads that use them exist, or
+make them members of a singleton that is created at boot.
+
+\section{Testing traps}
+\label{sec:testing}
+
+\begin{itemize}
+\item \textbf{The timer runs at 18.2\,Hz} (\code{IRQ0\_TIMER\_FREQUENCY} is 0, the PIT keeps its
+  default divisor 65536): one tick is 55\,ms. A round of \code{sched\_yield} passes the IdleThread,
+  which halts until the next tick --- \textbf{300 yields take about 16 seconds}. Loops that yield
+  look like hangs. Compute instead, or sleep on a Condition.
+\item QEMU is fast: a busy loop of millions of iterations finishes within one 55\,ms time slice.
+  To get a deterministic order between threads, let them yield a different number of times.
+\item Lazy loading: a page of \code{.bss} or \code{.data} that was never touched has no frame yet
+  (\code{vtop} $\to$ -1, \code{mprotect} fails, statistics are smaller than expected).
+\item The disk image keeps every program ever built into it; after many tasks in one build folder
+  \code{exe2minixfs} asserts (\code{name != ""}). Delete \file{SWEB-flat.vmdk} and \file{SWEB.qcow2}
+  in the build folder (\code{run\_test.sh} and \code{task.sh} do it automatically).
+\item Tests that must be \emph{killed} can only show it by the absence of a \code{[FAIL]} line and the
+  kernel's message --- put them last in a test program.
+\item Runner extras: \code{-n 5} (repeat: races), a final \code{exit} (SWEB's leak check at shutdown),
+  \code{--keep-disk} (several boots on one disk), \code{'\&prog.sweb' '!sleep 1' '!key f3' help}
+  (press a key while a program runs).
+\item User-space libc is small: no \code{strcpy}, no \code{sprintf}, \code{malloc} is a stub;
+  \code{exit} is not \code{noreturn} (GCC may warn about ``infinite recursion'').
+\end{itemize}
+
+\section{Debugging}
+
+\begin{center}
+\footnotesize
+\begin{tabular}{L{7.4cm}L{8.0cm}}
+\toprule
+\textbf{Message} & \textbf{Meaning} \\
+\midrule
+\code{Maybe you are dereferencing a null-pointer} & fault below 4096 \\
+\code{pagefault even though the address is mapped} & write to read-only / user access to a kernel-only page \\
+\code{No section refers to the given address} & \code{loadPage}: address not in any ELF segment (exit 666) \\
+\code{You are accessing a kernel address in user-mode} & user pointer $\geq$ \code{USER\_BREAK} \\
+\code{Double free PPN} / \code{Page modified after free} & \code{freePPN} twice / write after free \\
+\code{thread is holding unrelated locks while waiting on a condition variable} & \code{wait()} with another lock held \\
+\code{name\_ is null, maybe lock was not initialised?} & a lock whose constructor never ran (global object!) \\
+\code{don't use strcpy} & use \code{strncpy}/\code{memcpy} in the kernel \\
+\code{You might be leaking physical memory pages} & at shutdown (\code{exit} in the shell): pages not freed \\
+\code{Deadlock: Lock ... held already by currentThread} & you acquire a lock you already hold \\
+\code{CIRCULAR DEADLOCK when waiting for ...} & lock-order cycle --- SWEB prints who holds what and waits for what \\
+\code{Lock ... with IF=0 ... Now we're dead} & lock (or \code{new}) with interrupts disabled: interrupt handler, \code{schedule()} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item \code{debug(FLAG, "fmt", ...)}: categories in \file{debug.h}; add your own
+  (\code{const size\_t MYFLAG = Ansi\_Cyan | OUTPUT\_ENABLED;}). \code{LOADER},
+  \code{PAGEFAULT}, \code{SYSCALL} are on by default.
+\item In SWEB: \textbf{F9} page bitmap + kernel memory, \textbf{F10} locks, \textbf{F11} stack
+  traces of all threads, \textbf{F12} thread list.
+\item \code{run\_test.sh --raw} shows the whole kernel log; \code{-n 10} repeats a run.
+\item gdb: \code{make debug \&\& make -j \&\& make qemugdb} in the build folder, then
+  \code{gdb} in a second terminal (see \file{common\_commands.md}).
+\end{itemize}

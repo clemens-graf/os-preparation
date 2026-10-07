@@ -1,0 +1,50 @@
+# id|folder|base|runner options|test commands (separated by ;)
+# base: main = clean upstream SWEB, or the id of the task whose SOLUTION this task builds on
+ex01|examples/ex01-syscalls|main||ex_syscall.sweb
+ex02|examples/ex02-map-page|main||ex_mapping.sweb;exit
+ex03|examples/ex03-stack-growth|main||ex_pagefault.sweb;exit
+ex04|examples/ex04-pte-flags|main||ex_pte_flags.sweb;exit
+ex05|examples/ex05-registers|main||ex_registers.sweb
+ex06|examples/ex06-kernel-thread|main||ex_kernel_thread.sweb;exit
+ex07|examples/ex07-fkey|main||!key f8;help
+ex08|examples/ex08-block-device|main||ex_block_device.sweb
+ex09|examples/ex09-loader|main||ex_loader.sweb
+ex11|examples/ex11-tutorial1|main|--expect-pass 1|ex_tutorial1.sweb;ex_tutorial1_top.sweb
+ex12|examples/ex12-tutorial2|main|--expect-panic --expect-pass 5|ex_tutorial2.sweb
+a0-01|a0/01-meminfo|main||meminfo_basic.sweb;exit
+a0-02|a0/02-allocpage|main||allocpage_basic.sweb;exit
+a0-03|a0/03-heaplimit|main||heaplimit_basic.sweb;exit
+a0-04|a0/04-magic-page|main||magic_page_basic.sweb;magic_page_write.sweb;exit
+a0-05|a0/05-readonly-code|main||readonly_code_basic.sweb;readonly_code_rodata.sweb;mult.sweb;exit
+a0-06|a0/06-segv-handler|main||segv_handler_basic.sweb;segv_handler_return.sweb;segv_handler_unregister.sweb;exit
+a0-07|a0/07-upcall|main||upcall_basic.sweb;exit
+a0-08|a0/08-pthread-create|main||pthread_create_basic.sweb;pthread_create_exit.sweb;exit
+a0-09|a0/09-pthread-multi|a0-08||pthread_multi_basic.sweb;pthread_create_basic.sweb;exit
+a0-11|a0/11-thread-note|main|--expect-pass 23|note_basic.sweb;note_errors.sweb;exit
+a0-12|a0/12-alias-page|main|--expect-pass 23|alias_basic.sweb;alias_errors.sweb;mult.sweb;exit
+a1-01|a1/01-pthread-join|a0-08||pthread_join_basic.sweb;pthread_create_basic.sweb;exit
+a1-02|a1/02-pthread-multiple|a1-01||pthread_multiple_basic.sweb;pthread_join_basic.sweb;exit
+a1-03|a1/03-barrier|a1-01|-n 3|pthread_barrier_basic.sweb;exit
+a1-04|a1/04-thread-flag|a1-01||thread_flag_basic.sweb;exit
+a1-05|a1/05-pthread-invoke|a1-01||pthread_invoke_basic.sweb;exit
+a1-06|a1/06-pthread-cancel|a1-01||pthread_cancel_basic.sweb;exit
+a1-07|a1/07-thread-runtime|a1-01||thread_runtime_basic.sweb;exit
+a1-08|a1/08-snapshot|main||snapshot_basic.sweb;mult.sweb;exit
+a1-09|a1/09-vtop-ptov|main||vtop_basic.sweb;exit
+a1-10|a1/10-shared-page|main||shm_basic.sweb;exit
+a1-11|a1/11-pagefault-stats|main||pfstats_basic.sweb;exit
+a1-12|a1/12-sbrk|main||sbrk_basic.sweb;exit
+a1-13|a1/13-sum15|main||sum15_basic.sweb
+a1-14|a1/14-atexit|main||atexit_basic.sweb;atexit_exit.sweb
+a2-01|a2/01-swap|main||swap_basic.sweb;swap_exit.sweb;swap_check.sweb;exit
+a2-02|a2/02-page-backup|a2-01||page_backup_basic.sweb;swap_check.sweb;exit
+a2-03|a2/03-heap-swap|a2-01||swap_basic.sweb;swap_heap_full.sweb;swap_exit.sweb;swap_check.sweb;exit
+a2-04|a2/04-xor-swap|a2-01||swap_xor_basic.sweb;swap_basic.sweb;exit
+a2-05|a2/05-dirty-swap|a2-01||swap_dirty_basic.sweb;swap_check.sweb;exit
+a2-06|a2/06-f3-swap-all|a2-01||&fkey_swap_check.sweb;!sleep 1;!key f3;help;exit
+a2-07|a2/07-mprotect|main||mprotect_basic.sweb;exit
+a2-08|a2/08-nx|main||nx_data.sweb;nx_stack.sweb;mult.sweb;exit
+a2-09|a2/09-zero-page|main||zero_page_basic.sweb;mult.sweb;exit
+a2-10|a2/10-ram-obfuscation|main|-n 2|obfuscation_basic.sweb;mult.sweb;exit
+a2-11|a2/11-boot-counter|main|-n 2 --keep-disk|bootcount_basic.sweb
+a2-12|a2/12-syscall-blacklist|main||blacklist_basic.sweb;mult.sweb;exit

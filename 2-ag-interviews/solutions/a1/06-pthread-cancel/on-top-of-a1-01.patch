@@ -1,0 +1,254 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index dab9817..60dfe1c 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -23,5 +23,7 @@ class Syscall
+     static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
+     static void pthreadExit(size_t value);
+     static size_t pthreadJoin(size_t thread_id, size_t value_ptr);
++    static size_t pthreadCancel(size_t thread_id);
++    static void cancelIfRequested();
+ };
+ 
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 2790d82..5026d26 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -14,6 +14,7 @@ struct ThreadSlot
+   ThreadSlotState state;
+   size_t id;
+   size_t exit_value;
++  UserThread* thread;  // valid while RUNNING (set after construction, cleared by threadFinished)
+ };
+ 
+ // A0-08: stack layout - slot 0 is the main thread's stack (top page below USER_BREAK),
+@@ -21,6 +22,7 @@ struct ThreadSlot
+ #define STACK_SLOT_SIZE (64 * PAGE_SIZE)
+ #define USER_THREAD_STACK_PAGES 4
+ #define MAX_USER_THREADS 64
++#define JOIN_CANCELED ((size_t) -2)   // A1-06: joinThread was interrupted by a cancel request
+ 
+ class UserProcess : public Thread
+ {
+@@ -56,6 +58,17 @@ class UserProcess : public Thread
+     /** A0-08: the main thread sleeps here until all other threads are gone */
+     void waitForThreads();
+ 
++    /**
++     * A1: the thread with this id (0 = the main thread), nullptr if it does not exist (any more).
++     * The caller must hold threads_lock_ for as long as it uses the pointer:
++     * a thread's object is freed only after threadFinished(), which needs that lock.
++     */
++    Thread* findThread(size_t id);
++    Mutex& getThreadsLock() { return threads_lock_; }
++
++    /** A1-06: wakes all threads sleeping in joinThread (they re-check their cancel flag) */
++    void wakeJoiners();
++
+   private:
+     int32 fd_;
+ 
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index b42555f..02581a8 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -22,6 +22,10 @@ class UserThread : public Thread
+ 
+     size_t exit_value_;  // A1-01: set by pthread_exit, handed to the joiner by the destructor
+ 
++    // A1-06: set by pthread_cancel (any thread), acted upon by this thread itself at its next
++    // cancellation point. A plain word, written atomically: no lock needed to read it.
++    volatile size_t cancel_requested_;
++
+   private:
+     size_t stack_slot_;
+     size_t thread_id_;
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 2df47df..8cecd71 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -23,4 +23,5 @@
+ 
+ // A1 tasks use 1600-1699
+ #define sc_pthread_join 1600
++#define sc_pthread_cancel 1640
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 31e8ee2..3e1fa4d 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -8,6 +8,8 @@
+ #include "File.h"
+ #include "Scheduler.h"
+ #include "UserThread.h"
++#include "ScopeLock.h"
++#include "ArchThreads.h"
+ #include "UserProcess.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+@@ -19,6 +21,8 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+           syscall_number, arg1, arg1, arg2, arg2, arg3, arg3, arg4, arg4, arg5, arg5);
+   }
+ 
++  cancelIfRequested();   // A1-06: every syscall is a cancellation point
++
+   switch (syscall_number)
+   {
+     case sc_sched_yield:
+@@ -60,6 +64,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, arg2);
+       break;
++    case sc_pthread_cancel:
++      return_value = pthreadCancel(arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -229,9 +236,39 @@ size_t Syscall::pthreadJoin(size_t thread_id, size_t value_ptr)
+   if (value_ptr != 0 && value_ptr >= USER_BREAK - sizeof(size_t))
+     return (size_t) -1;
+   size_t value = 0;
+-  if (currentThread->process_->joinThread(thread_id, &value) != 0)   // sleeps until the thread is gone
++  size_t result = currentThread->process_->joinThread(thread_id, &value);   // sleeps until the thread is gone
++  if (result == JOIN_CANCELED)
++    cancelIfRequested();          // joinThread has released its lock: now we may die
++  if (result != 0)
+     return (size_t) -1;
+   if (value_ptr)
+     *(size_t*) value_ptr = value;   // after joinThread released its lock: this write may page-fault
+   return 0;
+ }
++
++// A1-06: deferred cancellation - set a flag, the target acts on it itself
++size_t Syscall::pthreadCancel(size_t thread_id)
++{
++  UserProcess* process = currentThread->process_;
++  ScopeLock lock(process->getThreadsLock());
++  Thread* target = process->findThread(thread_id);
++  if (!target || target == process)          // unknown, finished, or the main thread
++    return (size_t) -1;
++  ArchThreads::atomic_set((uint64&) ((UserThread*) target)->cancel_requested_, 1);
++  process->wakeJoiners();                     // in case it sleeps in pthread_join
++  return 0;
++}
++
++// A1-06: called at cancellation points, with NO lock held (we may not return)
++void Syscall::cancelIfRequested()
++{
++  UserProcess* process = currentThread->process_;
++  if (!process || currentThread == process)    // kernel thread or main thread
++    return;
++  UserThread* self = (UserThread*) currentThread;
++  if (!self->cancel_requested_)
++    return;
++  debug(SYSCALL, "thread %zu cancelled\n", self->getThreadId());
++  self->exit_value_ = (size_t) -1;            // PTHREAD_CANCELED
++  currentThread->kill();
++}
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index bad9b33..bd156f9 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -86,11 +86,16 @@ UserThread* UserProcess::createThread(size_t entry, size_t start_routine, size_t
+   size_t id = next_thread_id_++;
+   slots_[slot].state = SLOT_RUNNING;
+   slots_[slot].id = id;
++  slots_[slot].thread = nullptr;
+   ++num_threads_;
+   threads_lock_.release();
+ 
+   // outside threads_lock_: the constructor takes arch_memory_lock_ and allocates
+-  return new UserThread(this, slot, id, entry, start_routine, argument);
++  UserThread* thread = new UserThread(this, slot, id, entry, start_routine, argument);
++  threads_lock_.acquire();
++  slots_[slot].thread = thread;
++  threads_lock_.release();
++  return thread;
+ }
+ 
+ void UserProcess::threadFinished(size_t slot, size_t exit_value)
+@@ -98,6 +103,7 @@ void UserProcess::threadFinished(size_t slot, size_t exit_value)
+   threads_lock_.acquire();
+   slots_[slot].state = SLOT_FINISHED;
+   slots_[slot].exit_value = exit_value;
++  slots_[slot].thread = nullptr;     // the object is about to be freed
+   --num_threads_;
+   threads_changed_.broadcast();   // joiners of this thread AND the main thread waiting in exit
+   threads_lock_.release();
+@@ -117,7 +123,12 @@ size_t UserProcess::joinThread(size_t id, size_t* exit_value)
+   // the slot may be joined by someone else while we sleep, and then reused by a new thread:
+   // re-check that it is still OUR thread after every wake-up
+   while (slots_[slot].state == SLOT_RUNNING && slots_[slot].id == id)
++  {
++    // A1-06: pthread_join is a cancellation point - pthread_cancel broadcasts to wake us
++    if (currentThread != this && ((UserThread*) currentThread)->cancel_requested_)
++      return JOIN_CANCELED;
+     threads_changed_.wait();
++  }
+   if (slots_[slot].state != SLOT_FINISHED || slots_[slot].id != id)
+     return (size_t) -1;                                   // another joiner was faster
+ 
+@@ -133,3 +144,22 @@ void UserProcess::waitForThreads()
+     threads_changed_.wait();
+   threads_lock_.release();
+ }
++
++Thread* UserProcess::findThread(size_t id)
++{
++  assert(threads_lock_.isHeldBy(currentThread));
++  if (id == 0)
++    return this;
++  for (size_t slot = 1; slot <= MAX_USER_THREADS; ++slot)
++  {
++    if (slots_[slot].state == SLOT_RUNNING && slots_[slot].id == id)
++      return (Thread*) slots_[slot].thread;   // may still be nullptr right after creation
++  }
++  return nullptr;
++}
++
++void UserProcess::wakeJoiners()
++{
++  assert(threads_lock_.isHeldBy(currentThread));
++  threads_changed_.broadcast();
++}
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 3886713..e415b5b 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -9,7 +9,7 @@
+ UserThread::UserThread(UserProcess* process, size_t stack_slot, size_t thread_id, size_t entry,
+                        size_t start_routine, size_t argument) :
+     Thread(process->getWorkingDirInfo(), process->getName(), Thread::USER_THREAD),
+-    exit_value_((size_t) -1), stack_slot_(stack_slot), thread_id_(thread_id)
++    exit_value_((size_t) -1), cancel_requested_(0), stack_slot_(stack_slot), thread_id_(thread_id)
+ {
+   process_ = process;
+   loader_ = process->loader_;                      // same loader = same address space
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae8..bd4513d 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -10,6 +10,9 @@ extern "C" {
+ typedef size_t pthread_t;
+ typedef unsigned int pthread_attr_t;
+ 
++// A1-06
++#define PTHREAD_CANCELED ((void*) -1)
++
+ //pthread mutex typedefs
+ typedef unsigned int pthread_mutex_t;
+ typedef unsigned int pthread_mutexattr_t;
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 214e83e..c46199a 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -43,7 +43,7 @@ void pthread_exit(void *value_ptr)
+  */
+ int pthread_cancel(pthread_t thread)
+ {
+-  return -1;
++  return __syscall(sc_pthread_cancel, thread, 0x00, 0x00, 0x00, 0x00);
+ }
+ 
+ /**

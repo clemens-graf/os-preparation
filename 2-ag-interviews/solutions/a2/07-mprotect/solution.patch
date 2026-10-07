@@ -1,0 +1,143 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..99d00be 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..41ad203 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A2-07
++    static size_t mprotect(size_t address, size_t length, size_t prot);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..bf8079d 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A2-07
++#define sc_mprotect 1760
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..012218d 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..c3d77aa 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,8 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +51,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_mprotect:
++      return_value = mprotect(arg1, arg2, arg3);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +186,37 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A2-07: same values as PROT_* in userspace/libc/include/sys/mman.h
++#define PROT_READ_BIT 0x1
++#define PROT_WRITE_BIT 0x2
++#define PROT_EXEC_BIT 0x4
++
++size_t Syscall::mprotect(size_t address, size_t length, size_t prot)
++{
++  size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
++  if (address % PAGE_SIZE != 0 || length == 0 || address >= USER_BREAK || pages > (USER_BREAK - address) / PAGE_SIZE)
++    return (size_t) -1;
++  if ((prot & PROT_WRITE_BIT) && (prot & PROT_EXEC_BIT))
++    return (size_t) -1;                                  // W xor X: never writable AND executable
++
++  Loader* loader = currentThread->loader_;
++  ScopeLock lock(loader->arch_memory_lock_);
++  size_t first = address / PAGE_SIZE;
++  // all or nothing: check every page before changing any
++  for (size_t vpn = first; vpn < first + pages; ++vpn)
++  {
++    if (loader->arch_memory_.resolveMapping(vpn).page_size != PAGE_SIZE)
++      return (size_t) -1;                                // not present (lazy pages: touch them first)
++  }
++  for (size_t vpn = first; vpn < first + pages; ++vpn)
++  {
++    ArchMemoryMapping m = loader->arch_memory_.resolveMapping(vpn);
++    PageTableEntry& pte = m.pt[m.pti];
++    pte.user_access = prot != 0;                         // PROT_NONE: only the kernel may touch it
++    pte.writeable = (prot & PROT_WRITE_BIT) != 0;        // x86: writable implies readable
++    pte.execution_disabled = (prot & PROT_EXEC_BIT) == 0; // NX bit - works, EFER.NXE is on
++  }
++  ArchMemory::flushTlb();                                // rights may have been REMOVED
++  return 0;
++}
+diff --git a/userspace/libc/src/mman.c b/userspace/libc/src/mman.c
+index 6b17c54..8c8ae8f 100644
+--- a/userspace/libc/src/mman.c
++++ b/userspace/libc/src/mman.c
+@@ -1,4 +1,6 @@
+ #include "sys/mman.h"
++#include "sys/syscall.h"
++#include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ /**
+  * function stub
+@@ -43,6 +45,6 @@ int shm_unlink(const char* name)
+  */
+ int mprotect(void *addr, size_t len, int prot)
+ {
+-  return -1;
++  return __syscall(sc_mprotect, (size_t) addr, len, prot, 0x00, 0x00);   // A2-07
+ }
+ 

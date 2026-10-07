@@ -1,0 +1,239 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index dab9817..5284007 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -23,5 +23,7 @@ class Syscall
+     static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
+     static void pthreadExit(size_t value);
+     static size_t pthreadJoin(size_t thread_id, size_t value_ptr);
++    static size_t pthreadMultiple(size_t ids, size_t count, size_t start_routine, size_t args, size_t entry);
++    static size_t pthreadJoinAny(size_t ids, size_t count, size_t index_ptr, size_t value_ptr);
+ };
+ 
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 2790d82..345f0c3 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -53,6 +53,15 @@ class UserProcess : public Thread
+      */
+     size_t joinThread(size_t id, size_t* exit_value);
+ 
++    /** A1-02: deletes a created but never scheduled thread and frees its slot */
++    void discardThread(UserThread* thread);
++
++    /**
++     * A1-02: waits until one of the count threads in ids has finished and joins it
++     * @return 0 (index and exit_value set), or -1 if none of the ids is a joinable thread
++     */
++    size_t joinAny(const size_t* ids, size_t count, size_t* index, size_t* exit_value);
++
+     /** A0-08: the main thread sleeps here until all other threads are gone */
+     void waitForThreads();
+ 
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index b42555f..ae7c70f 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -19,6 +19,7 @@ class UserThread : public Thread
+     virtual void Run(); // not used: user threads start in user space
+ 
+     size_t getThreadId() const;
++    size_t getStackSlot() const;
+ 
+     size_t exit_value_;  // A1-01: set by pthread_exit, handed to the joiner by the destructor
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 2df47df..c06d3e1 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -23,4 +23,6 @@
+ 
+ // A1 tasks use 1600-1699
+ #define sc_pthread_join 1600
++#define sc_pthread_multiple 1601
++#define sc_pthread_join_any 1602
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 31e8ee2..75532b9 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -8,6 +8,7 @@
+ #include "File.h"
+ #include "Scheduler.h"
+ #include "UserThread.h"
++#include "kstring.h"
+ #include "UserProcess.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+@@ -60,6 +61,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, arg2);
+       break;
++    case sc_pthread_multiple:
++      return_value = pthreadMultiple(arg1, arg2, arg3, arg4, arg5);
++      break;
++    case sc_pthread_join_any:
++      return_value = pthreadJoinAny(arg1, arg2, arg3, arg4);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -235,3 +242,59 @@ size_t Syscall::pthreadJoin(size_t thread_id, size_t value_ptr)
+     *(size_t*) value_ptr = value;   // after joinThread released its lock: this write may page-fault
+   return 0;
+ }
++
++// A1-02: count threads, all or nothing
++size_t Syscall::pthreadMultiple(size_t ids, size_t count, size_t start_routine, size_t args, size_t entry)
++{
++  size_t bytes = count * sizeof(size_t);
++  if (count == 0 || count > MAX_USER_THREADS || ids == 0 || ids >= USER_BREAK - bytes ||
++      (args != 0 && args >= USER_BREAK - bytes) || start_routine == 0 || start_routine >= USER_BREAK ||
++      entry == 0 || entry >= USER_BREAK)
++    return (size_t) -1;
++
++  size_t arg_copy[MAX_USER_THREADS];
++  if (args)
++    memcpy(arg_copy, (void*) args, bytes);       // copy in before anything is created
++  else
++    memset(arg_copy, 0, bytes);
++  memset((void*) ids, 0, bytes);                 // touch the result array: if it faults, nothing exists yet
++
++  UserProcess* process = currentThread->process_;
++  UserThread* created[MAX_USER_THREADS];
++  for (size_t i = 0; i < count; ++i)
++  {
++    created[i] = process->createThread(entry, start_routine, arg_copy[i]);
++    if (!created[i])
++    {
++      // roll back: none of them has been scheduled, so none of them has run
++      for (size_t j = 0; j < i; ++j)
++        process->discardThread(created[j]);
++      return (size_t) -1;
++    }
++  }
++  for (size_t i = 0; i < count; ++i)
++    ((size_t*) ids)[i] = created[i]->getThreadId();
++  for (size_t i = 0; i < count; ++i)
++    Scheduler::instance()->addNewThread(created[i]);   // only now: all or nothing
++  return 0;
++}
++
++// A1-02: join whichever of the threads finishes first
++size_t Syscall::pthreadJoinAny(size_t ids, size_t count, size_t index_ptr, size_t value_ptr)
++{
++  size_t bytes = count * sizeof(size_t);
++  if (count == 0 || count > MAX_USER_THREADS || ids == 0 || ids >= USER_BREAK - bytes ||
++      index_ptr == 0 || index_ptr >= USER_BREAK - sizeof(size_t) ||
++      (value_ptr != 0 && value_ptr >= USER_BREAK - sizeof(size_t)))
++    return (size_t) -1;
++  size_t id_copy[MAX_USER_THREADS];
++  memcpy(id_copy, (void*) ids, bytes);
++  size_t index = 0;
++  size_t value = 0;
++  if (currentThread->process_->joinAny(id_copy, count, &index, &value) != 0)
++    return (size_t) -1;
++  *(size_t*) index_ptr = index;                  // user memory only after the lock is released
++  if (value_ptr)
++    *(size_t*) value_ptr = value;
++  return 0;
++}
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index bad9b33..9918c46 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -133,3 +133,39 @@ void UserProcess::waitForThreads()
+     threads_changed_.wait();
+   threads_lock_.release();
+ }
++
++void UserProcess::discardThread(UserThread* thread)
++{
++  size_t slot = thread->getStackSlot();
++  delete thread;                          // unmaps its stack, marks the slot FINISHED
++  ScopeLock lock(threads_lock_);
++  slots_[slot].state = SLOT_FREE;         // nobody knows its id: nobody will join it
++}
++
++size_t UserProcess::joinAny(const size_t* ids, size_t count, size_t* index, size_t* exit_value)
++{
++  ScopeLock lock(threads_lock_);
++  while (true)
++  {
++    bool any_alive = false;
++    for (size_t i = 0; i < count; ++i)
++    {
++      for (size_t slot = 1; slot <= MAX_USER_THREADS; ++slot)
++      {
++        if (slots_[slot].state == SLOT_FREE || slots_[slot].id != ids[i])
++          continue;
++        if (slots_[slot].state == SLOT_FINISHED)
++        {
++          *index = i;                     // found one: join it, all under the same lock
++          *exit_value = slots_[slot].exit_value;
++          slots_[slot].state = SLOT_FREE;
++          return 0;
++        }
++        any_alive = true;                 // RUNNING: worth waiting for
++      }
++    }
++    if (!any_alive)
++      return (size_t) -1;                 // nothing left to wait for - waiting would never end
++    threads_changed_.wait();              // broadcast by every threadFinished
++  }
++}
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 3886713..eafd01c 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -58,6 +58,11 @@ size_t UserThread::getThreadId() const
+   return thread_id_;
+ }
+ 
++size_t UserThread::getStackSlot() const
++{
++  return stack_slot_;
++}
++
+ size_t UserThread::stackTop() const
+ {
+   return USER_BREAK - stack_slot_ * STACK_SLOT_SIZE;
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae8..45eb18d 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -56,6 +56,12 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
++// A1-02: creates count threads running start_routine(args[i]) (args may be NULL) - all or none
++extern int pthread_multiple(pthread_t* threads, size_t count, void* (*start_routine)(void*), void** args);
++
++// A1-02: waits until one of the threads has finished, joins it, *index = its position in threads
++extern int pthread_join_any(pthread_t* threads, size_t count, size_t* index, void** value_ptr);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 214e83e..645a4c8 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -50,6 +50,17 @@ int pthread_cancel(pthread_t thread)
+  * function stub
+  * posix compatible signature - do not change the signature!
+  */
++int pthread_multiple(pthread_t* threads, size_t count, void* (*start_routine)(void*), void** args)
++{
++  return __syscall(sc_pthread_multiple, (size_t) threads, count, (size_t) start_routine, (size_t) args,
++                   (size_t) pthreadStart);
++}
++
++int pthread_join_any(pthread_t* threads, size_t count, size_t* index, void** value_ptr)
++{
++  return __syscall(sc_pthread_join_any, (size_t) threads, count, (size_t) index, (size_t) value_ptr, 0x00);
++}
++
+ int pthread_join(pthread_t thread, void **value_ptr)
+ {
+   return __syscall(sc_pthread_join, thread, (size_t) value_ptr, 0x00, 0x00, 0x00);

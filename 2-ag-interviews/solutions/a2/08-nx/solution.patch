@@ -1,0 +1,129 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..99d00be 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/mm/PageFaultHandler.h b/common/include/mm/PageFaultHandler.h
+index dfcd940..ca78c65 100644
+--- a/common/include/mm/PageFaultHandler.h
++++ b/common/include/mm/PageFaultHandler.h
+@@ -19,7 +19,7 @@ private:
+    * @param present true if the fault happened on a already mapped page
+    * @param switch_to_us the switch to userspace flag of the current thread
+    */
+-  static inline bool checkPageFaultIsValid(size_t address, bool user, bool present, bool switch_to_us);
++  static inline bool checkPageFaultIsValid(size_t address, bool user, bool present, bool switch_to_us, bool fetch);
+ 
+   /**
+    * Print out the pagefault information. Check if the pagefault is valid, or the thread state is corrupt.
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..0ddccf5 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,11 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++// A2-08: ELF segment permission flag (p_flags): 1 = PF_X, 2 = PF_W, 4 = PF_R
++#define ELF_PF_X 1
++
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -28,6 +32,7 @@ void Loader::loadPage(pointer virtual_address)
+   const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
+   const pointer virt_page_end_addr = virt_page_start_addr + PAGE_SIZE;
+   bool found_page_content = false;
++  bool executable = false;   // A2-08: does any segment on this page contain code?
+   // get a new page for the mapping
+   size_t ppn = PageManager::instance()->allocPPN();
+ 
+@@ -54,10 +59,12 @@ void Loader::loadPage(pointer virtual_address)
+           Syscall::exit(999);
+         }
+         found_page_content = true;
++        executable |= ((*it).p_flags & ELF_PF_X) != 0;
+       }
+       else if((*it).p_vaddr + (*it).p_memsz > virt_page_start_addr)
+       {
+         found_page_content = true;
++        executable |= ((*it).p_flags & ELF_PF_X) != 0;
+       }
+     }
+   }
+@@ -70,7 +77,15 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  if (page_mapped && !executable)
++  {
++    // A2-08: data, rodata, bss: never executable. Set NX before anybody can use the page.
++    ArchMemoryMapping m = arch_memory_.resolveMapping(virt_page_start_addr / PAGE_SIZE);
++    m.pt[m.pti].execution_disabled = 1;
++  }
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f309655..544b99a 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -28,6 +28,9 @@ UserProcess::UserProcess(ustl::string filename, FileSystemInfo *fs_info, uint32
+   size_t page_for_stack = PageManager::instance()->allocPPN();
+   bool vpn_mapped = loader_->arch_memory_.mapPage(USER_BREAK / PAGE_SIZE - 1, page_for_stack, 1);
+   assert(vpn_mapped && "Virtual page for stack was already mapped - this should never happen");
++  // A2-08: the stack is data - never executable (no lock needed: the process does not run yet)
++  ArchMemoryMapping stack_mapping = loader_->arch_memory_.resolveMapping(USER_BREAK / PAGE_SIZE - 1);
++  stack_mapping.pt[stack_mapping.pti].execution_disabled = 1;
+ 
+   ArchThreads::createUserRegisters(user_registers_, loader_->getEntryFunction(),
+                                    (void*) (USER_BREAK - sizeof(pointer)),
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 3224b05..8554d76 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -12,7 +12,7 @@ extern "C" void arch_contextSwitch();
+ const size_t PageFaultHandler::null_reference_check_border_ = PAGE_SIZE;
+ 
+ inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
+-                                                    bool present, bool switch_to_us)
++                                                    bool present, bool switch_to_us, bool fetch)
+ {
+   assert((user == switch_to_us) && "Thread is in user mode even though is should not be.");
+   assert(!(address < USER_BREAK && currentThread->loader_ == 0) && "Thread accesses the user space, but has no loader.");
+@@ -30,6 +30,10 @@ inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
+   {
+     debug(PAGEFAULT, "You are accessing a kernel address in user-mode.\n");
+   }
++  else if(present && fetch)
++  {
++    debug(PAGEFAULT, "Instruction fetch from a non-executable page (NX).\n");   // A2-08
++  }
+   else if(present)
+   {
+     debug(PAGEFAULT, "You got a pagefault even though the address is mapped.\n");
+@@ -59,7 +63,7 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   ArchThreads::printThreadRegisters(currentThread, false);
+ 
+-  if (checkPageFaultIsValid(address, user, present, switch_to_us))
++  if (checkPageFaultIsValid(address, user, present, switch_to_us, fetch))
+   {
+     currentThread->loader_->loadPage(address);
+   }

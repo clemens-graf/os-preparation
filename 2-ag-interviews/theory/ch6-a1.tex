@@ -1,0 +1,116 @@
+\chapter{A1: threads, scheduling, processes}
+\label{ch:a1}
+
+The A1 tasks students reported fall into five families. All of them build on the same few
+mechanisms: \emph{where} a thread's state lives, \emph{who} frees it \emph{when}, and
+\emph{how} threads wait for each other. In the course, A1-01 (\code{pthread\_join}) builds that
+base on top of A0-08; in the interview it is your team's implementation.
+
+\section{The thread bookkeeping every A1 task needs}
+
+\begin{center}
+\small
+\begin{tabular}{L{4cm}L{10.8cm}}
+\toprule
+\textbf{Question} & \textbf{Course solution (base SWEB) --- find the equivalent in your team repo} \\
+\midrule
+Which threads does a process have? & \code{UserProcess::slots\_[]}: state FREE / RUNNING / FINISHED, id, exit value, \code{UserThread*} (valid while RUNNING) \\
+Which lock? & \code{UserProcess::threads\_lock\_} (Mutex) for all of it; \code{threads\_changed\_} (Condition), broadcast whenever a thread finishes \\
+Where does the exit value survive the thread? & in the slot --- the thread object is deleted by the CleanupThread at an unknown time \\
+When is a thread object freed? & by the CleanupThread, after \code{kill()}; its destructor unmaps the stack and calls \code{threadFinished()} \emph{as its last action} \\
+How do I use another thread safely? & \code{findThread(id)} under \code{threads\_lock\_}, use the pointer only while holding it: the object is freed only after \code{threadFinished}, which needs that lock \\
+When is a slot reused? & after \code{pthread\_join} (FINISHED $\to$ FREE), never earlier \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{lockbox}
+\begin{itemize}
+\item One Mutex for the per-process thread table, one Condition, \textbf{broadcast}: different
+  waiters wait for different things (join of thread 3, join of thread 5, exit waiting for all).
+\item After every \code{wait()}, re-check \emph{your} condition including identity (the slot may
+  have been joined by someone else and reused).
+\item Never create a thread object (which allocates and takes the page-table lock) while holding
+  the thread table lock --- no nested locks if you can avoid them.
+\item Never \code{kill()} a thread while it holds a lock --- not even itself.
+\end{itemize}
+\end{lockbox}
+
+\section{Family 1: creating and waiting (join, multiple, join\_any, barriers)}
+
+\begin{description}
+\item[Create] = shared address space + own stack + own registers + \code{addNewThread}
+  (A0-08). \emph{All or nothing} (\code{pthread\_multiple}): create every object first,
+  schedule only when all exist; a never-scheduled thread may be deleted directly.
+\item[Wait] = Mutex + Condition + state, \code{while} loop. Join waits for FINISHED,
+  \code{join\_any} for ``any of these FINISHED, or none alive any more'' (then fail instead of
+  waiting forever), barriers for ``my round's generation changed'' --- \emph{not} for a counter that
+  the next round changes again.
+\end{description}
+
+\section{Family 2: the scheduler (flagging, invoke, switch, runtime)}
+
+\code{Scheduler::schedule()} (\file{common/source/kernel/Scheduler.cpp}) runs in the timer
+interrupt and in \code{yield}'s interrupt: \textbf{interrupts are off, no lock can be taken}.
+It walks \code{threads\_}, picks the first \code{schedulable()} one and rotates the list.
+
+\begin{itemize}
+\item Data the scheduler reads must be single words written atomically (\code{ArchThreads::atomic\_set}):
+  a ``run twice'' flag (A1-04), a ``run this one next'' pointer (A1-05), a per-thread tick
+  counter written in \code{incTicks} (A1-07).
+\item A pointer handed to the scheduler may dangle by the time it runs: only use it after finding
+  it in \code{threads\_} (every list member is alive).
+\item The timer runs at 18.2\,Hz (\code{IRQ0\_TIMER\_FREQUENCY} 0 $\to$ PIT divisor 65536): one tick
+  is 55\,ms. A \code{sched\_yield} round passes the IdleThread, which halts until the next tick ---
+  so \textbf{every yield can cost a whole tick}. Tests (and your solutions) should sleep on a
+  Condition rather than yield in loops.
+\end{itemize}
+
+\section{Family 3: ending threads (exit, cancel)}
+
+\begin{itemize}
+\item \textbf{exit} (POSIX): the whole process ends. Base SWEB: the main thread waits for the others
+  (A0-08 simplification). Your team: all threads must be stopped --- \emph{from outside}, which is
+  the same problem as cancel.
+\item \textbf{cancel} (deferred, A1-06): set a flag; the target dies at its next cancellation point
+  (syscall entry, while waiting in join --- wake it with a broadcast), never in the middle of a
+  syscall holding locks. A thread that never makes a syscall keeps running.
+\item The exit value: \code{PTHREAD\_CANCELED} (-1) for a cancelled thread, -1 for one killed by a fault.
+\end{itemize}
+
+\section{Family 4: registers and stacks (snapshot/revive, upcalls, 15 arguments)}
+
+\code{user\_registers\_} during a syscall is the state the thread continues with (\S\ref{sec:registers}).
+Snapshot/revive (A1-08) restores \emph{registers and the used part of the stack}: registers alone point
+into frames that have been overwritten since. Copy \code{ArchThreadRegisters} field by field (its
+\code{fpu} pointer and destructor make struct copies dangerous). More than 5 syscall arguments: pass a
+pointer to an array and copy it in once.
+
+\section{Family 5: memory and processes (vtop/ptov, shm, sbrk, page fault statistics)}
+
+\begin{itemize}
+\item \code{resolveMapping} answers virtual $\to$ physical; physical $\to$ virtual needs a walk of
+  the page tables (no reverse map in SWEB).
+\item A page in two address spaces needs a \textbf{reference count} and an unmap that does not free;
+  process exit (\code{\textasciitilde ArchMemory} frees every present page!) must drop references
+  first --- in \code{\textasciitilde Loader}, before the member \code{arch\_memory\_} dies.
+\item The page-fault C entry \code{pageFaultHandler(address, error)} runs with interrupts off: atomics
+  only. \code{cr2} is read by the assembly stub immediately, because the next fault overwrites it.
+\end{itemize}
+
+\section{Not in the course, and how you would do it}
+
+\begin{description}
+\item[forkall] Fork with every thread: copy the page tables (or COW), then for every thread of the
+  parent create a thread in the child with a copy of its user registers and the same stack slot
+  (\code{rax} = 0 for the caller). Hold the parent's page-table lock while copying. The design
+  question a tutor will ask: what about a parent thread that is \emph{inside a syscall} right now
+  (e.g.\ sleeping in \code{pthread\_join})? Its \code{user\_registers\_} hold its state at syscall
+  entry --- the child's copy would continue after a syscall it never finished. Options: give the copy
+  the result -1, or stop all threads at the user/kernel boundary first (like cancel's safe points).
+\item[special address in the page fault handler] A0-04, with a different action: kill only the
+  faulting thread, print all threads' registers (\code{ArchThreads::printThreadRegisters}).
+\item[pthread\_switch] A directed yield (A1-05) where the caller additionally sleeps until someone
+  switches back to it: \code{Scheduler::sleep()} after setting the preferred thread --- careful
+  with lost wake-ups (the target may switch back before you sleep): use a Condition with a state.
+\end{description}

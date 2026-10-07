@@ -1,0 +1,107 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..e1536ed 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A1-13
++    static size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t rest);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..f9fd3f0 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A1-13
++#define sc_sum15 1710
++
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..fa1873e 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,7 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "kstring.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +50,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_sum15:
++      return_value = sum15(arg1, arg2, arg3, arg4, arg5);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +185,18 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A1-13: 15 arguments: 4 in registers, the other 11 in an array in user memory.
++// Returns 1*a1 + 2*a2 + ... + 15*a15 - the weights make a wrong order visible.
++size_t Syscall::sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t rest)
++{
++  const size_t REST = 11;
++  if (rest == 0 || rest >= USER_BREAK - REST * sizeof(size_t))
++    return (size_t) -1;
++  size_t args[15] = {a1, a2, a3, a4};
++  memcpy(&args[4], (void*) rest, REST * sizeof(size_t));   // copy in once, then use only the copy
++  size_t sum = 0;
++  for (size_t i = 0; i < 15; ++i)
++    sum += (i + 1) * args[i];
++  return sum;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..f655b3f 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,10 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A1-13: returns 1*a1 + 2*a2 + ... + 15*a15, computed by the kernel
++extern size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6, size_t a7, size_t a8,
++                    size_t a9, size_t a10, size_t a11, size_t a12, size_t a13, size_t a14, size_t a15);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..336693d 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,14 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6, size_t a7, size_t a8,
++             size_t a9, size_t a10, size_t a11, size_t a12, size_t a13, size_t a14, size_t a15)
++{
++  // __syscall carries 5 values: 4 arguments + the address of the other 11 on our stack
++  size_t rest[11] = {a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15};
++  return __syscall(sc_sum15, a1, a2, a3, a4, (size_t) rest);
++}
++
+ void _start()
+ {
+   exit(main());

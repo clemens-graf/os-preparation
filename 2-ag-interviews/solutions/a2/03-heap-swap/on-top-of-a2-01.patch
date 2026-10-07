@@ -1,0 +1,138 @@
+diff --git a/common/include/mm/SwapManager.h b/common/include/mm/SwapManager.h
+index 801f850..4204397 100644
+--- a/common/include/mm/SwapManager.h
++++ b/common/include/mm/SwapManager.h
+@@ -3,20 +3,21 @@
+ #include "types.h"
+ 
+ class Mutex;
+-class Bitmap;
+-class BDVirtualDevice;
++
++// A2-03: swapped-out pages live on the KERNEL HEAP instead of the swap device.
++// The kernel heap is small and the kernel itself needs it: at most this many pages.
++#define HEAP_SWAP_SLOTS 64
+ 
+ /**
+- * A2-01: page-sized slots on the swap partition idea2.
+- * Slot s lies at byte offset s * PAGE_SIZE of the partition.
++ * A2-01/A2-03: slots for swapped-out pages - here: page-sized buffers on the kernel heap
+  */
+ class SwapManager
+ {
+   public:
+     static SwapManager* instance();
+-    static void init();                         // from startup(), after the block devices exist
++    static void init();
+ 
+-    /** copies physical page ppn into a free slot @return the slot, or -1 if the device is full */
++    /** copies physical page ppn into a free slot @return the slot, or -1 if all slots are used */
+     size_t writeOut(size_t ppn);
+     /** copies slot into physical page ppn */
+     void readIn(size_t slot, size_t ppn);
+@@ -29,8 +30,6 @@ class SwapManager
+     SwapManager();
+     static SwapManager* instance_;
+ 
+-    BDVirtualDevice* device_;
+-    size_t num_slots_;
+-    Bitmap* slots_;          // bit set = slot in use
+-    Mutex* lock_;            // protects slots_ and serialises our disk requests
++    char* buffers_[HEAP_SWAP_SLOTS];   // nullptr = slot free
++    Mutex* lock_;                      // protects buffers_
+ };
+diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
+index ad83cf3..9cf7f24 100644
+--- a/common/source/kernel/main.cpp
++++ b/common/source/kernel/main.cpp
+@@ -85,7 +85,7 @@ extern "C" void startup()
+   debug(MAIN, "Block Device creation\n");
+   BDManager::getInstance()->doDeviceDetection();
+   debug(MAIN, "Block Device done\n");
+-  SwapManager::init();   // A2-01: needs the block devices
++  SwapManager::init();   // A2-01/A2-03
+ 
+   for (BDVirtualDevice* bdvd : BDManager::getInstance()->device_list_)
+   {
+diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
+index f96581e..a22552e 100644
+--- a/common/source/mm/SwapManager.cpp
++++ b/common/source/mm/SwapManager.cpp
+@@ -1,10 +1,8 @@
+ #include "SwapManager.h"
+-#include "BDManager.h"
+-#include "BDVirtualDevice.h"
+ #include "ArchMemory.h"
+-#include "Bitmap.h"
+ #include "Mutex.h"
+ #include "ScopeLock.h"
++#include "kstring.h"
+ #include "kprintf.h"
+ #include "assert.h"
+ 
+@@ -21,50 +19,45 @@ SwapManager* SwapManager::instance()
+   return instance_;
+ }
+ 
+-SwapManager::SwapManager() : device_(BDManager::getInstance()->getDeviceByName("idea2")),
+-                             num_slots_(0), slots_(nullptr), lock_(new Mutex("SwapManager::lock_"))
++SwapManager::SwapManager() : buffers_(), lock_(new Mutex("SwapManager::lock_"))
+ {
+-  assert(device_ && "no swap partition idea2");
+-  num_slots_ = (size_t) device_->getNumBlocks() * device_->getBlockSize() / PAGE_SIZE;
+-  slots_ = new Bitmap(num_slots_);
+-  debug(PM, "SwapManager: %zu slots on %s\n", num_slots_, device_->getName());
+ }
+ 
+ size_t SwapManager::writeOut(size_t ppn)
+ {
+   ScopeLock lock(*lock_);
+   size_t slot = 0;
+-  while (slot < num_slots_ && slots_->getBit(slot))
++  while (slot < HEAP_SWAP_SLOTS && buffers_[slot])
+     ++slot;
+-  if (slot == num_slots_)
+-    return (size_t) -1;
+-  slots_->setBit(slot);
+-  // the driver reads the page through its kernel (ident) address - the page does not need
+-  // to be mapped anywhere, and it is not: the caller has already unmapped it
+-  int32 written = device_->writeData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
+-  assert(written == PAGE_SIZE && "swap write failed");
++  if (slot == HEAP_SWAP_SLOTS)
++    return (size_t) -1;                 // limit reached: better fail than exhaust the kernel heap
++  buffers_[slot] = new char[PAGE_SIZE]; // kernel heap (KernelMemoryManager has its own lock)
++  memcpy(buffers_[slot], (void*) ArchMemory::getIdentAddressOfPPN(ppn), PAGE_SIZE);
+   return slot;
+ }
+ 
+ void SwapManager::readIn(size_t slot, size_t ppn)
+ {
+   ScopeLock lock(*lock_);
+-  assert(slots_->getBit(slot) && "reading a free swap slot");
+-  int32 read = device_->readData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
+-  assert(read == PAGE_SIZE && "swap read failed");
++  assert(slot < HEAP_SWAP_SLOTS && buffers_[slot] && "reading a free swap slot");
++  memcpy((void*) ArchMemory::getIdentAddressOfPPN(ppn), buffers_[slot], PAGE_SIZE);
+ }
+ 
+ void SwapManager::freeSlot(size_t slot)
+ {
+   ScopeLock lock(*lock_);
+-  assert(slots_->getBit(slot) && "double free of a swap slot");
+-  slots_->unsetBit(slot);
++  assert(slot < HEAP_SWAP_SLOTS && buffers_[slot] && "double free of a swap slot");
++  delete[] buffers_[slot];
++  buffers_[slot] = nullptr;
+ }
+ 
+ size_t SwapManager::usedSlots()
+ {
+   ScopeLock lock(*lock_);
+-  return slots_->getNumBitsSet();
++  size_t used = 0;
++  for (char* buffer : buffers_)
++    used += buffer != nullptr;
++  return used;
+ }
+ 
+ void SwapManager::freeSlotCallback(size_t slot)

@@ -1,0 +1,357 @@
+diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
+index b44b007..c6b0adc 100644
+--- a/arch/x86/64/include/ArchMemory.h
++++ b/arch/x86/64/include/ArchMemory.h
+@@ -51,7 +51,7 @@ class ArchMemory
+      * @param virtual_page The virtual page which shall be unmapped
+      * @return Currently always returns true
+      */
+-    bool unmapPage(uint64 virtual_page);
++    bool unmapPage(uint64 virtual_page, bool free_physical_page = true);   // A1-10: false for shared pages
+ 
+     /**
+      * Takes a physical page number (PPN) and returns a virtual address that can be used to access given physical page.
+diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
+index 0134550..7e396d9 100644
+--- a/arch/x86/64/source/ArchMemory.cpp
++++ b/arch/x86/64/source/ArchMemory.cpp
+@@ -33,13 +33,14 @@ bool ArchMemory::checkAndRemove(pointer map_ptr, uint64 index)
+   return true;
+ }
+ 
+-bool ArchMemory::unmapPage(uint64 virtual_page)
++bool ArchMemory::unmapPage(uint64 virtual_page, bool free_physical_page)
+ {
+   ArchMemoryMapping m = resolveMapping(virtual_page);
+ 
+   assert(m.page_ppn != 0 && m.page_size == PAGE_SIZE && m.pt[m.pti].present);
+   m.pt[m.pti].present = 0;
+-  PageManager::instance()->freePPN(m.page_ppn);
++  if (free_physical_page)
++    PageManager::instance()->freePPN(m.page_ppn);
+   ((uint64*)m.pt)[m.pti] = 0; // for easier debugging
+   bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
+   if (empty)
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..0e59724 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,13 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
++    // A1-10: bit k set = shared page k is mapped in this process (protected by arch_memory_lock_)
++    size_t shm_attached_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..6ef348a 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,9 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A1-10
++    static size_t shmAttach(size_t key);
++    static size_t shmDetach(size_t key);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..2f282a5 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,7 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A1-10
++#define sc_shm_attach 1680
++#define sc_shm_detach 1681
++
+diff --git a/common/include/mm/SharedPages.h b/common/include/mm/SharedPages.h
+new file mode 100644
+index 0000000..4421633
+--- /dev/null
++++ b/common/include/mm/SharedPages.h
+@@ -0,0 +1,36 @@
++#pragma once
++
++#include "types.h"
++
++class Mutex;
++
++#define SHM_MAX_KEYS 16
++#define SHM_BASE 0x0000400000000000ULL   // key k is mapped at SHM_BASE + k * PAGE_SIZE
++
++/**
++ * A1-10: physical pages shared between processes, identified by a key (1 .. SHM_MAX_KEYS-1).
++ * A page lives as long as at least one process has it attached (reference count).
++ */
++class SharedPages
++{
++  public:
++    static SharedPages* instance();
++    static void init();                        // from startup(): no global constructors in SWEB
++
++    /** reference +1 (creates the page if needed) @return its ppn */
++    size_t acquire(size_t key);
++    /** reference -1, frees the page when the last reference is gone */
++    void release(size_t key);
++
++  private:
++    SharedPages();
++    static SharedPages* instance_;
++
++    struct Entry
++    {
++      size_t ppn;        // 0 = no page for this key
++      size_t references;
++    };
++    Mutex* lock_;        // protects entries_
++    Entry entries_[SHM_MAX_KEYS];
++};
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..4c02162 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -9,13 +9,26 @@
+ #include "File.h"
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
++#include "SharedPages.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), shm_attached_(0), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+ Loader::~Loader()
+ {
++  // A1-10: the process is gone (we run in the CleanupThread). Unmap its shared pages WITHOUT
++  // freeing them - ~ArchMemory would free every present page, also the ones others still use
++  for (size_t key = 1; key < SHM_MAX_KEYS; ++key)
++  {
++    if (shm_attached_ & (1UL << key))
++    {
++      arch_memory_.unmapPage((SHM_BASE / PAGE_SIZE) + key, false);
++      SharedPages::instance()->release(key);
++    }
++  }
++
+   delete userspace_debug_info_;
+   delete hdr_;
+   userspace_debug_info_ = nullptr;
+@@ -70,7 +83,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..ce0c3b0 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,9 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ArchMemory.h"
++#include "SharedPages.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +52,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_shm_attach:
++      return_value = shmAttach(arg1);
++      break;
++    case sc_shm_detach:
++      return_value = shmDetach(arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +190,47 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A1-10: map shared page key into the calling process
++size_t Syscall::shmAttach(size_t key)
++{
++  if (key == 0 || key >= SHM_MAX_KEYS)
++    return 0;
++  Loader* loader = currentThread->loader_;
++  size_t vpn = SHM_BASE / PAGE_SIZE + key;
++
++  // 1. reserve a reference first: from now on the page cannot be freed under us
++  size_t ppn = SharedPages::instance()->acquire(key);
++  // 2. then map it - never holding both locks at once
++  loader->arch_memory_lock_.acquire();
++  bool already = loader->shm_attached_ & (1UL << key);
++  if (!already)
++  {
++    bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
++    assert(mapped && "the shm region is only mapped by shmAttach");
++    loader->shm_attached_ |= 1UL << key;
++  }
++  loader->arch_memory_lock_.release();
++  if (already)
++    SharedPages::instance()->release(key);   // attached twice: keep only one reference
++  return vpn * PAGE_SIZE;
++}
++
++size_t Syscall::shmDetach(size_t key)
++{
++  if (key == 0 || key >= SHM_MAX_KEYS)
++    return (size_t) -1;
++  Loader* loader = currentThread->loader_;
++  loader->arch_memory_lock_.acquire();
++  if (!(loader->shm_attached_ & (1UL << key)))
++  {
++    loader->arch_memory_lock_.release();
++    return (size_t) -1;
++  }
++  loader->arch_memory_.unmapPage(SHM_BASE / PAGE_SIZE + key, false);   // NOT freed: others may use it
++  ArchMemory::flushTlb();
++  loader->shm_attached_ &= ~(1UL << key);
++  loader->arch_memory_lock_.release();
++  SharedPages::instance()->release(key);     // ... unless we were the last one
++  return 0;
++}
+diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
+index f795707..4175713 100644
+--- a/common/source/kernel/main.cpp
++++ b/common/source/kernel/main.cpp
+@@ -25,6 +25,7 @@
+ #include "Terminal.h"
+ #include "outerrstream.h"
+ #include "user_progs.h"
++#include "SharedPages.h"
+ 
+ extern void* kernel_end_address;
+ 
+@@ -57,6 +58,7 @@ extern "C" void startup()
+   kprintf("Kernel end address is %p\n", &kernel_end_address);
+ 
+   Scheduler::instance();
++  SharedPages::init();   // A1-10: before any process can attach
+ 
+   //needs to be done after scheduler and terminal, but prior to enableInterrupts
+   kprintf_init();
+diff --git a/common/source/mm/SharedPages.cpp b/common/source/mm/SharedPages.cpp
+new file mode 100644
+index 0000000..1f31b69
+--- /dev/null
++++ b/common/source/mm/SharedPages.cpp
+@@ -0,0 +1,49 @@
++#include "SharedPages.h"
++#include "PageManager.h"
++#include "Mutex.h"
++#include "ScopeLock.h"
++#include "assert.h"
++
++SharedPages* SharedPages::instance_ = nullptr;
++
++void SharedPages::init()
++{
++  instance_ = new SharedPages();
++}
++
++SharedPages* SharedPages::instance()
++{
++  assert(instance_ && "SharedPages::init() was not called in startup()");
++  return instance_;
++}
++
++SharedPages::SharedPages() : lock_(new Mutex("SharedPages::lock_"))
++{
++  for (Entry& entry : entries_)
++  {
++    entry.ppn = 0;
++    entry.references = 0;
++  }
++}
++
++size_t SharedPages::acquire(size_t key)
++{
++  ScopeLock lock(*lock_);
++  Entry& entry = entries_[key];
++  if (entry.ppn == 0)
++    entry.ppn = PageManager::instance()->allocPPN();   // first user: a fresh zeroed page
++  ++entry.references;
++  return entry.ppn;
++}
++
++void SharedPages::release(size_t key)
++{
++  ScopeLock lock(*lock_);
++  Entry& entry = entries_[key];
++  assert(entry.references > 0);
++  if (--entry.references == 0)
++  {
++    PageManager::instance()->freePPN(entry.ppn);       // last user gone
++    entry.ppn = 0;
++  }
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..396f15e 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,11 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A1-10: a page shared between processes, key 1..15. shm_attach maps it (NULL on error),
++// shm_detach unmaps it. The page lives while at least one process has it attached.
++extern void* shm_attach(size_t key);
++extern int shm_detach(size_t key);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..b475c14 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,16 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++void* shm_attach(size_t key)
++{
++  return (void*) __syscall(sc_shm_attach, key, 0x00, 0x00, 0x00, 0x00);
++}
++
++int shm_detach(size_t key)
++{
++  return __syscall(sc_shm_detach, key, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());
