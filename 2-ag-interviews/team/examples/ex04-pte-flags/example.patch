@@ -1,0 +1,154 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e17..99d00bef 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 5bbf8acf..d1c26ddd 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,6 +18,9 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    // EX04
++    static size_t protectPage(size_t address, size_t writable);
+     static void trace();
+ 
+     static size_t getThreadCount();
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 69f00b8d..745ffd75 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,6 +17,9 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// EX04
++#define sc_protectpage 1420
++
+ // Our custom syscalls:
+ 
+ //pthread create / exit ca. 1000 - 1499
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc3796..012218d4 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index a23a1231..fce557e4 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,9 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
++#include "ArchMemory.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -62,6 +65,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+       break;
+     case sc_tortillas_finished:
+       break;
++    case sc_protectpage:
++      return_value = protectPage(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -195,6 +201,24 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++// EX04: change a bit in the page table entry of an existing mapping
++size_t Syscall::protectPage(size_t address, size_t writable)
++{
++  if (address >= USER_BREAK)
++    return (size_t) -1;
++
++  Loader* loader = currentThread->getLoader();
++  ScopeLock lock(loader->arch_memory_lock_);   // released automatically at every return
++
++  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
++  if (m.page_size != PAGE_SIZE)                // not mapped (yet) - m.pt may even be null
++    return (size_t) -1;
++
++  m.pt[m.pti].writeable = writable ? 1 : 0;
++  ArchMemory::flushTlb();                      // the CPU may still cache the old entry in its TLB
++  return 0;
++}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..bcd2bd1a 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// EX04
++extern int protectpage(void* address, int writable);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..8b74af8d 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++int protectpage(void* address, int writable)
++{
++  return __syscall(sc_protectpage, (size_t) address, writable, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

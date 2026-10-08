@@ -26,6 +26,33 @@ Notes:        Simplifications for A0: no pthread_join, exit() from a thread othe
 Done when 9 checks pass, *"thread finished after main returned"* appears, and after
 `exit` there is no `leaking` warning (all stacks and page tables freed).
 
+## In your team repo (`task mode team`)
+
+Your team already split process and thread – so hint 1 below (base SWEB: "`UserProcess` *is* the
+only thread") does not apply. What you have instead:
+
+- `UserProcess` = loader + working dir + file; `createMainThread()` creates the first thread.
+- `UserThread(process, name, terminal)` = the main thread: maps the stack page below `USER_BREAK`,
+  `createUserRegisters`, `setAddressSpace`. **That constructor is your template** for every further thread.
+- `~UserThread` currently does `delete process` – for **every** thread. With two threads that frees the
+  address space while the other one still runs: the first thing to change.
+
+The team solution (numbers 1550/1551 are free):
+
+- a second constructor `UserThread(process, stack_slot, entry, start_routine, argument)`: maps 4 pages at
+  the top of its slot, `rip = entry`, `rdi`/`rsi` = the two arguments, same `getLoader()->arch_memory_`.
+  `stack_slot_ == 0` is the main thread (`isMainThread()`), the slot is also the thread id.
+- `UserProcess::createThread()`, `threadFinished()`, `waitForThreads()` with `threads_lock_` + a
+  `Condition` (the counters are per process).
+- `~UserThread`: an extra thread unmaps its stack and calls `threadFinished()` as its last action; only
+  the main thread deletes the process – `exit()` of the main thread first waits for the others.
+- In the syscalls: `currentThread->getProcess()`, and `((UserThread*) currentThread)->isMainThread()`.
+
+Your teammate's `pthread_create` (P1, branch `feature/pthread-create-basic`) may look different – in the
+interview, know **its** steps.
+
+Team version of the solution: `task solution a0-08` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – what IS a thread in SWEB?</summary>

@@ -13,8 +13,9 @@ All commands work **from any directory**.
 | The tool | `preparation/2-ag-interviews/tools/task.sh` | call it as `task` |
 
 `repos/sweb-ag` is purely local. Its only remote is the official SWEB on GitHub (no push
-rights), and `task` never pushes or fetches. Your practice repo `repos/sweb` and the team repo
-`osw26e3` are never touched.
+rights), and `task` never pushes. The only fetch is `task team setup`, which copies one commit
+*from* your local team repo into the training copy. Your practice repo `repos/sweb` and the team
+repo `osw26e3` are never changed.
 
 ## 1. One-time setup
 
@@ -181,6 +182,22 @@ task reset a0                           # every started A0 task (also a1, a2, ex
 Nothing is lost: the old attempt (including uncommitted changes) is kept as
 `backup/a0-01-meminfo-<date>-<time>`.
 
+### `task team setup` + `task mode team` – practise on your team's code
+
+```bash
+task team setup                         # once: your team's main (pinned commit) → branch team/main
+task mode team                          # tasks, solutions, examples now start from your team's code
+task start a0-01                        # → branch team/task/a0-01-meminfo
+task test                               # same as always
+task solution a0-01                     # → team/solution/a0-01-meminfo: written for getLoader(), UserProcess, ...
+task mode base                          # back to base SWEB - both kinds of branches stay
+task mode                               # which mode am I in?
+```
+`team setup` only *reads* `repos/osw26e3` (it fetches one commit from it); nothing changes there.
+Team-mode branches all start with `team/`, so base and team attempts never mix. On your team's code
+GRUB starts SWEB right away (no Enter needed). What is different, task by task:
+[`team/README.md`](team/README.md) and the section *In your team repo* on every A0 card.
+
 ## 4. Git in the training repo
 
 The tool works with branches; your own work you commit by hand. First go into the repo:
@@ -270,6 +287,9 @@ Special commands: `&prog` = start without waiting, `!sleep N` = wait, `!key f3` 
 
 ## 8. Training plan until the A0 interview (13–17 Oct)
 
+Do the first pass of a task in whichever mode you like; **simulate the interview in team mode**
+(`task mode team`) – that is the code you will have in front of you.
+
 1. **Learn:** `guide.pdf` chapters 2–4 (what is where, recipes, locking).
 2. **Examples**, each with `task example exNN`, its README and `task test`:
    ex01 → ex11 (tutorial 1) → ex02 → ex12 (tutorial 2) → ex03 → ex05
@@ -292,5 +312,7 @@ task gdb gdb                 # ... attach from a 2nd terminal; task nodebug afte
 task solution a0-01          # the reference solution
 task diff a0-01              # my attempt vs. the solution
 task reset a0-01             # start over (backup kept)
+task team setup              # once: import your team's code
+task mode team               # practise on your team's code (task mode base: back)
 cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "wip"   # save
 ```

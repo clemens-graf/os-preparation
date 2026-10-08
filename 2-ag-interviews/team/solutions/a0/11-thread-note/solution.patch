@@ -1,0 +1,192 @@
+diff --git a/common/include/console/debug.h b/common/include/console/debug.h
+index 05b0a637..db4592d6 100644
+--- a/common/include/console/debug.h
++++ b/common/include/console/debug.h
+@@ -86,6 +86,9 @@ const size_t PSEUDOFS           = Ansi_Yellow;
+ const size_t VFSSYSCALL         = Ansi_Yellow;
+ const size_t VFS                = Ansi_Yellow | OUTPUT_ENABLED;
+ const size_t VFS_FILE           = Ansi_Yellow;
++
++// A0-11
++const size_t NOTE               = Ansi_Cyan | OUTPUT_ENABLED;
+ const size_t SUPERBLOCK         = Ansi_Yellow;
+ 
+ //group minix
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 5bbf8acf..5fd73685 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,6 +18,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    // A0-11
++    static size_t setNote(size_t string);
++    static size_t getNote(size_t buffer, size_t size);
+     static void trace();
+ 
+     static size_t getThreadCount();
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index 5ea1b4bf..8d515175 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -12,6 +12,13 @@ public:
+   virtual ~UserThread();
+ 
+   virtual void Run();
++
++  /**
++   * A0-11: the thread's note, at most 15 characters + NUL. Per user thread, so it lives in
++   * UserThread. Only the thread itself reads and writes it (in its own setnote/getnote
++   * syscalls) - so no lock.
++   */
++  char note_[16];
+ };
+ 
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 69f00b8d..5464628e 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,6 +17,10 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-11
++#define sc_setnote 1570
++#define sc_getnote 1571
++
+ // Our custom syscalls:
+ 
+ //pthread create / exit ca. 1000 - 1499
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index a23a1231..eb1bca3e 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,7 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "UserThread.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -62,6 +63,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+       break;
+     case sc_tortillas_finished:
+       break;
++    case sc_setnote:
++      return_value = setNote(arg1);
++      break;
++    case sc_getnote:
++      return_value = getNote(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -195,6 +202,45 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++size_t Syscall::setNote(size_t string)
++{
++  if (string == 0 || string >= USER_BREAK)
++    return (size_t) -1;
++  UserThread* thread = (UserThread*) currentThread;   // syscalls come from user threads only
++
++  // The length is unknown, so a range check up front is impossible: check every byte
++  // before reading it. string < USER_BREAK and length <= 15: string + length cannot overflow.
++  char note[sizeof(thread->note_)];
++  size_t length = 0;
++  while (length < sizeof(note) - 1)
++  {
++    if (string + length >= USER_BREAK)
++      return (size_t) -1;                       // runs into the kernel half before its NUL
++    char c = ((const char*) string)[length];    // may page-fault: loads a lazy user page
++    if (c == '\0')
++      break;
++    note[length++] = c;
++  }
++  note[length] = '\0';                          // strncpy would not guarantee this
++
++  // only the kernel copy from here on - the user string may change meanwhile
++  memcpy(thread->note_, note, sizeof(note));
++  debug(NOTE, "%s: note is now \"%s\"\n", currentThread->getName(), note);
++  return length;
++}
++
++size_t Syscall::getNote(size_t buffer, size_t size)
++{
++  if (buffer == 0 || size == 0 || size > USER_BREAK || buffer > USER_BREAK - size)
++    return (size_t) -1;
++  UserThread* thread = (UserThread*) currentThread;
++  size_t length = strlen(thread->note_);
++  size_t n = ustl::min(length, size - 1);
++  memcpy((char*) buffer, thread->note_, n);
++  ((char*) buffer)[n] = '\0';
++  return length;
++}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 114dd7bc..1eb6dd2f 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -9,7 +9,7 @@
+ // ctors
+ 
+ UserThread::UserThread(UserProcess* process, ustl::string name, uint32 terminal_number) :
+-  Thread(0, ustl::move(name), Thread::USER_THREAD, process)
++  Thread(0, ustl::move(name), Thread::USER_THREAD, process), note_()
+ {
+   assert(process && "process invalid for userthread\n");
+   assert(process->getLoader() && "process has no loader for userthread\n");
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..b82f3ab2 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "../../../common/include/kernel/syscall-definitions.h"
++#include "types.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -26,6 +27,12 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// A0-11: store up to 15 characters of string as this thread's note; length or -1
++extern size_t setnote(const char* string);
++
++// A0-11: copy the note into buffer (NUL-terminated); its length or -1
++extern size_t getnote(char* buffer, size_t size);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..5d37c5d8 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -8,6 +8,16 @@ int createprocess(const char* path, int sleep)
+   return __syscall(sc_createprocess, (long) path, sleep, 0x00, 0x00, 0x00);
+ }
+ 
++size_t setnote(const char* string)
++{
++  return __syscall(sc_setnote, (size_t) string, 0x00, 0x00, 0x00, 0x00);
++}
++
++size_t getnote(char* buffer, size_t size)
++{
++  return __syscall(sc_getnote, (size_t) buffer, size, 0x00, 0x00, 0x00);
++}
++
+ extern int main();
+ 
+ void _start()

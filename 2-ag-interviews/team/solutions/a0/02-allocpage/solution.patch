@@ -1,0 +1,189 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e17..99d00bef 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 5bbf8acf..9bdea226 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,6 +18,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    // A0-02
++    static size_t allocPage();
++    static size_t freePage(size_t address);
+     static void trace();
+ 
+     static size_t getThreadCount();
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 69f00b8d..baa4b5c1 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,6 +17,10 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-02
++#define sc_allocpage 1510
++#define sc_freepage 1511
++
+ // Our custom syscalls:
+ 
+ //pthread create / exit ca. 1000 - 1499
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc3796..012218d4 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index a23a1231..b23823bc 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,9 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
++#include "PageManager.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -62,6 +65,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+       break;
+     case sc_tortillas_finished:
+       break;
++    case sc_allocpage:
++      return_value = allocPage();
++      break;
++    case sc_freepage:
++      return_value = freePage(arg1);
++      break;
+     default:
+       return_value = -1;
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -195,6 +204,48 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++// A0-02: a region of 512 pages that user space manages page by page
++#define ALLOC_REGION_START 0x0000500000000000ULL
++#define ALLOC_REGION_PAGES 512
++
++size_t Syscall::allocPage()
++{
++  Loader* loader = currentThread->getLoader();
++  size_t first_vpn = ALLOC_REGION_START / PAGE_SIZE;
++  size_t ppn = PageManager::instance()->allocPPN();     // before taking the lock: keep it short
++
++  {
++    // search + map must be ONE critical section: otherwise two threads find the same free
++    // slot, the second mapPage() fails and its caller gets an address it does not own
++    ScopeLock lock(loader->arch_memory_lock_);
++    for (size_t vpn = first_vpn; vpn < first_vpn + ALLOC_REGION_PAGES; ++vpn)
++    {
++      if (loader->arch_memory_.resolveMapping(vpn).page_size != 0)
++        continue;                                        // slot in use
++      bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
++      assert(mapped && "we hold the lock and the slot was free");
++      return vpn * PAGE_SIZE;
++    }
++  }
++  PageManager::instance()->freePPN(ppn);                // region full
++  return 0;
++}
++
++size_t Syscall::freePage(size_t address)
++{
++  if (address % PAGE_SIZE != 0 || address < ALLOC_REGION_START ||
++      address >= ALLOC_REGION_START + ALLOC_REGION_PAGES * PAGE_SIZE)
++    return (size_t) -1;
++
++  Loader* loader = currentThread->getLoader();
++  ScopeLock lock(loader->arch_memory_lock_);
++  if (loader->arch_memory_.resolveMapping(address / PAGE_SIZE).page_size == 0)
++    return (size_t) -1;                                  // not mapped: double free
++  loader->arch_memory_.unmapPage(address / PAGE_SIZE);   // also frees the physical page
++  ArchMemory::flushTlb();                                // unmapPage does NOT flush: stale TLB entry
++  return 0;                                              // would still let us use the freed page
++}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..8db6188d 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +28,10 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// A0-02
++extern void* allocpage(void);
++extern int freepage(void* page);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..92118212 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,16 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++void* allocpage(void)
++{
++  return (void*) __syscall(sc_allocpage, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
++
++int freepage(void* page)
++{
++  return __syscall(sc_freepage, (size_t) page, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

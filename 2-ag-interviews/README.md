@@ -15,11 +15,13 @@ will ask yourself every time: **which file do I have to touch for this?**
 | [`a1/`](a1/) | 14 tasks for the A1 interview |
 | [`a2/`](a2/) | 12 tasks for the A2 interview |
 | [`solutions/`](solutions/) | a tested solution for every task: `solution.patch` + `NOTES.md` (files, steps, locking, pitfalls, answers) |
+| [`team/`](team/) | **team mode:** every A0 task and example on your team's code (`osw26e3`), solutions with your team's names – [`team/README.md`](team/README.md) |
 | [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug), `run_test.sh`, `sweb_run.py`, `tasks.txt` |
 | [`theory/`](theory/) | LaTeX sources of the guide (`cd theory && make`) |
 
 Every task and example was implemented and run: all 48 pass their tests with the reference
-solution (checked end to end through `task.sh`), and the tests fail without it.
+solution (checked end to end through `task.sh`), and the tests fail without it. The team versions
+of the 11 A0 tasks and 11 examples were checked the same way on your team's code.
 
 ## Where you work: the training copy `repos/sweb-ag`
 
@@ -123,6 +125,11 @@ few names differ because the team split process and thread (`currentThread->load
 `currentThread->getLoader()` there, per-process state belongs into `UserProcess`, not into the
 `Loader`). The guide's last chapter has the translation table – read it, and spend 15 minutes in
 the team repo before the interview.
+
+**Practise on your team's code:** `task team setup` (once), then `task mode team` – every A0 task
+and example then starts from your team's `main`, and `task solution` shows the version written for
+your team's classes (`getLoader()`, `UserThread`, state in `UserProcess`). Each A0 card has a
+section *In your team repo*; all differences are in [`team/README.md`](team/README.md).
 
 ## Without task.sh
 

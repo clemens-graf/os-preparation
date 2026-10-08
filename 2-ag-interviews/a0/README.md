@@ -68,7 +68,11 @@ The solution is in [`../solutions/a0/`](../solutions/a0/) – `NOTES.md` explain
 
 ## Conventions used in all tasks
 
-- Syscall numbers: A0 uses 1500–1599 (your team block), the examples 1400–1499.
+- Syscall numbers: A0 uses 1500–1599 (your team block), the examples 1400–1499. In team mode
+  meminfo is 1505 – your team's `mkdir` already has 1500.
+- **Team mode** (`task team setup`, `task mode team`): the tasks start from your team's code; every
+  card has a section *In your team repo* with the names and places that differ there
+  ([`../team/README.md`](../team/README.md)).
 - Return `-1` on error as `(size_t) -1` in the kernel – **not** `-1U` (that is
   `0xFFFFFFFF`, which user space does not see as `-1`).
 - The libc wrappers go into `userspace/libc/src/nonstd.c` and

@@ -25,6 +25,17 @@ Notes:        Declare the struct in nonstd.h:
 Done when all 7 checks print `[PASS]`. Note: pages are loaded lazily – right after the
 start only the code page and the stack page are mapped, so `process_pages` is small.
 
+## In your team repo (`task mode team`)
+
+- **Number 1505**, not 1500: your team's `sc_mkdir` already is 1500.
+- Page tables: `currentThread->getLoader()->arch_memory_` (there is no `loader_` in `Thread` any more –
+  the loader belongs to the `UserProcess`). `countUserPages()` goes into `ArchMemory` exactly as in base SWEB.
+- Lock: your team has **no page-table lock yet**. The solution adds `Mutex arch_memory_lock_` to the
+  `Loader`, right next to `arch_memory_` (the Loader is still one per process – the `UserProcess` owns it),
+  and also takes it around the `mapPage` in `Loader::loadPage`.
+
+Team version of the solution: `task solution a0-01` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – which files?</summary>

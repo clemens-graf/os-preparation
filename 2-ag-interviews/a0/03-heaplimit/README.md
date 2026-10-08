@@ -22,6 +22,19 @@ Notes:        Put HEAP_START into nonstd.h so that tests can use it.
 
 `task start a0-03`, implement, `task test`. Done when 5 checks pass and the last access above the limit kills the process.
 
+## In your team repo (`task mode team`)
+
+- Number 1520 is free.
+- **The heap limit is per-process state → `UserProcess`**, not `Loader` (hint 2 below says Loader – that is
+  base SWEB). The solution puts `heap_size_`, `mapHeapPage(vpn)` and `setHeapLimit(size)` into
+  `UserProcess`, and `HEAP_START`/`HEAP_MAX_SIZE` into `UserProcess.h`.
+- The page fault handler reaches it with `currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE)`;
+  the syscall with `currentThread->getProcess()->setHeapLimit(size)`.
+- Still **one** lock for limit + mappings: `loader_->arch_memory_lock_` (inside `UserProcess`), because a
+  shrinking limit and a page fault must not interleave.
+
+Team version of the solution: `task solution a0-03` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – where does a heap access end up today?</summary>

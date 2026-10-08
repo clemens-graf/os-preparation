@@ -23,6 +23,14 @@ only add `pthread_multi`. If you prefer to build on your own A0-08, merge or che
 `task/a0-08-pthread-create` branch into it first. Then `task test` (also re-runs `pthread_create_basic.sweb`).
 Done when all 7 checks pass.
 
+## In your team repo (`task mode team`)
+
+- Builds on the team version of A0-08 (`task start a0-09` in team mode starts from it).
+- `pushToStack()` goes into your `UserThread`; it reaches the page tables with `getLoader()`.
+- `currentThread->getProcess()->createThread(entry, 0, 0)` creates the thread, number 1552 is free.
+
+Team version of the solution: `task solution a0-09` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – who runs the loop?</summary>

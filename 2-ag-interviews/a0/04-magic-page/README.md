@@ -20,6 +20,17 @@ Notes:        Fill the page before the process can see it.
 `task start a0-04`, implement, `task test` (runs `magic_page_basic.sweb` and `magic_page_write.sweb`).
 Done when 3 checks pass and both programs are killed at their write (`pagefault even though the address is mapped`).
 
+## In your team repo (`task mode team`)
+
+- No syscall, so no number.
+- The page fault handler (`PageFaultHandler.cpp`) uses `currentThread->getLoader()` – your team already
+  changed every `loader_` there to `getLoader()` and added two `assert`s; put the magic-page branch in front
+  of `currentThread->getLoader()->loadPage(address)`.
+- `mapReadOnlyPage(vpn, ppn)` stays in the `Loader` (it works on `arch_memory_` under `arch_memory_lock_`).
+- `currentThread->getName()` is the program's file name – your team's `UserThread` gets it from the process.
+
+Team version of the solution: `task solution a0-04` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – where and how do I fill the page?</summary>

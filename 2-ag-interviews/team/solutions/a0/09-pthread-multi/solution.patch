@@ -1,0 +1,510 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e17..99d00bef 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 5bbf8acf..8a2db25e 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,6 +18,11 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    // A0-08
++    static size_t pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry);
++    static void pthreadExit(size_t value);
++    static size_t pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry);
+     static void trace();
+ 
+     static size_t getThreadCount();
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 5acc4be5..d3decc5c 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -1,6 +1,14 @@
+ #pragma once
+ 
+ #include "Thread.h"
++#include "Mutex.h"
++#include "Condition.h"
++
++// A0-08: stack layout - slot 0 is the main thread's stack (top page below USER_BREAK),
++// slot k >= 1 belongs to the k-th created thread
++#define STACK_SLOT_SIZE (64 * PAGE_SIZE)
++#define USER_THREAD_STACK_PAGES 4
++#define MAX_USER_THREADS 64
+ 
+ class UserThread;
+ 
+@@ -26,11 +34,27 @@ class UserProcess
+ 
+     FileSystemInfo* getWorkingDirInfo() {return working_dir_;}
+ 
++    const ustl::string& getFilename() {return filename_;}
++
++    uint32 getTerminalNumber() {return terminal_number_;}
++
+ 
+     // public funcs
+ 
+     UserThread* createMainThread(); // create first thread here
+ 
++    /**
++     * A0-08: creates (but does not schedule) an additional thread of this process
++     * @return nullptr if no stack slot is left
++     */
++    UserThread* createThread(size_t entry, size_t start_routine, size_t argument);
++
++    /** A0-08: called by ~UserThread when an additional thread is gone for good */
++    void threadFinished();
++
++    /** A0-08: the main thread sleeps here until all other threads are gone */
++    void waitForThreads();
++
+   private:
+ 
+     size_t pid_ = 0; // Todo
+@@ -40,5 +64,11 @@ class UserProcess
+     uint32 terminal_number_;
+     
+     int32 fd_;
++
++    // A0-08
++    Mutex threads_lock_;           // protects the two counters below
++    Condition threads_done_;       // signalled when num_threads_ drops to 0
++    size_t num_threads_;           // threads besides the main thread
++    size_t next_stack_slot_;       // slots are never reused (good enough for A0)
+ };
+ 
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index 5ea1b4bf..901de209 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -9,9 +9,32 @@ class UserThread : public Thread
+ public:
+   UserThread() = delete;
+   UserThread(UserProcess* process, ustl::string name, uint32 terminal_number = 0);
++
++  /**
++   * A0-08: an additional thread of the process - same address space, its own user stack
++   * (stack slot) and registers; starts in entry(start_routine, argument)
++   */
++  UserThread(UserProcess* process, size_t stack_slot, size_t entry, size_t start_routine, size_t argument);
++
+   virtual ~UserThread();
+ 
+   virtual void Run();
++
++  /**
++   * A0-09: copies size bytes to the top of this thread's user stack (16-byte aligned)
++   * and moves its rsp below them. Only call before the thread runs for the first time.
++   * @return the user address of the copy
++   */
++  size_t pushToStack(const void* data, size_t size);
++
++  size_t getThreadId() const {return stack_slot_;}   // A0-08: slot = id, 0 = main thread
++
++  bool isMainThread() const {return stack_slot_ == 0;}
++
++private:
++  size_t stack_slot_;
++
++  size_t stackTop() const;
+ };
+ 
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 69f00b8d..f9862bf2 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,6 +17,11 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-08
++#define sc_pthread_create 1550
++#define sc_pthread_exit 1551
++#define sc_pthread_multi 1552
++
+ // Our custom syscalls:
+ 
+ //pthread create / exit ca. 1000 - 1499
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc3796..012218d4 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index a23a1231..bdf0ba1f 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,10 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "UserThread.h"
++#include "ArchThreads.h"
++#include "kstring.h"
++#include "UserProcess.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -62,6 +66,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+       break;
+     case sc_tortillas_finished:
+       break;
++    case sc_pthread_create:
++      return_value = pthreadCreate(arg1, arg2, arg3, arg4);
++      break;
++    case sc_pthread_exit:
++      pthreadExit(arg1);
++      break;
++    case sc_pthread_multi:
++      return_value = pthreadMulti(arg1, arg2, arg3, arg4, arg5);
++      break;
+     default:
+       return_value = -1;
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -82,6 +95,10 @@ void Syscall::pseudols(const char *pathname, char *buffer, size_t size)
+ void Syscall::exit(size_t exit_code)
+ {
+   debug(SYSCALL, "Syscall::EXIT: called, exit_code: %zd\n", exit_code);
++  // A0-08: the main thread owns the address space - it may only go away after all
++  // other threads are gone (simplification: exit() from another thread ends just that thread)
++  if (((UserThread*) currentThread)->isMainThread())
++    currentThread->getProcess()->waitForThreads();
+   currentThread->kill();
+   assert(false && "This should never happen");
+ }
+@@ -195,6 +212,31 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A0-08
++size_t Syscall::pthreadCreate(size_t thread_id, size_t start_routine, size_t argument, size_t entry)
++{
++  if (thread_id == 0 || thread_id >= USER_BREAK - sizeof(size_t) || start_routine == 0 ||
++      start_routine >= USER_BREAK || entry == 0 || entry >= USER_BREAK)
++    return (size_t) -1;
++  *(size_t*) thread_id = 0;   // touch it now: if this faults, nothing has been created yet
++
++  UserProcess* process = currentThread->getProcess();
++  UserThread* thread = process->createThread(entry, start_routine, argument);
++  if (!thread)
++    return (size_t) -1;
++  *(size_t*) thread_id = thread->getThreadId();       // before it can run: the id is valid at its start
++  Scheduler::instance()->addNewThread(thread);         // from here on it may run at any time
++  return 0;
++}
++
++void Syscall::pthreadExit(size_t value)
++{
++  debug(SYSCALL, "pthread_exit with value %zx\n", value);  // stored for pthread_join in A1
++  if (((UserThread*) currentThread)->isMainThread())
++    exit(0);                  // main thread: like exit(), waits for the others
++  currentThread->kill();
++}
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
+@@ -232,3 +274,39 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
+ }
++
++// A0-09: one new thread runs functions[0](arguments[0]), functions[1](arguments[1]), ... in order
++#define PTHREAD_MULTI_MAX 16
++
++size_t Syscall::pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry)
++{
++  size_t bytes = count * sizeof(size_t);
++  if (count == 0 || count > PTHREAD_MULTI_MAX || thread_id == 0 || thread_id >= USER_BREAK - sizeof(size_t) ||
++      functions == 0 || functions >= USER_BREAK - bytes || arguments == 0 || arguments >= USER_BREAK - bytes ||
++      entry == 0 || entry >= USER_BREAK)
++    return (size_t) -1;
++
++  // copy the arrays NOW: after the syscall returns the caller may reuse or free them,
++  // while the new thread reads them much later
++  size_t function_copy[PTHREAD_MULTI_MAX];
++  size_t argument_copy[PTHREAD_MULTI_MAX];
++  memcpy(function_copy, (void*) functions, bytes);
++  memcpy(argument_copy, (void*) arguments, bytes);
++  for (size_t i = 0; i < count; ++i)
++  {
++    if (function_copy[i] == 0 || function_copy[i] >= USER_BREAK)
++      return (size_t) -1;
++  }
++  *(size_t*) thread_id = 0;
++
++  UserThread* thread = currentThread->getProcess()->createThread(entry, 0, 0);
++  if (!thread)
++    return (size_t) -1;
++  // not scheduled yet: nobody else can touch its stack or registers
++  thread->user_registers_->rdi = thread->pushToStack(function_copy, bytes);
++  thread->user_registers_->rsi = thread->pushToStack(argument_copy, bytes);
++  thread->user_registers_->rdx = count;
++  *(size_t*) thread_id = thread->getThreadId();
++  Scheduler::instance()->addNewThread(thread);
++  return 0;
++}
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index 144e8f7c..52d1c5eb 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -12,7 +12,9 @@
+ #include "UserThread.h"
+ 
+ UserProcess::UserProcess(ustl::string filename, FileSystemInfo *fs_info, uint32 terminal_number) :
+-    filename_(filename), working_dir_(fs_info), loader_(0), terminal_number_(terminal_number), fd_(VfsSyscall::open(filename, O_RDONLY))
++    filename_(filename), working_dir_(fs_info), loader_(0), terminal_number_(terminal_number), fd_(VfsSyscall::open(filename, O_RDONLY)),
++    threads_lock_("UserProcess::threads_lock_"), threads_done_(&threads_lock_, "UserProcess::threads_done_"),
++    num_threads_(0), next_stack_slot_(1)
+ {
+ 
+   if (fd_ >= 0)
+@@ -62,3 +64,36 @@ UserThread* UserProcess::createMainThread()
+   debug(USERPROCESS, "Main thread created\n");
+   return new_thread;
+ }
++
++UserThread* UserProcess::createThread(size_t entry, size_t start_routine, size_t argument)
++{
++  threads_lock_.acquire();
++  if (next_stack_slot_ > MAX_USER_THREADS)
++  {
++    threads_lock_.release();
++    return nullptr;
++  }
++  size_t slot = next_stack_slot_++;
++  ++num_threads_;                 // counted from now on: the process must wait for it
++  threads_lock_.release();
++
++  // outside threads_lock_: the constructor takes arch_memory_lock_ and allocates memory -
++  // never nest locks when you do not have to
++  return new UserThread(this, slot, entry, start_routine, argument);
++}
++
++void UserProcess::threadFinished()
++{
++  threads_lock_.acquire();
++  if (--num_threads_ == 0)
++    threads_done_.signal();
++  threads_lock_.release();
++}
++
++void UserProcess::waitForThreads()
++{
++  threads_lock_.acquire();
++  while (num_threads_ > 0)        // while: re-check after every wake-up
++    threads_done_.wait();
++  threads_lock_.release();
++}
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 114dd7bc..9550b21d 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -5,11 +5,14 @@
+ #include <assert.h>
+ #include <PageManager.h>
+ #include <Console.h>
++#include "ScopeLock.h"
++#include "kstring.h"
++#include <offsets.h>
+ 
+ // ctors
+ 
+ UserThread::UserThread(UserProcess* process, ustl::string name, uint32 terminal_number) :
+-  Thread(0, ustl::move(name), Thread::USER_THREAD, process)
++  Thread(0, ustl::move(name), Thread::USER_THREAD, process), stack_slot_(0)
+ {
+   assert(process && "process invalid for userthread\n");
+   assert(process->getLoader() && "process has no loader for userthread\n");
+@@ -30,19 +33,89 @@ UserThread::UserThread(UserProcess* process, ustl::string name, uint32 terminal_
+   switch_to_userspace_ = 1;
+ }
+ 
++UserThread::UserThread(UserProcess* process, size_t stack_slot, size_t entry, size_t start_routine,
++                       size_t argument) :
++  Thread(0, process->getFilename(), Thread::USER_THREAD, process), stack_slot_(stack_slot)
++{
++  Loader* loader = process->getLoader();               // same loader = same address space
++
++  // 1. the stack: map the top pages of this thread's slot
++  for (size_t i = 1; i <= USER_THREAD_STACK_PAGES; ++i)
++  {
++    size_t ppn = PageManager::instance()->allocPPN();
++    loader->arch_memory_lock_.acquire();
++    bool mapped = loader->arch_memory_.mapPage(stackTop() / PAGE_SIZE - i, ppn, 1);
++    loader->arch_memory_lock_.release();
++    assert(mapped && "stack slots are never used twice");
++  }
++
++  // 2. the registers: start in the libc entry function, entry(start_routine, argument)
++  ArchThreads::createUserRegisters(user_registers_, (void*) entry, (void*) (stackTop() - sizeof(pointer)),
++                                   getKernelStackStartPointer());
++  user_registers_->rdi = start_routine;            // 1st argument
++  user_registers_->rsi = argument;                 // 2nd argument
++
++  // 3. the address space: cr3 of the process
++  ArchThreads::setAddressSpace(this, loader->arch_memory_);
++  if (main_console->getTerminal(process->getTerminalNumber()))
++    setTerminal(main_console->getTerminal(process->getTerminalNumber()));
++  switch_to_userspace_ = 1;
++  debug(USERTHREAD, "UserThread %zu created, stack top %zx\n", getThreadId(), stackTop());
++}
++
+ UserThread::~UserThread()
+ {
++  // runs in the CleanupThread - this thread will never run again, its stack is free
+   UserProcess* process = getProcess();
+   if (!process)
+   {
+     debug(USERTHREAD, "User Thread destructor has no process \n");
+     assert(false);
+   }
+-  delete(process); // TODO Michi: deletion here is only temp, i'll find something better
++  if (!isMainThread())
++  {
++    Loader* loader = process->getLoader();
++    loader->arch_memory_lock_.acquire();
++    for (size_t i = 1; i <= USER_THREAD_STACK_PAGES; ++i)
++      loader->arch_memory_.unmapPage(stackTop() / PAGE_SIZE - i);
++    loader->arch_memory_lock_.release();
++    // last line on purpose: once the process knows we are gone, the main thread may end
++    process->threadFinished();
++    return;
++  }
++  // A0-08: the main thread ends last (exit() waits for the others), so the process goes with it
++  delete(process);
+ }
+ 
+ void UserThread::Run()
+ {
+   debug(USERTHREAD, "Run: Fail-safe kernel panic - you probably have forgotten to set switch_to_userspace_ = 1\n");
+   assert(false);
+-}
+\ No newline at end of file
++}
++
++size_t UserThread::pushToStack(const void* data, size_t size)
++{
++  size_t user_address = (user_registers_->rsp - size) & ~0xFULL;
++  assert(user_address >= stackTop() - USER_THREAD_STACK_PAGES * PAGE_SIZE && "does not fit on the mapped stack");
++
++  // write through the ident mapping, page by page: correct no matter which address space
++  // is active right now (for a thread of the same process it is ours - in fork it would not be)
++  Loader* loader = getLoader();
++  ScopeLock lock(loader->arch_memory_lock_);
++  for (size_t done = 0; done < size;)
++  {
++    size_t address = user_address + done;
++    size_t chunk = ustl::min(size - done, PAGE_SIZE - address % PAGE_SIZE);
++    pointer kernel_address = loader->arch_memory_.checkAddressValid(address);
++    assert(kernel_address && "stack page not mapped");
++    memcpy((void*) kernel_address, (const char*) data + done, chunk);
++    done += chunk;
++  }
++  user_registers_->rsp = user_address - sizeof(pointer);  // as if the entry function had been called
++  return user_address;
++}
++
++size_t UserThread::stackTop() const
++{
++  return USER_BREAK - stack_slot_ * STACK_SLOT_SIZE;
++}
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index ca5aae81..5df48d08 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -56,6 +56,9 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
++// A0-09: one new thread calls functions[i](arguments[i]) for i = 0 .. count-1, in order
++extern int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index ded6eeea..8ace1f7b 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -1,13 +1,36 @@
+ #include "pthread.h"
++#include "sys/syscall.h"
++#include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ /**
+  * function stub
+  * posix compatible signature - do not change the signature!
+  */
++// A0-08: every thread starts here (the kernel sets rip to it): run the function, then exit
++static void pthreadStart(void* (*start_routine)(void*), void* arg)
++{
++  pthread_exit(start_routine(arg));
++}
++
++// A0-09: the thread created by pthread_multi starts here
++static void pthreadMultiStart(void* (**functions)(void*), void** arguments, size_t count)
++{
++  for (size_t i = 0; i < count; ++i)
++    functions[i](arguments[i]);
++  pthread_exit(0);
++}
++
++int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count)
++{
++  return __syscall(sc_pthread_multi, (size_t) thread, (size_t) functions, (size_t) arguments, count,
++                   (size_t) pthreadMultiStart);
++}
++
+ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                    void *(*start_routine)(void *), void *arg)
+ {
+-  return -1;
++  return __syscall(sc_pthread_create, (size_t) thread, (size_t) start_routine, (size_t) arg,
++                   (size_t) pthreadStart, 0x00);
+ }
+ 
+ /**
+@@ -25,6 +48,7 @@ int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
+  */
+ void pthread_exit(void *value_ptr)
+ {
++  __syscall(sc_pthread_exit, (size_t) value_ptr, 0x00, 0x00, 0x00, 0x00);
+ }
+ 
+ /**

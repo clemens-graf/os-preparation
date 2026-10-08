@@ -25,6 +25,18 @@ Notes:        Faults that happen in kernel mode (e.g. a bad pointer passed to wr
 `task start a0-06`, implement, `task test` (runs the three `segv_handler_*` programs).
 Done when 5 checks pass, `segv_handler_return` exits with **139** and the other two are killed normally.
 
+## In your team repo (`task mode team`)
+
+- Number 1530 is free.
+- **The registered handler is per-process state → `UserProcess`**: `segv_entry_`, `segv_handler_` and
+  `deliverSegv(registers, address)` live there (base SWEB: `Loader`).
+- Page fault handler: `currentThread->getLoader()->loadPage(address)` (make it return `bool`) and
+  `currentThread->getProcess()->deliverSegv(currentThread->user_registers_, address)`.
+- The registers are still per **thread**: `currentThread->user_registers_`.
+- Lock for the handler fields and the stack check: `getLoader()->arch_memory_lock_`.
+
+Team version of the solution: `task solution a0-06` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – where are segfaults "handled" today?</summary>

@@ -24,6 +24,14 @@ Notes:        Two threads calling allocpage at the same time must get different 
 Done when all 10 checks pass and the last access to a freed page kills the process
 (`No section refers to the given address` / exit code 666).
 
+## In your team repo (`task mode team`)
+
+- Numbers 1510/1511 are free in your team repo.
+- Page tables and lock: `Loader* loader = currentThread->getLoader();` then `loader->arch_memory_` and
+  `loader->arch_memory_lock_` (the lock from A0-01 – your team has none yet).
+
+Team version of the solution: `task solution a0-02` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – the building blocks</summary>

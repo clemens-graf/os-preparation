@@ -19,6 +19,13 @@ Notes:        A page can contain parts of more than one segment.
 `task start a0-05`, implement, `task test` (runs `readonly_code_basic.sweb`, `readonly_code_rodata.sweb`, `mult.sweb`).
 Done when 3 checks pass, both test programs are killed at their write, and `mult.sweb` still works normally.
 
+## In your team repo (`task mode team`)
+
+- Nothing differs: the change is inside `Loader::loadPage` (the ELF flags of the segment), which your team
+  has not touched. The process is still killed by your team's page fault handler (`Syscall::exit(9999)`).
+
+Team version of the solution: `task solution a0-05` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – where does the loader map pages?</summary>

@@ -33,6 +33,16 @@ Done when all 23 checks pass and the final `exit` reports neither a kernel panic
 `alias_errors.sweb` everything `map_address` must refuse, `mult.sweb` + `exit` show that the
 kernel survived and freed every frame exactly once.
 
+## In your team repo (`task mode team`)
+
+- Numbers 1560/1561 are free.
+- **Never** copy the tutorial's `(UserProcess*) currentThread`: in your team repo `UserProcess` is no
+  `Thread` any more – the cast compiles and reads garbage. Use `currentThread->getLoader()`.
+- The alias list stays in the `Loader`, next to `arch_memory_` and its lock: `~Loader` must unmap the
+  aliases before `arch_memory_` is destroyed, and your `~UserProcess` deletes the loader.
+
+Team version of the solution: `task solution a0-12` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – start from the tutorial</summary>

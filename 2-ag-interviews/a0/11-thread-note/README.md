@@ -32,6 +32,19 @@ Done when all 23 checks pass (`task test` also fails if a test program dies half
 it counts the `[PASS]` lines). `note_basic` starts `note_child`: a second process – a second
 thread – must see its own, empty note.
 
+## In your team repo (`task mode team`)
+
+- Numbers 1570/1571 are free.
+- **The note is per user thread → `UserThread`** (base SWEB: `Thread`). Add `char note_[16];`, initialise
+  it in the `UserThread` constructor's initializer list (`note_()` after the `Thread(...)` base).
+- In the syscall: `UserThread* thread = (UserThread*) currentThread;` – fine, because syscalls only come
+  from user threads.
+- Your team already has `Syscall::copyUserString(path, buffer, size)` (from `mkdir`). It is **not** what
+  setnote needs: it returns `false` when the string is longer than the buffer, setnote must cut it after
+  15 characters. Know the difference – a tutor may ask why you did not reuse it.
+
+Team version of the solution: `task solution a0-11` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – start from the tutorial</summary>

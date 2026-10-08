@@ -16,10 +16,16 @@
 #   task.sh nodebug                    back to the normal build (make x86_64)
 #   task.sh status                     current branch, task, uncommitted changes, backups
 #
+#   task.sh team setup                 import your team repo's code (pinned commit) as branch team/main
+#   task.sh mode team                  from now on: tasks, solutions, examples on your TEAM code
+#   task.sh mode base                  back to base SWEB (the default)
+#
 # Everything happens in $SWEB_AG (default ~/Documents/University/2026-fall/os/repos/sweb-ag),
-# built in $SWEB_AG_BUILD (default /tmp/sweb-ag). Your practice repo and the team repo are never touched.
+# built in $SWEB_AG_BUILD (default /tmp/sweb-ag). Your practice repo and the team repo are never changed
+# (team setup only reads $TEAM_REPO, default ~/Documents/University/2026-fall/os/repos/osw26e3).
 # Branches: main = upstream SWEB, base/<id> = main + a base task's solution, task/<id>-<name> = your work,
 # solution/<id>-<name>, example/<id>-<name>, backup/<id>-<name>-<date>.
+# Team mode: the same names under team/ (team/main = your team's code, team/task/a0-01-meminfo, ...).
 
 set -euo pipefail
 
@@ -28,6 +34,8 @@ COURSE="$(dirname "$TOOLS")"
 REPO="${SWEB_AG:-$HOME/Documents/University/2026-fall/os/repos/sweb-ag}"
 BUILD="${SWEB_AG_BUILD:-/tmp/sweb-ag}"
 MANIFEST="$TOOLS/tasks.txt"      # id|folder|base|runner options|commands separated by ;
+TEAM_REPO="${TEAM_REPO:-$HOME/Documents/University/2026-fall/os/repos/osw26e3}"
+TEAM_PIN="$COURSE/team/BASE"     # the team commit the team versions were made and tested on
 
 die() { echo "task.sh: $*" >&2; exit 1; }
 info() { echo "== $*"; }
@@ -52,6 +60,59 @@ cmd_setup() {
 
 if [ "${1:-}" = setup ]; then cmd_setup; exit 0; fi
 [ -d "$REPO/.git" ] || die "training repo $REPO not found - create it with: task.sh setup"
+
+# ---------------------------------------------------------------- base SWEB or team code
+# MODE base: everything starts from main (upstream SWEB), patches from solutions/ and examples/.
+# MODE team: everything starts from team/main (your team's code), patches from team/, branches under team/.
+# Set with 'task.sh mode team|base' (stored in the training repo's git config). test and status work
+# on the current branch, so for them the branch decides (team/... = team mode).
+MODE="${TASK_MODE:-$(git -C "$REPO" config --get ag.mode 2>/dev/null || echo base)}"
+if [[ "${1:-}" == test || "${1:-}" == status ]]; then
+  case "$(git -C "$REPO" symbolic-ref --quiet --short HEAD 2>/dev/null)" in
+    team/*) MODE=team ;;
+    task/*|solution/*|example/*) MODE=base ;;
+  esac
+fi
+case "$MODE" in
+  team) BP="team/"; ROOT="team/main"; PATCHES="$COURSE/team" ;;
+  base) BP=""; ROOT="main"; PATCHES="$COURSE" ;;
+  *) die "unknown mode '$MODE' (base or team)" ;;
+esac
+
+cmd_team_setup() {
+  [ -f "$TEAM_PIN" ] || die "$TEAM_PIN missing"
+  local pin; pin="$(awk 'NF && !/^#/ { print $1; exit }' "$TEAM_PIN")"
+  if git -C "$REPO" show-ref --verify --quiet refs/heads/team/main; then
+    if [ "$(git -C "$REPO" rev-parse team/main)" = "$pin" ]; then info "team/main is already your team's code ($pin)"; return; fi
+  fi
+  [ -d "$TEAM_REPO/.git" ] || die "team repo not found: $TEAM_REPO (set TEAM_REPO=/path/to/your/team/repo)"
+  git -C "$TEAM_REPO" cat-file -e "$pin^{commit}" 2>/dev/null ||
+    die "your team repo does not have commit $pin yet - update it first: git -C $TEAM_REPO fetch"
+  info "importing your team's code ($pin) from $TEAM_REPO - read only, nothing is changed there"
+  git -C "$REPO" fetch -q "$TEAM_REPO" "$pin"
+  git -C "$REPO" branch -f team/main "$pin" >/dev/null
+  info "branch team/main = $(git -C "$REPO" log --oneline -1 team/main)"
+  info "switch to team mode with: task.sh mode team"
+}
+
+cmd_mode() {
+  case "${1:-}" in
+    "") info "mode: $MODE (task.sh mode team | task.sh mode base)" ;;
+    team)
+      git -C "$REPO" show-ref --verify --quiet refs/heads/team/main || die "no team/main yet - run first: task.sh team setup"
+      git -C "$REPO" config ag.mode team
+      info "team mode: tasks, solutions and examples now use your team's code (branch team/main)" ;;
+    base)
+      git -C "$REPO" config ag.mode base
+      info "base mode: tasks, solutions and examples use base SWEB (branch main)" ;;
+    *) die "task.sh mode team|base" ;;
+  esac
+}
+
+case "${1:-}" in
+  team) [ "${2:-}" = setup ] || die "task.sh team setup"; cmd_team_setup; exit 0 ;;
+  mode) cmd_mode "${2:-}"; exit 0 ;;
+esac
 
 # ---------------------------------------------------------------- manifest
 # lookup ID -> T_ID T_DIR T_BASE T_OPTS T_CMDS T_NAME. Accepts a0-01, a0/01, a0-01-meminfo, ex02, ...
@@ -107,55 +168,71 @@ commit_on() {
 
 tests_of() { ls "$COURSE/$1"/*.c 2>/dev/null || true; }
 
+# patch_of ID DIR -> the solution/example patch for the current mode (dies if there is no team version)
+patch_of() {
+  local f
+  if [[ "$1" == ex* ]]; then f="$PATCHES/$2/example.patch"; else f="$PATCHES/solutions/$2/solution.patch"; fi
+  [ -f "$f" ] || die "$1 has no team version yet (team versions exist for A0 and the examples) - task.sh mode base"
+  echo "$f"
+}
+
+work_branch() { if [[ "$1" == ex* ]]; then echo "${BP}example/$2"; else echo "${BP}task/$2"; fi; }
+
 # the commit a task starts from: main, or base/<id> (created on first use)
 base_ref() {
   local base="$1"
-  [ "$base" = main ] && { echo main; return; }
+  [ "$base" = main ] && { echo "$ROOT"; return; }
   local saved_id="$T_ID" saved_dir="$T_DIR" saved_base="$T_BASE" saved_opts="$T_OPTS" saved_cmds="$T_CMDS" saved_name="$T_NAME"
   lookup "$base"
-  if ! branch_exists "base/$T_ID"; then
-    local c; c="$(commit_on main "base: solution of $T_NAME" "$COURSE/solutions/$T_DIR/solution.patch" $(tests_of "$T_DIR"))"
-    g branch "base/$T_ID" "$c"
-    info "created base/$T_ID (main + solution of $T_NAME)" >&2
+  if ! branch_exists "${BP}base/$T_ID"; then
+    local patch; patch="$(patch_of "$T_ID" "$T_DIR")"
+    local c; c="$(commit_on "$ROOT" "base: solution of $T_NAME" "$patch" $(tests_of "$T_DIR"))"
+    g branch "${BP}base/$T_ID" "$c"
+    info "created ${BP}base/$T_ID ($ROOT + solution of $T_NAME)" >&2
   fi
-  local ref="base/$T_ID"
+  local ref="${BP}base/$T_ID"
   T_ID="$saved_id"; T_DIR="$saved_dir"; T_BASE="$saved_base"; T_OPTS="$saved_opts"; T_CMDS="$saved_cmds"; T_NAME="$saved_name"
   echo "$ref"
 }
 
 backup_branch() {   # backup_branch BRANCH: commit uncommitted work if it is checked out, keep it as backup/...
-  local branch="$1" name="${1#*/}"
+  local branch="$1" name="${1#$BP}"
   if [ "$(current_branch)" = "$branch" ] && is_dirty; then
     g add -A
     g commit -q -m "wip: uncommitted work saved by task.sh reset"
   fi
-  local backup="backup/$name-$(date +%Y%m%d-%H%M%S)"
+  local backup="${BP}backup/${name#*/}-$(date +%Y%m%d-%H%M%S)"
   g branch "$backup" "$branch"
   info "your work is kept in $backup"
 }
 
 # ---------------------------------------------------------------- commands
 cmd_list() {
-  printf "%-6s %-30s %-7s %s\n" "id" "folder" "base" "state"
+  info "mode: $MODE (tasks start from $ROOT)"
+  printf "%-6s %-30s %-9s %s\n" "id" "folder" "base" "state"
   local id dir base opts cmds
   while IFS='|' read -r id dir base opts cmds; do
     [[ -z "$id" || "$id" == \#* ]] && continue
     lookup "$id"
     local state=""
-    local work="task/$T_NAME"; [[ "$id" == ex* ]] && work="example/$T_NAME"
+    local work; work="$(work_branch "$id" "$T_NAME")"
+    if [ "$MODE" = team ] && ! ( patch_of "$id" "$dir" >/dev/null 2>&1 ); then state="(no team version)"; fi
     branch_exists "$work" && state="started"
-    branch_exists "solution/$T_NAME" && state="${state:+$state, }solution branch"
+    branch_exists "${BP}solution/$T_NAME" && state="${state:+$state, }solution branch"
     [ "$(current_branch)" = "$work" ] && state="$state  <- current"
-    printf "%-6s %-30s %-7s %s\n" "$id" "$dir" "$base" "$state"
+    [ "$base" = main ] && base="$ROOT"
+    printf "%-6s %-30s %-9s %s\n" "$id" "$dir" "$base" "$state"
   done < "$MANIFEST"
 }
 
 start_branch() {   # creates task/<name> from the base + tests, switches to it
+  if [ "$MODE" = team ]; then patch_of "$T_ID" "$T_DIR" >/dev/null; fi     # only tasks with a team version
   local ref; ref="$(base_ref "$T_BASE")"
   local c; c="$(commit_on "$ref" "start $T_NAME: test programs" "" $(tests_of "$T_DIR"))"
-  g branch "task/$T_NAME" "$c"
-  g switch -q "task/$T_NAME"
-  info "on branch task/$T_NAME (based on $ref)"
+  g branch "${BP}task/$T_NAME" "$c"
+  g switch -q "${BP}task/$T_NAME"
+  info "on branch ${BP}task/$T_NAME (based on $ref)"
+  if [ "$MODE" = team ]; then info "team code: names differ from the card - read $COURSE/team/README.md"; fi
   info "task card: $COURSE/$T_DIR/README.md"
   info "test it:   task.sh test"
 }
@@ -163,11 +240,11 @@ start_branch() {   # creates task/<name> from the base + tests, switches to it
 cmd_start() {
   lookup "$1"
   [[ "$T_ID" == ex* ]] && die "examples: task.sh example $T_ID"
-  if branch_exists "task/$T_NAME"; then
-    [ "$(current_branch)" = "task/$T_NAME" ] && { info "already on task/$T_NAME"; return; }
+  if branch_exists "${BP}task/$T_NAME"; then
+    [ "$(current_branch)" = "${BP}task/$T_NAME" ] && { info "already on ${BP}task/$T_NAME"; return; }
     require_clean
-    g switch -q "task/$T_NAME"
-    info "switched to task/$T_NAME (started before - task.sh reset $T_ID to begin again)"
+    g switch -q "${BP}task/$T_NAME"
+    info "switched to ${BP}task/$T_NAME (started before - task.sh reset $T_ID to begin again)"
     return
   fi
   require_clean
@@ -185,11 +262,11 @@ cmd_reset() {
   local id
   for id in "${ids[@]}"; do
     lookup "$id"
-    local work="task/$T_NAME"; [[ "$T_ID" == ex* ]] && work="example/$T_NAME"
+    local work; work="$(work_branch "$T_ID" "$T_NAME")"
     branch_exists "$work" || continue
     backup_branch "$work"
     if [ "$(current_branch)" = "$work" ]; then
-      g switch -q main
+      g switch -q "$ROOT"
     fi
     g branch -q -D "$work"
     info "reset $T_NAME"
@@ -201,52 +278,55 @@ cmd_reset() {
 }
 
 make_solution() {
-  local patch="$COURSE/solutions/$T_DIR/solution.patch"
-  local c; c="$(commit_on main "solution of $T_NAME" "$patch" $(tests_of "$T_DIR"))"
+  local patch; patch="$(patch_of "$T_ID" "$T_DIR")"
+  local c; c="$(commit_on "$ROOT" "solution of $T_NAME" "$patch" $(tests_of "$T_DIR"))"
   if [ "$T_BASE" != main ]; then   # also the base task's tests
     local saved_dir="$T_DIR" base_dir
     base_dir="$(awk -F'|' -v b="$T_BASE" '$1 == b { print $2 }' "$MANIFEST")"
     c="$(commit_on "$c" "tests of the base $T_BASE" "" $(tests_of "$base_dir"))"
     T_DIR="$saved_dir"
   fi
-  g branch -f "solution/$T_NAME" "$c" >/dev/null
+  g branch -f "${BP}solution/$T_NAME" "$c" >/dev/null
 }
 
 cmd_solution() {
   lookup "$1"
   [[ "$T_ID" == ex* ]] && die "examples are complete already: task.sh example $T_ID"
-  [ "$(current_branch)" = "solution/$T_NAME" ] || require_clean
-  [ "$(current_branch)" = "solution/$T_NAME" ] && g switch -q main
+  [ "$(current_branch)" = "${BP}solution/$T_NAME" ] || require_clean
+  [ "$(current_branch)" = "${BP}solution/$T_NAME" ] && g switch -q "$ROOT"
   make_solution
-  g switch -q "solution/$T_NAME"
-  info "on branch solution/$T_NAME - the reference solution, ready to build: task.sh test / task.sh run"
+  g switch -q "${BP}solution/$T_NAME"
+  info "on branch ${BP}solution/$T_NAME - the reference solution, ready to build: task.sh test / task.sh run"
   info "notes: $COURSE/solutions/$T_DIR/NOTES.md"
+  if [ "$MODE" = team ]; then info "team version: what differs is in $COURSE/team/README.md"; fi
   info "back to your attempt: task.sh start $T_ID"
 }
 
 cmd_diff() {
   lookup "$1"
-  branch_exists "task/$T_NAME" || die "task $T_ID not started"
+  branch_exists "${BP}task/$T_NAME" || die "task $T_ID not started"
   make_solution
-  g diff "task/$T_NAME" "solution/$T_NAME" -- . ':(exclude)userspace/tests'
+  g diff "${BP}task/$T_NAME" "${BP}solution/$T_NAME" -- . ':(exclude)userspace/tests'
 }
 
 cmd_example() {
   lookup "$1"
   [[ "$T_ID" == ex* ]] || die "$1 is a task, not an example"
-  if branch_exists "example/$T_NAME"; then
-    [ "$(current_branch)" = "example/$T_NAME" ] || { require_clean; g switch -q "example/$T_NAME"; }
+  if branch_exists "${BP}example/$T_NAME"; then
+    [ "$(current_branch)" = "${BP}example/$T_NAME" ] || { require_clean; g switch -q "${BP}example/$T_NAME"; }
   else
     require_clean
-    local c; c="$(commit_on main "example $T_NAME" "$COURSE/$T_DIR/example.patch" $(tests_of "$T_DIR"))"
-    g branch "example/$T_NAME" "$c"
-    g switch -q "example/$T_NAME"
+    local patch; patch="$(patch_of "$T_ID" "$T_DIR")"
+    local c; c="$(commit_on "$ROOT" "example $T_NAME" "$patch" $(tests_of "$T_DIR"))"
+    g branch "${BP}example/$T_NAME" "$c"
+    g switch -q "${BP}example/$T_NAME"
   fi
-  info "on branch example/$T_NAME - walkthrough: $COURSE/$T_DIR/README.md"
+  info "on branch ${BP}example/$T_NAME - walkthrough: $COURSE/$T_DIR/README.md"
 }
 
 id_of_current_branch() {
   local b; b="$(current_branch)"
+  b="${b#team/}"
   case "$b" in
     task/*|solution/*|example/*) local rest="${b#*/}"; echo "${rest%%-*}-$(echo "$rest" | cut -d- -f2)" | sed 's/^\(ex[0-9]*\)-.*/\1/' ;;
     *) echo "" ;;
@@ -292,10 +372,12 @@ cmd_run() {
 
 cmd_status() {
   info "repo:   $REPO"
+  local cfg; cfg="$(g config --get ag.mode 2>/dev/null || echo base)"
+  info "mode:   $cfg (task.sh mode team|base) - this branch is ${MODE} SWEB$([ "$MODE" = team ] && echo " (your team's code)")"
   info "branch: $(current_branch)   task: $(id_of_current_branch)"
   if is_dirty; then g status --short | head -20; else info "no uncommitted changes"; fi
-  local backups; backups="$(g branch --list 'backup/*' | wc -l)"
-  info "$backups backup branch(es) - git -C $REPO branch --list 'backup/*'"
+  local backups; backups="$(g branch --list "${BP}backup/*" | wc -l)"
+  info "$backups backup branch(es) - git -C $REPO branch --list '${BP}backup/*'"
 }
 
 case "${1:-}" in
@@ -313,6 +395,6 @@ case "${1:-}" in
   gdb) cd "$BUILD" && make "run${2:-cgdb}" ;;
   nodebug) cd "$BUILD" && make x86_64 > /dev/null && info "normal (non-debug) build configured" ;;
   status) cmd_status ;;
-  -h|--help|help|"") sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help|"") sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command '$1' (task.sh help)" ;;
 esac

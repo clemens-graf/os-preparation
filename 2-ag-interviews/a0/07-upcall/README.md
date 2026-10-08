@@ -19,6 +19,14 @@ Notes:        upcalls may be nested (function may call upcall again).
 
 `task start a0-07`, implement, `task test`. Done when all 6 checks pass.
 
+## In your team repo (`task mode team`)
+
+- Number 1540 is free.
+- Only one name differs: `currentThread->getLoader()` for the stack check (`arch_memory_.checkAddressValid`).
+  The registers are per thread, `currentThread->user_registers_` – the same as in base SWEB.
+
+Team version of the solution: `task solution a0-07` in team mode. All name changes: [team/README.md](../../team/README.md).
+
 ## Hints
 
 <details><summary>1 – what would a "call" instruction do?</summary>
