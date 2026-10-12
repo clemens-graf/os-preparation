@@ -25,17 +25,21 @@ Notes:        Faults that happen in kernel mode (e.g. a bad pointer passed to wr
 `task start a0-06`, implement, `task test` (runs the three `segv_handler_*` programs).
 Done when 5 checks pass, `segv_handler_return` exits with **139** and the other two are killed normally.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Number 1530 is free.
-- **The registered handler is per-process state → `UserProcess`**: `segv_entry_`, `segv_handler_` and
-  `deliverSegv(registers, address)` live there (base SWEB: `Loader`).
-- Page fault handler: `currentThread->getLoader()->loadPage(address)` (make it return `bool`) and
-  `currentThread->getProcess()->deliverSegv(currentThread->user_registers_, address)`.
-- The registers are still per **thread**: `currentThread->user_registers_`.
-- Lock for the handler fields and the stack check: `getLoader()->arch_memory_lock_`.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-06` in team mode. All name changes: [team/README.md](../../team/README.md).
+- The registered handler is **per-process state → `UserProcess`**: `segv_entry_`, `segv_handler_`
+  and `deliverSegv(registers, address)` (under `thread_lock_`, stack slot via
+  `arch_memory_->checkAddressValid`).
+- `Loader::loadPage(address, arch_memory)` returns `bool` (false = no segment) instead of
+  `Syscall::exit(666)`.
+- Your page fault handler: if `loadPage` succeeded → `return`; afterwards one common place for
+  "invalid fault or no segment": `if (user && process->deliverSegv(currentThread->user_registers_,
+  address))` → continue in the handler, else kill as before. (A guard-page hit stays a kill: the
+  stack is broken, the handler would have none.)
+
+_Base SWEB (`task mode base`): handler fields and `deliverSegv` in the `Loader` (`currentThread->loader_`)._
 
 ## Hints
 
@@ -72,8 +76,8 @@ and write through that kernel address. If not – kill as before.
 
 <details><summary>5 – locking</summary>
 
-The handler is per-process state, read in the page fault handler and written by the
-syscall – one lock (the solution uses the page-table lock, since the stack check needs it
+The handler is per-process state (your `UserProcess`), read in the page fault handler and
+written by the syscall – one lock (the solution uses the page-table lock, since the stack check needs it
 anyway). The one-shot reset must happen in the same critical section as the read.
 </details>
 

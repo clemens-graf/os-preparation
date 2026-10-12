@@ -1,6 +1,7 @@
 # A0-11 a note per thread – solution notes
 
-Patch: [`solution.patch`](solution.patch) (against upstream `f6fcb2ab`, tests excluded).
+Patch for your team's code: [`team/solutions/a0/11-thread-note/solution.patch`](../../../team/solutions/a0/11-thread-note/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 Starting point: the tutorial version, [ex11](../../../examples/ex11-tutorial1/).
 
 ## Pieces
@@ -8,7 +9,7 @@ Starting point: the tutorial version, [ex11](../../../examples/ex11-tutorial1/).
 | Piece | Where |
 |---|---|
 | debug flag `NOTE = Ansi_Cyan \| OUTPUT_ENABLED` | `common/include/console/debug.h` |
-| `char note_[16]`, initialised empty | `Thread.h`, `Thread.cpp` (initializer list, in declaration order) |
+| `char note_[16]`, initialised empty | `UserThread.h`, `UserThread.cpp` (initializer list: `note_()` after the `Thread(...)` base) |
 | syscall numbers 1570/1571 | `syscall-definitions.h` |
 | `setNote`, `getNote` + two `case`s **with** `return_value =` | `Syscall.h`, `Syscall.cpp` |
 | wrappers, `#include "types.h"` | `nonstd.h`, `nonstd.c` |
@@ -20,7 +21,8 @@ size_t Syscall::setNote(size_t string)
 {
   if (string == 0 || string >= USER_BREAK)
     return (size_t) -1;
-  char note[sizeof(currentThread->note_)];
+  UserThread* thread = (UserThread*) currentThread;   // syscalls come from user threads only
+  char note[sizeof(thread->note_)];
   size_t length = 0;
   while (length < sizeof(note) - 1)
   {
@@ -32,7 +34,7 @@ size_t Syscall::setNote(size_t string)
     note[length++] = c;
   }
   note[length] = '\0';
-  memcpy(currentThread->note_, note, sizeof(note));
+  memcpy(thread->note_, note, sizeof(note));
   debug(NOTE, "%s: note is now \"%s\"\n", currentThread->getName(), note);
   return length;
 }
@@ -43,9 +45,10 @@ size_t Syscall::setNote(size_t string)
 ```cpp
 if (buffer == 0 || size == 0 || size > USER_BREAK || buffer > USER_BREAK - size)
   return (size_t) -1;
-size_t length = strlen(currentThread->note_);
+UserThread* thread = (UserThread*) currentThread;
+size_t length = strlen(thread->note_);
 size_t n = ustl::min(length, size - 1);
-memcpy((char*) buffer, currentThread->note_, n);
+memcpy((char*) buffer, thread->note_, n);
 ((char*) buffer)[n] = '\0';
 return length;
 ```

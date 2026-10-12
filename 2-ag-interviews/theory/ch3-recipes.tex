@@ -9,11 +9,11 @@ the example that shows it working.
 
 \begin{center}
 \footnotesize
-\begin{tabular}{cL{6.6cm}L{8.2cm}}
+\begin{tabular}{cL{7.4cm}L{7.4cm}}
 \toprule
 & \textbf{File} & \textbf{Add} \\
 \midrule
-1 & \file{common/include/kernel/syscall-definitions.h} & \code{\#define sc\_foo 1500} \\
+1 & \file{common/include/kernel/syscall-definitions.h} & \code{\#define sc\_foo 1502} --- a free number in your block 1500--1999 (1500 is your \code{mkdir}) \\
 2 & \file{common/include/kernel/Syscall.h} & \code{static size\_t foo(size\_t a, size\_t b);} \\
 3 & \file{common/source/kernel/Syscall.cpp} & \code{case sc\_foo: return\_value = foo(arg1, arg2); break;} \\
 4 & \file{common/source/kernel/Syscall.cpp} & the implementation \\
@@ -26,10 +26,10 @@ the example that shows it working.
 \begin{lstlisting}[style=cpp]
 size_t Syscall::foo(size_t a, size_t user_ptr)
 {
-  if (user_ptr == 0 || user_ptr >= USER_BREAK - sizeof(Thing))  // check first
+  if (user_ptr == 0 || user_ptr >= USER_BREAK - sizeof(Thing))  // 1. check first
     return (size_t) -1;
-  Thing copy = ...;                                            // work on kernel data
-  *(Thing*) user_ptr = copy;                                    // one copy to user space at the end
+  Thing copy = ...;              // 2. work on kernel data
+  *(Thing*) user_ptr = copy;     // 3. one copy to user space, at the end
   return 0;
 }
 \end{lstlisting}
@@ -124,9 +124,10 @@ after \emph{adding} rights (map a non-present page, make writable) you need not 
 weaker entry just causes one more page fault that finds everything in order.
 
 \textbf{The page-table entry} (\code{PageTableEntry}, \file{paging-definitions.h}):
-\code{present, writeable, user\_access, write\_through, cache\_disabled, accessed, dirty,
-size, global, ignored\_2 (3 bits), page\_ppn (28 bits), reserved\_1, ignored\_1 (11 bits),
-execution\_disabled}. The CPU sets \code{accessed} on every access and \code{dirty} on every
+\code{present}, \code{writeable}, \code{user\_access}, \code{write\_through},
+\code{cache\_disabled}, \code{accessed}, \code{dirty}, \code{size}, \code{global},
+\code{ignored\_2} (3 bits), \code{page\_ppn} (28 bits), \code{reserved\_1}, \code{ignored\_1}
+(11 bits), \code{execution\_disabled}. The CPU sets \code{accessed} on every access and \code{dirty} on every
 write. When \code{present == 0}, the CPU ignores \emph{all} other bits --- you may store your
 own information there (A2: the swap slot). \code{execution\_disabled} (NX) works: SWEB enables
 \code{EFER.NXE} at boot.
@@ -139,9 +140,10 @@ entries, PML4 index \code{0 .. 255} only (user half).
 \label{sec:pagefault}
 
 \begin{itemize}
-\item \textbf{Where:} in \code{PageFaultHandler::handlePageFault}, inside
-  \code{if (checkPageFaultIsValid(...))}, \emph{before} \code{loader\_->loadPage}. Only there
-  you know the fault is a non-present user address.
+\item \textbf{Where:} \file{PageFaultHandler.cpp}, function \code{handlePageFault}: in the branch
+  where \code{checkPageFaultIsValid} returned true --- as its first case, before your team's stack
+  growth and before the call to \code{loadPage}. Only there you know the fault is a non-present
+  user address.
 \item \textbf{Flags} available: \code{address}, \code{user} (fault in user mode),
   \code{present} (page was present: protection violation), \code{writing},
   \code{fetch} (instruction fetch), \code{switch\_to\_us}.
@@ -177,17 +179,18 @@ The syscall's own return value still goes into \code{rax} afterwards. Why the re
 \section{Threads (ex06, A0-08)}
 \label{sec:threads}
 
-\textbf{A user thread} = same \code{loader\_} (address space) + own user stack + own
-registers + an entry in the scheduler:
+\textbf{A user thread} = same process (\code{getAddressSpace()}) + own user stack + own registers +
+an entry in the scheduler. In your team's code \code{UserProcess::createThread} does exactly this
+(the course's base version builds it from scratch, A0-08):
 
 \begin{lstlisting}[style=cpp]
-class UserThread : public Thread { ... };          // Thread(..., Thread::USER_THREAD)
-loader_ = process->loader_;                         // shared address space
-/* map stack pages under the page-table lock */
+class UserThread : public Thread { ... };          // Thread(0, name, USER_THREAD, process)
+/* a stack slot + its first page under thread_lock_ (allocateNewStack) */
 ArchThreads::createUserRegisters(user_registers_, (void*) entry,
-                                 (void*) (stack_top - sizeof(pointer)), getKernelStackStartPointer());
+                                 (void*) (stack_top - sizeof(pointer)),
+                                 getKernelStackStartPointer());
 user_registers_->rdi = ...; user_registers_->rsi = ...;
-ArchThreads::setAddressSpace(this, loader_->arch_memory_);
+ArchThreads::setAddressSpace(this, process->getAddressSpace());
 // later, when everything is set up:
 Scheduler::instance()->addNewThread(thread);
 \end{lstlisting}

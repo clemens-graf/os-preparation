@@ -1,14 +1,16 @@
 # A0-06 segv handler – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/06-segv-handler/solution.patch`](../../../team/solutions/a0/06-segv-handler/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## Files touched
 
 | File | What |
 |---|---|
-| `Loader.h/.cpp` | `loadPage` returns `bool` (false = no segment) instead of `exit(666)`; `segv_entry_`, `segv_handler_` (under `arch_memory_lock_`); `deliverSegv()` |
-| `PageFaultHandler.cpp` | invalid / unloadable user fault → `deliverSegv`, only otherwise kill |
-| `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_setsegvhandler 1530`, `setSegvHandler(entry, handler)` |
+| `Loader.h/.cpp` | `loadPage(address, arch_memory)` returns `bool` (false = no segment) instead of `exit(666)` |
+| `UserProcess.h/.cpp` | `segv_entry_`, `segv_handler_` (per process, under `thread_lock_`); `deliverSegv()` |
+| `PageFaultHandler.cpp` | `loadPage` succeeded → `return`; otherwise (or for an invalid fault) `getProcess()->deliverSegv(...)`, only if that fails kill. A guard-page hit stays a kill |
+| `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_setsegvhandler 1530`, `setSegvHandler(entry, handler)` on `currentThread->getProcess()` |
 | `nonstd.h/.c` | `set_segv_handler()` + the static `segvEntry()` |
 
 ## The flow
@@ -16,7 +18,7 @@ Patch: [`solution.patch`](solution.patch).
 ```
 user: *(int*)0xDEAD000 = 1
  → #PF → handlePageFault: valid → loadPage: no segment → false
- → user && deliverSegv(user_registers_, address)
+ → user && getProcess()->deliverSegv(user_registers_, address)
       rsp' = ((rsp - 128) & ~0xF) - 8     (red zone, alignment, return-address slot)
       slot mapped? (checkAddressValid)    no → false → kill as before
       *slot = 0; rsp = rsp'; rip = segv_entry_; rdi = address; rsi = segv_handler_
@@ -43,7 +45,7 @@ user: *(int*)0xDEAD000 = 1
 ## Locking
 
 `segv_entry_`/`segv_handler_` are written by the syscall and read + reset in the page
-fault path of possibly another thread → same lock for both (`arch_memory_lock_`, also
+fault path of possibly another thread → same lock for both (your team's `thread_lock_`, also
 needed for `checkAddressValid`). Read-check-reset in one critical section, otherwise two
 threads faulting together could both get the one-shot handler.
 

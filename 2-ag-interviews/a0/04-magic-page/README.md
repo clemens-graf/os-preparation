@@ -20,16 +20,17 @@ Notes:        Fill the page before the process can see it.
 `task start a0-04`, implement, `task test` (runs `magic_page_basic.sweb` and `magic_page_write.sweb`).
 Done when 3 checks pass and both programs are killed at their write (`pagefault even though the address is mapped`).
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- No syscall, so no number.
-- The page fault handler (`PageFaultHandler.cpp`) uses `currentThread->getLoader()` – your team already
-  changed every `loader_` there to `getLoader()` and added two `assert`s; put the magic-page branch in front
-  of `currentThread->getLoader()->loadPage(address)`.
-- `mapReadOnlyPage(vpn, ppn)` stays in the `Loader` (it works on `arch_memory_` under `arch_memory_lock_`).
-- `currentThread->getName()` is the program's file name – your team's `UserThread` gets it from the process.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-04` in team mode. All name changes: [team/README.md](../../team/README.md).
+- Your page fault handler takes `thread_lock_` and handles stack growth and guard pages in its
+  valid branch – put the magic-page case **first** in that branch and `return` afterwards.
+- Map + clear-writable in one critical section: a helper `UserProcess::mapReadOnlyPage(vpn, ppn)`
+  (`ScopeLock lock(thread_lock_)`, `arch_memory_->mapPage(...)`, then clear `writeable`).
+- `currentThread->getName()` is the program's file name.
+
+_Base SWEB (`task mode base`): the helper is `Loader::mapReadOnlyPage` under `Loader::arch_memory_lock_`._
 
 ## Hints
 

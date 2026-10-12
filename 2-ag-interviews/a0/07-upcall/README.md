@@ -19,13 +19,15 @@ Notes:        upcalls may be nested (function may call upcall again).
 
 `task start a0-07`, implement, `task test`. Done when all 6 checks pass.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Number 1540 is free.
-- Only one name differs: `currentThread->getLoader()` for the stack check (`arch_memory_.checkAddressValid`).
-  The registers are per thread, `currentThread->user_registers_` – the same as in base SWEB.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-07` in team mode. All name changes: [team/README.md](../../team/README.md).
+- The registers are per thread: `currentThread->user_registers_`.
+- The stack check: `process->getAddressSpace().checkAddressValid(rsp)` under
+  `process->getThreadLock()` (`UserProcess* process = currentThread->getProcess();`).
+
+_Base SWEB (`task mode base`): `currentThread->loader_->arch_memory_` and `Loader::arch_memory_lock_`._
 
 ## Hints
 

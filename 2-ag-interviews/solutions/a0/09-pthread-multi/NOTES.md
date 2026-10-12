@@ -1,7 +1,8 @@
 # A0-09 pthread_multi – solution notes
 
-Patches: [`solution.patch`](solution.patch) (complete, against upstream – includes A0-08) and
-[`on-top-of-a0-08.patch`](on-top-of-a0-08.patch) (only the A0-09 part).
+Patch for your team's code: [`team/solutions/a0/09-pthread-multi/solution.patch`](../../../team/solutions/a0/09-pthread-multi/solution.patch)
+(`task solution` puts it on a branch). The base-SWEB version (`task mode base`) is
+[`solution.patch`](solution.patch) here.
 
 ## The code
 
@@ -21,7 +22,7 @@ size_t Syscall::pthreadMulti(size_t thread_id, size_t functions, size_t argument
     if (function_copy[i] == 0 || function_copy[i] >= USER_BREAK) return (size_t) -1;
   *(size_t*) thread_id = 0;
 
-  UserThread* thread = currentThread->process_->createThread(entry, 0, 0);
+  UserThread* thread = currentThread->getProcess()->createThread((void*) entry, false, 0, 0);  // your team's
   if (!thread) return (size_t) -1;
   thread->user_registers_->rdi = thread->pushToStack(function_copy, bytes);   // 3. onto ITS stack
   thread->user_registers_->rsi = thread->pushToStack(argument_copy, bytes);
@@ -59,7 +60,7 @@ static void pthreadMultiStart(void* (**functions)(void*), void** arguments, size
 
 ## Locking
 
-`pushToStack` writes into page tables' pages → under `arch_memory_lock_`. The thread's
+`pushToStack` writes into the new thread's stack page → under `getThreadLock()`. The thread's
 registers are changed without a lock: it is not in the scheduler yet – nobody else can see
 it. That changes the moment `addNewThread` runs, so everything is set up before.
 

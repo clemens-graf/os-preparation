@@ -45,6 +45,9 @@ long as you need – but keep a note of where you lost the time.
 
 ## How to work on a task
 
+All tasks run on **your team's code** (`osw26e3` main, imported into the training copy as
+`main`) – the code you have in the interview. Each card has a section *Your team's code*.
+
 ```bash
 task start a0-01          # branch task/a0-01-meminfo in repos/sweb-ag, tests already in userspace/tests/
 # implement - task card: a0/01-meminfo/README.md
@@ -68,11 +71,11 @@ The solution is in [`../solutions/a0/`](../solutions/a0/) – `NOTES.md` explain
 
 ## Conventions used in all tasks
 
-- Syscall numbers: A0 uses 1500–1599 (your team block), the examples 1400–1499. In team mode
-  meminfo is 1505 – your team's `mkdir` already has 1500.
-- **Team mode** (`task team setup`, `task mode team`): the tasks start from your team's code; every
-  card has a section *In your team repo* with the names and places that differ there
-  ([`../team/README.md`](../team/README.md)).
+- Syscall numbers: A0 uses your block 1500–1999 (1505 for meminfo – 1500 is your `mkdir`, 1501 your `pthread_join`), the
+  examples 1400–1499.
+- Your team's names: `currentThread->getProcess()`, its `getAddressSpace()` and `getThreadLock()`, per-process state in
+  `UserProcess`, per-thread state in `UserThread` – the full list: [`../team/README.md`](../team/README.md).
+  Base SWEB (`task mode base`) uses `currentThread->loader_` instead.
 - Return `-1` on error as `(size_t) -1` in the kernel – **not** `-1U` (that is
   `0xFFFFFFFF`, which user space does not see as `-1`).
 - The libc wrappers go into `userspace/libc/src/nonstd.c` and

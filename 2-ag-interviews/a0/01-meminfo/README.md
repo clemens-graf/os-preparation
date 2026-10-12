@@ -4,7 +4,7 @@
 
 ```
 Name:         meminfo
-Nr:           1500 (sc_meminfo)
+Nr:           1505 (sc_meminfo) – 1500 is your team's mkdir
 Description:  Fills a struct in user space with memory statistics:
               - total_pages:   number of physical pages in the system
               - free_pages:    number of free physical pages
@@ -25,16 +25,19 @@ Notes:        Declare the struct in nonstd.h:
 Done when all 7 checks print `[PASS]`. Note: pages are loaded lazily – right after the
 start only the code page and the stack page are mapped, so `process_pages` is small.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- **Number 1505**, not 1500: your team's `sc_mkdir` already is 1500.
-- Page tables: `currentThread->getLoader()->arch_memory_` (there is no `loader_` in `Thread` any more –
-  the loader belongs to the `UserProcess`). `countUserPages()` goes into `ArchMemory` exactly as in base SWEB.
-- Lock: your team has **no page-table lock yet**. The solution adds `Mutex arch_memory_lock_` to the
-  `Loader`, right next to `arch_memory_` (the Loader is still one per process – the `UserProcess` owns it),
-  and also takes it around the `mapPage` in `Loader::loadPage`.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-01` in team mode. All name changes: [team/README.md](../../team/README.md).
+- The page tables of the calling process: `currentThread->getProcess()->getAddressSpace()`
+  (an `ArchMemory&` – the address space belongs to the `UserProcess`, not to the `Loader`).
+- `countUserPages()` goes into `ArchMemory` (`arch/x86/64/`), your team has not touched it.
+- The lock: **`process->getThreadLock()`** – your team's per-process Mutex. The page fault handler
+  already holds it while it maps stack pages, so it is the lock that protects the page tables.
+  `ScopeLock lock(process->getThreadLock());` around the walk.
+- Number 1505: 1500 is your `mkdir`, 1501 your `pthread_join`.
+
+_Base SWEB (`task mode base`): number 1500, `currentThread->loader_->arch_memory_`, the solution adds `Loader::arch_memory_lock_`._
 
 ## Hints
 
@@ -44,7 +47,7 @@ The six places of every new syscall: `syscall-definitions.h` (number), `Syscall.
 (declaration), `Syscall.cpp` (case in the switch + implementation), `nonstd.h` (user
 declaration + struct), `nonstd.c` (wrapper with `__syscall`), and the test. The free/total
 counts come from `PageManager`. The page tables live in the process's `ArchMemory`
-(`currentThread->loader_->arch_memory_`, arch-specific code in
+(`currentThread->getProcess()->getAddressSpace()`, arch-specific code in
 `arch/x86/64/source/ArchMemory.cpp`).
 </details>
 
@@ -60,7 +63,7 @@ space (`PAGE_MAP_LEVEL_4_ENTRIES / 2`).
 
 Another thread of the process (A1!) or a page fault could change the page tables while
 you walk them – and `unmapPage` even frees page-table pages. Protect the page tables with
-a per-process lock (the solutions add `Mutex arch_memory_lock_` to `Loader`, see ex02) and
+a per-process lock (your team's `process->getThreadLock()`) and
 hold it during the walk. Copy the result into user memory *after* releasing it.
 </details>
 

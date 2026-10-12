@@ -32,18 +32,20 @@ Done when all 23 checks pass (`task test` also fails if a test program dies half
 it counts the `[PASS]` lines). `note_basic` starts `note_child`: a second process – a second
 thread – must see its own, empty note.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Numbers 1570/1571 are free.
-- **The note is per user thread → `UserThread`** (base SWEB: `Thread`). Add `char note_[16];`, initialise
-  it in the `UserThread` constructor's initializer list (`note_()` after the `Thread(...)` base).
-- In the syscall: `UserThread* thread = (UserThread*) currentThread;` – fine, because syscalls only come
-  from user threads.
-- Your team already has `Syscall::copyUserString(path, buffer, size)` (from `mkdir`). It is **not** what
-  setnote needs: it returns `false` when the string is longer than the buffer, setnote must cut it after
-  15 characters. Know the difference – a tutor may ask why you did not reuse it.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-11` in team mode. All name changes: [team/README.md](../../team/README.md).
+- The note is **per user thread → `UserThread`**: `char note_[16] = {};` (a default member
+  initializer – then neither of your two `UserThread` constructors, normal and fork, needs a change).
+- In the syscall: `UserThread* thread = (UserThread*) currentThread;` – fine, syscalls only come from
+  user threads.
+- Your team already has `Syscall::copyUserString(path, buffer, size)` (from `mkdir`). It is **not**
+  what setnote needs: it returns `false` when the string is longer than the buffer, setnote must cut
+  it after 15 characters. A tutor may ask why you did not reuse it.
+- 1570/1571 are free.
+
+_Base SWEB (`task mode base`): the note is a member of `Thread`._
 
 ## Hints
 
@@ -56,9 +58,9 @@ ex11's syscall is the skeleton: debug flag, the six places, numbers 1570/1571. F
 
 <details><summary>2 – where does the note live?</summary>
 
-Per thread: a member of `Thread` (base SWEB; in the team repo your `UserThread`). A `char
-note_[16]` needs no allocation; initialise it empty in the constructor (the initializer list
-must follow the declaration order: `-Werror=reorder`). Not a global – the test notices.
+Per user thread: a member of your `UserThread`. A `char note_[16]` needs no allocation;
+initialise it empty in the `UserThread` constructor (the initializer list must follow the
+declaration order: `-Werror=reorder`). Not a global – the test notices.
 </details>
 
 <details><summary>3 – reading a string of unknown length</summary>

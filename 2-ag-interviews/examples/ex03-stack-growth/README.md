@@ -1,5 +1,12 @@
 # ex03 – a new case in the page fault handler: stack growth
 
+> **Your team's code already grows the stack** (`isUserStackFault` in `PageFaultHandler.cpp`:
+> a fault inside a thread's stack slot maps pages down to the fault address, a fault on the guard
+> page below kills the process). So `task example ex03` runs on **base SWEB** (branch
+> `base-sweb/example/…`). Read it to understand the mechanism, then find the same steps in your
+> team's page fault handler – and be able to explain why your stacks have a guard page and at most
+> `USERSTACK_PAGES` pages.
+
 A process starts with one mapped stack page. Today a function with a 40 KiB local array
 kills it (no segment covers the stack → exit 666). This example maps stack pages on demand:
 any fault in the top 64 pages below `USER_BREAK` gets a fresh zero page.
@@ -15,7 +22,7 @@ CPU: #PF (vector 14), cr2 = address, error code = flags
                                       registers, interrupts ON
   → handlePageFault
       checkPageFaultIsValid?  no  → print, backtrace, Syscall::exit(9999)
-                              yes → loader_->loadPage(address)   ← new cases go HERE, before it
+                              yes → currentThread->getLoader()->loadPage(address)   ← new cases go HERE, before it
   ← back: arch_contextSwitch → the faulting instruction runs again
 ```
 
@@ -28,9 +35,9 @@ CPU: #PF (vector 14), cr2 = address, error code = flags
 if (checkPageFaultIsValid(address, user, present, switch_to_us))
 {
   if (address >= STACK_BOTTOM)                     // USER_BREAK - 64 pages
-    currentThread->loader_->mapZeroPage(address / PAGE_SIZE);
+    currentThread->getLoader()->mapZeroPage(address / PAGE_SIZE);
   else
-    currentThread->loader_->loadPage(address);
+    currentThread->getLoader()->loadPage(address);
 }
 ```
 

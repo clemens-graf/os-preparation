@@ -1,6 +1,7 @@
 # A0-07 upcall – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/07-upcall/solution.patch`](../../../team/solutions/a0/07-upcall/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## The code
 
@@ -13,10 +14,10 @@ size_t Syscall::upcall(size_t function, size_t argument)
   ArchThreadRegisters* regs = currentThread->user_registers_;
   size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t);
 
-  Loader* loader = currentThread->loader_;
+  UserProcess* process = currentThread->getProcess();
   {
-    ScopeLock lock(loader->arch_memory_lock_);
-    pointer slot = loader->arch_memory_.checkAddressValid(rsp);
+    ScopeLock lock(process->getThreadLock());
+    pointer slot = process->getAddressSpace().checkAddressValid(rsp);
     if (!slot)
       return (size_t) -1;
     *(size_t*) slot = regs->rip;     // the return address: instruction after int $0x80

@@ -70,11 +70,11 @@ What the locks \textbf{check} (and assert on) --- know these, the asserts are yo
 \code{PageManager::lock\_} & SpinLock & the bitmap of free physical pages (inside \code{allocPPN}/\code{freePPN}) \\
 \code{KernelMemoryManager} lock & SpinLock & the kernel heap (inside \code{new}/\code{delete}) \\
 \code{Loader::program\_binary\_lock\_} & Mutex & reading the binary file, \code{phdrs\_} (in \code{loadPage}) \\
-\code{ProcessRegistry::counter\_lock\_} + \code{all\_processes\_killed\_} & Mutex + Cond. & number of running processes \\
+\code{ProcessRegistry::\allowbreak counter\_lock\_} + \code{all\_processes\_killed\_} & Mutex + Cond. & number of running processes \\
 \code{Console} / \code{Terminal} locks & Mutex & screen and input buffers \\
 Scheduler (\code{lockScheduling}) & internal & the thread list --- not for you \\
 \midrule
-\textbf{page tables} (\code{ArchMemory}) & \textbf{none!} & one thread per process in base SWEB. \textbf{You add a per-process lock} (this course: \code{Loader::arch\_memory\_lock\_}) the moment a process can have two threads or another path touches its tables \\
+\textbf{page tables} (\code{ArchMemory}) & base: \textbf{none!} team: see right & base SWEB has one thread per process, the course adds \code{Loader::arch\_memory\_lock\_}. Your team's \code{UserProcess::thread\_lock\_} (\code{getThreadLock()}) is taken by the page fault handler for stack pages --- use it for every page-table change \\
 anything you add & --- & you decide, and you document it next to the declaration \\
 \bottomrule
 \end{tabular}
@@ -85,7 +85,7 @@ anything you add & --- & you decide, and you document it next to the declaration
 
 \begin{enumerate}
 \item \textbf{One lock per piece of shared state, documented where it is declared.}
-  \code{Mutex arch\_memory\_lock\_; // protects arch\_memory\_ and heap\_size\_}. Every access
+  \code{Mutex thread\_lock\_; // protects threads\_, the stack slots, the page tables}. Every access
   --- reads too --- takes it. A lock taken in the syscall but not in the page fault handler
   protects nothing.
 \item \textbf{Check and act in one critical section.} ``Is the slot free?'' + ``take it'',
@@ -124,14 +124,14 @@ anything you add & --- & you decide, and you document it next to the declaration
 \begin{enumerate}
 \item \textbf{The unprotected counter.}
 \begin{lstlisting}[style=cpp]
-++num_threads_;                                      // WRONG: two creators lose one increment
+++num_threads_;                          // WRONG: two creators lose one increment
 threads_lock_.acquire(); ++num_threads_; threads_lock_.release();   // right
 \end{lstlisting}
 
 \item \textbf{The lock in one path only.}
 \begin{lstlisting}[style=cpp]
-// syscall:            ScopeLock l(loader->arch_memory_lock_); arch_memory_.mapPage(...)
-// Loader::loadPage:   arch_memory_.mapPage(...)        // WRONG: the page fault path ignores it
+// syscall:          ScopeLock l(loader->arch_memory_lock_); arch_memory_.mapPage(...)
+// Loader::loadPage: arch_memory_.mapPage(...)   // WRONG: the page fault path ignores it
 \end{lstlisting}
 Two threads mapping under the same not-yet-existing page table both allocate one and write
 it into the same page-directory entry: one table, its mapping and its page are lost.
@@ -145,8 +145,8 @@ lock.acquire(); if (addr < HEAP_START + heap_size_) mapPage(...); lock.release()
 
 \item \textbf{\code{if} instead of \code{while}.}
 \begin{lstlisting}[style=cpp]
-if (!done) cond.wait();              // WRONG: woken up != condition true (broadcast, other waiter)
-while (!done) cond.wait();           // right
+if (!done) cond.wait();       // WRONG: woken up != condition true (broadcast, other waiter)
+while (!done) cond.wait();    // right
 \end{lstlisting}
 
 \item \textbf{State changed outside the mutex.}
@@ -194,7 +194,7 @@ happens right here?''}, \emph{``can this deadlock?''}. Answer in this pattern:
 \item \emph{What} is shared: ``the page tables of the process and \code{heap\_size\_}.''
 \item \emph{Who else} touches it: ``other threads' page faults, \code{heapLimit} from another
   thread, the CleanupThread when a thread dies.''
-\item \emph{Which} lock and \emph{where}: ``\code{arch\_memory\_lock\_}, around check + map in
+\item \emph{Which} lock and \emph{where}: ``\code{thread\_lock\_}, around check + map in
   \code{mapHeapPage}, and in \code{heapLimit}.''
 \item \emph{Why no deadlock}: ``I hold only this one; \code{mapPage} takes the PageManager's
   lock inside, never the other way round.''

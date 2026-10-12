@@ -18,18 +18,24 @@ Notes:        Start from your pthread_create (A0-08).
 
 ## Test
 
-`task start a0-09` – this branch starts from the **A0-08 reference solution** (`base/a0-08`), so you
-only add `pthread_multi`. If you prefer to build on your own A0-08, merge or cherry-pick your
+`task start a0-09` – this branch starts from the **A0-08 reference solution** (`base/a0-08`), so
+you only add `pthread_multi`. If you prefer to build on your own A0-08, merge or cherry-pick your
 `task/a0-08-pthread-create` branch into it first. Then `task test` (also re-runs `pthread_create_basic.sweb`).
 Done when all 7 checks pass.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Builds on the team version of A0-08 (`task start a0-09` in team mode starts from it).
-- `pushToStack()` goes into your `UserThread`; it reaches the page tables with `getLoader()`.
-- `currentThread->getProcess()->createThread(entry, 0, 0)` creates the thread, number 1552 is free.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-09` in team mode. All name changes: [team/README.md](../../team/README.md).
+- Builds on **your team's `pthread_create`**: `process->createThread((void*) entry, false, 0, 0)`
+  creates the thread with its own stack slot (`false`: no start_routine/arg registers), then you set
+  `rdi`, `rsi`, `rdx` yourself before `Scheduler::instance()->addNewThread`.
+- `UserThread::pushToStack()`: the new thread has only its top stack page mapped
+  (`getUserStackLowestMappedVpn()`), enough for two arrays of 16 pointers; write through
+  `getAddressSpace().checkAddressValid` under `getThreadLock()`.
+- Number 1552 is free.
+
+_Base SWEB (`task mode base`): on the course's A0-08 solution._
 
 ## Hints
 

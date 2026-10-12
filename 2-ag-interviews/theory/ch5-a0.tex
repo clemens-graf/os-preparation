@@ -34,16 +34,21 @@ A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 
   \code{unmapPage} frees; when to flush the TLB.
 \item \code{user\_registers\_} during a syscall/page fault = the state the thread continues
   with; red zone, alignment, \code{rdi/rsi/rdx}.
-\item A thread = address space (\code{loader\_}) + stack + registers + scheduler entry;
+\item A thread = address space (\code{getAddressSpace()}) + stack + registers + scheduler entry;
   \code{createUserRegisters}, \code{setAddressSpace}, \code{addNewThread}; destructor in the
   CleanupThread.
-\item Per-process state: where (base: \code{Loader}; team repo: \code{UserProcess}) and which lock.
-\item The page-table lock --- and why base SWEB does not have one.
+\item Per-process state: where (\code{UserProcess}; base SWEB: \code{Loader}) and which lock.
+\item The page-table lock --- and why neither base SWEB nor your team's code has one yet.
 \item Address arithmetic: \code{vpn = addr >> 12}, \code{offset = addr \& 0xfff},
   \code{addr = (vpn << 12) + offset}; a frame mapped twice is freed twice at exit.
 \end{enumerate}
 
 \section{The mechanics of \code{pthread\_create} in one picture}
+
+This is the course's own version (base SWEB, A0-08). Your team's \code{pthread\_create} follows the
+same steps with other names --- \code{UserProcess::createThread} (under \code{thread\_lock\_}),
+\code{allocateNewStack} with a guard page, \code{setThreadArguments}, \code{UserThreadData} for
+join --- see the A0-08 notes.
 
 \begin{center}
 \begin{tikzpicture}[
@@ -54,7 +59,7 @@ A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 
      \code{\_\_syscall(sc\_pthread\_create, \&t, f, arg, pthreadStart)}};
   \node[box, below=3mm of a] (b) {\textbf{kernel}: check pointers, touch \code{\&t};
      \code{process->createThread()}: slot + count under \code{threads\_lock\_}};
-  \node[box, below=3mm of b] (c) {\code{new UserThread}: \code{loader\_} = the process's;
+  \node[box, below=3mm of b] (c) {\code{new UserThread(process, slot, \ldots)}: same address space;
      map stack pages (page-table lock); \code{createUserRegisters(rip = pthreadStart,
      rsp = top - 8)}, \code{rdi = f}, \code{rsi = arg}; \code{setAddressSpace}};
   \node[box, below=3mm of c] (d) {\code{*\&t = id}; \code{Scheduler::addNewThread(thread)} --- from now on it may run};
@@ -100,19 +105,21 @@ const size_t TUTORIAL = Ansi_Blue | OUTPUT_ENABLED;      // debug.h: one line pe
 \section{Tutorial 2: one page at two addresses}
 \label{sec:tutorial2}
 
-The second A0 tutorial (7 Oct) added two syscalls --- reproduced unchanged in ex12:
+The second A0 tutorial (7 Oct) added two syscalls. The tutorial wrote them for base SWEB
+(\code{(UserProcess*)currentThread}, \code{process->loader\_}); in your team's code
+\code{UserProcess} is no \code{Thread}, so ex12 uses \code{getProcess()->getAddressSpace()}:
 
 \begin{lstlisting}[style=cpp]
 size_t Syscall::get_physical_address(size_t virtual_address)
 {
-  UserProcess *process = (UserProcess*)currentThread;
-  ArchMemoryMapping m = process->loader_->arch_memory_.resolveMapping(virtual_address >> 12);
+  UserProcess* process = currentThread->getProcess();
+  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(virtual_address >> 12);
   return m.page_ppn;
 }
 void Syscall::map_address(size_t virtual_address, size_t ppn)
 {
-  UserProcess *process = (UserProcess*)currentThread;
-  bool mapped = process->loader_->arch_memory_.mapPage(virtual_address >> 12, ppn, 1);
+  UserProcess* process = currentThread->getProcess();
+  bool mapped = process->getAddressSpace().mapPage(virtual_address >> 12, ppn, 1);
   assert(mapped);
 }
 \end{lstlisting}
@@ -122,7 +129,7 @@ reaches the global through \code{(vpn << 12) + (\&global \& 0xfff)}: the page ta
 only the page number, the 12-bit offset is the same in the virtual and the physical address.
 
 \textbf{Why it panics at exit.} \code{exit} $\to$ \code{kill} $\to$ CleanupThread $\to$
-\code{\textasciitilde UserProcess} $\to$ \code{\textasciitilde Loader} $\to$
+\code{\textasciitilde UserThread} $\to$ \code{\textasciitilde UserProcess} $\to$ \code{delete arch\_memory\_} $\to$
 \code{\textasciitilde ArchMemory}, which frees \emph{every} present user page. The global's frame is
 present twice $\to$ \code{freePPN} twice $\to$ \code{Assertion "Double free PPN"}. The program
 itself had finished correctly; the backtrace names the CleanupThread.
@@ -136,11 +143,11 @@ itself had finished correctly; the backtrace names the CleanupThread.
   mapping an address that is in use --- return \code{-1}, asserts are for kernel bugs;
 \item \code{page\_ppn} of an unmapped page is 0, a real frame number --- check
   \code{m.page\_size == PAGE\_SIZE}, else \code{-1} (an untouched page is unmapped: lazy loading);
-\item no page-table lock (ex02) --- needed as soon as a process has threads;
+\item no page-table lock --- in your team's code \code{getThreadLock()};
 \item the double free: remember the alias vpns, unmap them with \code{unmapPage(vpn, false)} in
-  \code{Loader::\textasciitilde Loader} --- which runs before \code{arch\_memory\_} is destroyed;
-\item \code{(UserProcess*)currentThread}: not needed in base SWEB, wrong in the team repo
-  (\code{getLoader()}).
+  \code{\textasciitilde UserProcess}, right before \code{delete arch\_memory\_};
+\item \code{(UserProcess*)currentThread}: wrong in your team's code (compiles, reads garbage) ---
+  \code{currentThread->getProcess()}.
 \end{itemize}
 No TLB flush is needed after \code{mapPage}: the entry was not present before.
 

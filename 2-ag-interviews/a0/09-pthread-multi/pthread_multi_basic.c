@@ -9,7 +9,7 @@ volatile size_t stack_region[16];
 void* record(void* arg)
 {
   int local;
-  stack_region[log_count] = (size_t) &local >> 18;   // 256 KiB stack slot of the running thread
+  stack_region[log_count] = (size_t) &local >> 12;   // the stack page of the running thread
   log[log_count] = (size_t) arg;
   log_count++;
   return 0;
@@ -37,7 +37,7 @@ int main()
   printf("[INFO] log: %zu %zu %zu %zu\n", log[0], log[1], log[2], log[3]);
   printf(log[0] == 1 && log[1] == 20 && log[2] == 3 && log[3] == 40 ? "[PASS] functions ran in order with their arguments\n"
                                                                     : "[FAIL] wrong order or arguments\n");
-  printf(stack_region[0] == stack_region[3] && stack_region[0] != ((size_t) &id >> 18)
+  printf(stack_region[0] == stack_region[3] && stack_region[0] != ((size_t) &id >> 12)
          ? "[PASS] all ran in one thread, not in main\n" : "[FAIL] not one separate thread\n");
   printf(id != 0 ? "[PASS] thread id written\n" : "[FAIL] no thread id\n");
 

@@ -22,18 +22,20 @@ Notes:        Put HEAP_START into nonstd.h so that tests can use it.
 
 `task start a0-03`, implement, `task test`. Done when 5 checks pass and the last access above the limit kills the process.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Number 1520 is free.
-- **The heap limit is per-process state → `UserProcess`**, not `Loader` (hint 2 below says Loader – that is
-  base SWEB). The solution puts `heap_size_`, `mapHeapPage(vpn)` and `setHeapLimit(size)` into
-  `UserProcess`, and `HEAP_START`/`HEAP_MAX_SIZE` into `UserProcess.h`.
-- The page fault handler reaches it with `currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE)`;
-  the syscall with `currentThread->getProcess()->setHeapLimit(size)`.
-- Still **one** lock for limit + mappings: `loader_->arch_memory_lock_` (inside `UserProcess`), because a
-  shrinking limit and a page fault must not interleave.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-03` in team mode. All name changes: [team/README.md](../../team/README.md).
+- The heap limit is **per-process state → `UserProcess`** (`currentThread->getProcess()`):
+  `heap_size_`, `mapHeapPage(vpn)` (check the limit and map, for the page fault handler) and
+  `setHeapLimit(size)` (unmap everything above the new limit). Inside `UserProcess`:
+  `arch_memory_->…` and `thread_lock_`.
+- Your page fault handler (`PageFaultHandler.cpp`) is longer now: in the valid branch it takes
+  `thread_lock_`, grows the stack (`isUserStackFault`), checks guard pages, and only then calls
+  `getLoader().loadPage(address, getAddressSpace())`. Put the heap case **first** in the valid
+  branch (before it takes the lock – `mapHeapPage` takes it itself) and `return` afterwards.
+
+_Base SWEB (`task mode base`): the limit lives in the `Loader` (`currentThread->loader_`)._
 
 ## Hints
 
@@ -46,9 +48,8 @@ need a new branch *before* `loadPage` for addresses in the heap region.
 
 <details><summary>2 – where do I store the limit?</summary>
 
-It is per process. In base SWEB the per-process object reachable from every thread is the
-`Loader` (`currentThread->loader_`) – the solutions put process state there. (In your
-team repo it belongs into `UserProcess`.)
+It is per process → a member of your `UserProcess` (`currentThread->getProcess()`), initialised
+to 0 in its constructor. Every thread of the process reaches the same object.
 </details>
 
 <details><summary>3 – locking: check-then-act</summary>

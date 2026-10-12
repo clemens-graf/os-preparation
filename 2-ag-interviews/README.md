@@ -15,7 +15,7 @@ will ask yourself every time: **which file do I have to touch for this?**
 | [`a1/`](a1/) | 14 tasks for the A1 interview |
 | [`a2/`](a2/) | 12 tasks for the A2 interview |
 | [`solutions/`](solutions/) | a tested solution for every task: `solution.patch` + `NOTES.md` (files, steps, locking, pitfalls, answers) |
-| [`team/`](team/) | **team mode:** every A0 task and example on your team's code (`osw26e3`), solutions with your team's names – [`team/README.md`](team/README.md) |
+| [`team/`](team/) | the solutions and examples for **your team's code** (`osw26e3`, the default) and what differs from base SWEB – [`team/README.md`](team/README.md) |
 | [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug), `run_test.sh`, `sweb_run.py`, `tasks.txt` |
 | [`theory/`](theory/) | LaTeX sources of the guide (`cd theory && make`) |
 
@@ -31,16 +31,20 @@ team repo are never touched. It is a normal SWEB checkout: CMake, `make qemu`, `
 `make debug` + gdb, CLion – everything works exactly as in your other SWEB repos. Build folder:
 `/tmp/sweb-ag`.
 
-Every task lives on its **own branch**, created by `task.sh`:
+The tasks run on **your team's code**: `task.sh` imports your team's `main` (the commit in
+[`team/BASE`](team/BASE), read from `repos/osw26e3`) as branch `main`, and every A0 task and
+example starts from there – the code you have in the interview. A1/A2 have no team version yet and
+use base SWEB (`base-sweb/main`) automatically. Every task lives on its **own branch**, created by `task.sh`:
 
 | Branch | What |
 |---|---|
-| `main` | clean upstream SWEB |
+| `main` | your team's code (pinned commit) |
 | `task/a0-01-meminfo` | your work on a task (created with the test programs already in `userspace/tests/`) |
 | `solution/a0-01-meminfo` | the reference solution, to build, run and compare |
 | `example/ex02-map-page` | an example applied |
-| `base/a0-08` | for tasks that build on another task's solution (A0-09, A1, A2) – created automatically |
+| `base/a0-08` | for tasks that build on another task's solution (A0-09) – created automatically |
 | `backup/a0-01-meminfo-<date>` | your attempt, kept whenever you reset |
+| `base-sweb/main`, `base-sweb/task/…`, … | the same for base SWEB (A1/A2, or `task mode base`) |
 
 ## Quick start
 
@@ -121,15 +125,14 @@ tasks cover exactly these.
 ## Interview vs. training repo
 
 In the interview you work in **your team repo**, not in base SWEB. The mechanisms are the same; a
-few names differ because the team split process and thread (`currentThread->loader_` is
-`currentThread->getLoader()` there, per-process state belongs into `UserProcess`, not into the
-`Loader`). The guide's last chapter has the translation table – read it, and spend 15 minutes in
+few names differ because the team split process and thread (`currentThread->loader_->arch_memory_`
+is `currentThread->getProcess()->getAddressSpace()` there, the lock is `getThreadLock()`,
+per-process state belongs into `UserProcess`, not into the `Loader`). The guide's last chapter has the translation table – read it, and spend 15 minutes in
 the team repo before the interview.
 
-**Practise on your team's code:** `task team setup` (once), then `task mode team` – every A0 task
-and example then starts from your team's `main`, and `task solution` shows the version written for
-your team's classes (`getLoader()`, `UserThread`, state in `UserProcess`). Each A0 card has a
-section *In your team repo*; all differences are in [`team/README.md`](team/README.md).
+**This course already works on your team's code** (see above): the cards, hints, notes and
+solutions of A0 and the examples use your team's names (`getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`, state in
+`UserProcess`); all differences to base SWEB are in [`team/README.md`](team/README.md).
 
 ## Without task.sh
 

@@ -1,10 +1,11 @@
 # A0-05 read-only code – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/05-readonly-code/solution.patch`](../../../team/solutions/a0/05-readonly-code/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## Files touched
 
-Only `common/source/kernel/Loader.cpp` (+ the page-table lock in `Loader.h`).
+`common/source/kernel/Loader.cpp` (which segments are writable) and `ArchMemory::mapPage` (a parameter `bool writeable = true`).
 
 ## The code
 
@@ -31,14 +32,9 @@ for (each phdr)
   }
 }
 ...
-arch_memory_lock_.acquire();
-bool page_mapped = arch_memory_.mapPage(vpn, ppn, true);
-if (page_mapped && !writable)
-{
-  ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
-  m.pt[m.pti].writeable = 0;
-}
-arch_memory_lock_.release();
+// your team's loadPage gets the address space as a parameter and runs WITHOUT thread_lock_:
+// map read-only in ONE step - no moment in which another thread could see the page writable
+bool page_mapped = arch_memory_.mapPage(vpn, ppn, true, writable);
 ```
 
 - **Any** writable segment on the page makes the page writable. Segments of SWEB programs
@@ -51,8 +47,10 @@ arch_memory_lock_.release();
 
 ## Locking
 
-Map + clear the bit in one critical section (see A0-04). `phdrs_` is read under
-`program_binary_lock_` (already taken by `loadPage` for the file reads).
+No moment in which another thread sees the page writable: `mapPage(..., writable)` creates the
+entry with the right bit in one step (base SWEB: map + clear the bit inside one critical section
+of the page-table lock). `phdrs_` is read under `program_binary_lock_` (already taken by
+`loadPage` for the file reads).
 
 ## Answers to the tutor questions
 

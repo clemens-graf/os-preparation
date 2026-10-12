@@ -19,12 +19,17 @@ Notes:        A page can contain parts of more than one segment.
 `task start a0-05`, implement, `task test` (runs `readonly_code_basic.sweb`, `readonly_code_rodata.sweb`, `mult.sweb`).
 Done when 3 checks pass, both test programs are killed at their write, and `mult.sweb` still works normally.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Nothing differs: the change is inside `Loader::loadPage` (the ELF flags of the segment), which your team
-  has not touched. The process is still killed by your team's page fault handler (`Syscall::exit(9999)`).
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-05` in team mode. All name changes: [team/README.md](../../team/README.md).
+- `Loader::loadPage(address, arch_memory_)` gets the address space as a **parameter** in your
+  team's code (the `Loader` no longer owns it), and the page fault handler calls it **without**
+  holding `thread_lock_`. So the elegant fix is atomic: give `ArchMemory::mapPage` a parameter
+  `bool writeable = true` and map a code page read-only right away – no window in which another
+  thread could see it writable, no lock needed for that.
+
+_Base SWEB (`task mode base`): the same idea; the course solution maps first and clears the bit under `Loader::arch_memory_lock_`._
 
 ## Hints
 
@@ -45,7 +50,10 @@ at the flags.
 
 <details><summary>3 – locking</summary>
 
-As in A0-04: map and clear the writable bit inside the same critical section.
+Another thread of the process must never see the page writable, not even for a moment. Either
+map and clear the writable bit inside one critical section (the page-table lock), or – simpler,
+and what fits your team's `loadPage` (it runs without `thread_lock_`) – map it read-only right
+away: a parameter `bool writeable = true` for `ArchMemory::mapPage`.
 </details>
 
 ## Questions a tutor might ask

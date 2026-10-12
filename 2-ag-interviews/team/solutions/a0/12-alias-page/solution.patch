@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index b44b0073..69b3662f 100644
+index 19431844..fed63f3d 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -51,7 +51,7 @@ class ArchMemory
@@ -25,10 +25,10 @@ index b44b0073..69b3662f 100644
  
      const ArchMemoryMapping resolveMapping(uint64 vpage);
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 0134550a..5acd2964 100644
+index 6aff17ae..aaafc03b 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -33,13 +33,14 @@ bool ArchMemory::checkAndRemove(pointer map_ptr, uint64 index)
+@@ -80,13 +80,14 @@ bool ArchMemory::checkAndRemove(pointer map_ptr, uint64 index)
    return true;
  }
  
@@ -45,7 +45,7 @@ index 0134550a..5acd2964 100644
    ((uint64*)m.pt)[m.pti] = 0; // for easier debugging
    bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
    if (empty)
-@@ -158,6 +159,36 @@ ArchMemory::~ArchMemory()
+@@ -205,6 +206,36 @@ ArchMemory::~ArchMemory()
    PageManager::instance()->freePPN(page_map_level_4_);
  }
  
@@ -82,28 +82,8 @@ index 0134550a..5acd2964 100644
  pointer ArchMemory::checkAddressValid(uint64 vaddress_to_check)
  {
    if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e17..9cdf0f18 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,15 @@ class Loader
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-+    // A0-12: virtual pages created by map_address - their frames are mapped a second time
-+    // somewhere else in this process. ~Loader unmaps them WITHOUT freeing the frame.
-+    // Protected by arch_memory_lock_.
-+    ustl::list<size_t> alias_vpns_;
-+
-   private:
- 
-     /**
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 5bbf8acf..eab57a6f 100644
+index 2e8e0e15..c3427ec4 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
 @@ -18,6 +18,10 @@ class Syscall
@@ -116,12 +96,39 @@ index 5bbf8acf..eab57a6f 100644
 +    static size_t mapAddress(size_t address, size_t ppn);
      static void trace();
  
-     static size_t getThreadCount();
+     // process stuff
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 694ec106..ca929f09 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -53,6 +53,14 @@ class UserProcess
+     Loader& getLoader();
+     Mutex& getThreadLock() {return thread_lock_;}
+ 
++    /**
++     * A0-12: remembers a page created by map_address - its frame is mapped a second time
++     * somewhere else in this process. ~UserProcess unmaps it WITHOUT freeing the frame.
++     *
++     * @cond thread_lock_ must be held
++     */
++    void addAlias(size_t vpn) {alias_vpns_.push_back(vpn);}
++
+     /**
+      * Tries to create the process with its address space.
+      * If this fails to create (invalid executable etc.) then it does not create one!
+@@ -234,4 +242,7 @@ class UserProcess
+     size_t next_stack_slot_;
+ 
+     ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
++
++    // A0-12: alias pages (see addAlias), protected by thread_lock_
++    ustl::list<size_t> alias_vpns_;
+ };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 69f00b8d..596f29c9 100644
+index 7696511e..3ec85138 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,6 +17,10 @@
+@@ -16,6 +16,10 @@
  #define sc_createprocess 191
  #define sc_trace 252
  
@@ -131,44 +138,9 @@ index 69f00b8d..596f29c9 100644
 +
  // Our custom syscalls:
  
- //pthread create / exit ca. 1000 - 1499
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc3796..a3d90124 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -10,12 +10,19 @@
- #include "FileDescriptor.h"
- #include "Scheduler.h"
- 
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), alias_vpns_(), fd_(fd), hdr_(0),
-+    phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
- 
- Loader::~Loader()
- {
-+  // A0-12: arch_memory_ (a member) is destroyed AFTER this body and frees every present user
-+  // page. An alias shares its frame with another mapping - unmap it first, without freeing,
-+  // or that frame is freed twice ("Double free PPN"). No lock: the process has no threads left.
-+  for (size_t vpn : alias_vpns_)
-+    arch_memory_.unmapPage(vpn, false);
-+
-   delete userspace_debug_info_;
-   delete hdr_;
-   userspace_debug_info_ = nullptr;
-@@ -70,7 +77,9 @@ void Loader::loadPage(pointer virtual_address)
-     Syscall::exit(666);
-   }
- 
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
-+  arch_memory_lock_.release();
-   if (!page_mapped)
-   {
-     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+ // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index a23a1231..fb870555 100644
+index 25e2b4c7..d038646e 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,7 @@
@@ -176,12 +148,12 @@ index a23a1231..fb870555 100644
  #include "File.h"
  #include "Scheduler.h"
 +#include "Loader.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -62,6 +63,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-       break;
-     case sc_tortillas_finished:
+@@ -85,6 +86,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
        break;
 +    case sc_get_physical_address:
 +      return_value = getPhysicalAddress(arg1);
@@ -192,7 +164,7 @@ index a23a1231..fb870555 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -195,6 +202,38 @@ void Syscall::trace()
+@@ -349,6 +356,38 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -200,14 +172,14 @@ index a23a1231..fb870555 100644
 +{
 +  if (address >= USER_BREAK)
 +    return (size_t) -1;
-+  Loader* loader = currentThread->getLoader();
++  UserProcess* process = currentThread->getProcess();
 +
-+  loader->arch_memory_lock_.acquire();
-+  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
++  process->getThreadLock().acquire();
++  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
 +  // page_size == PAGE_SIZE: a 4 KiB page is mapped. Otherwise page_ppn is 0 - a real frame
 +  // number, so "not mapped (yet)" must be -1.
 +  size_t ppn = (m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
-+  loader->arch_memory_lock_.release();
++  process->getThreadLock().release();
 +  return ppn;
 +}
 +
@@ -216,21 +188,38 @@ index a23a1231..fb870555 100644
 +  if (address >= USER_BREAK)
 +    return (size_t) -1;
 +  size_t vpn = address / PAGE_SIZE;
-+  Loader* loader = currentThread->getLoader();
++  UserProcess* process = currentThread->getProcess();
 +
 +  // ONE critical section: "the frame is mine" must still hold when it is mapped
-+  loader->arch_memory_lock_.acquire();
-+  bool mapped = loader->arch_memory_.mapsPhysicalPage(ppn)       // only frames of this process
-+                && loader->arch_memory_.mapPage(vpn, ppn, 1);      // false: vpn already mapped
++  process->getThreadLock().acquire();
++  bool mapped = process->getAddressSpace().mapsPhysicalPage(ppn)       // only frames of this process
++                && process->getAddressSpace().mapPage(vpn, ppn, 1);      // false: vpn already mapped
 +  if (mapped)
-+    loader->alias_vpns_.push_back(vpn);                            // ~Loader unmaps it without free
-+  loader->arch_memory_lock_.release();
++    process->addAlias(vpn);                                        // ~UserProcess unmaps it without free
++  process->getThreadLock().release();
 +  return mapped ? 0 : (size_t) -1;
 +}
 +
  size_t Syscall::getThreadCount()
  {
    return Scheduler::instance()->getThreadCount();
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index 37db7fb4..56bcf2dd 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -31,6 +31,12 @@ UserProcess::~UserProcess()
+ 
+   delete working_dir_;
+   delete loader_;
++
++  // A0-12: ~ArchMemory frees every present user page. An alias shares its frame with another
++  // mapping - unmap it first, without freeing, or that frame is freed twice ("Double free PPN").
++  // No lock: the process has no threads left.
++  for (size_t vpn : alias_vpns_)
++    arch_memory_->unmapPage(vpn, false);
+   delete arch_memory_;
+ 
+   debug(USERPROCESS, "signaling ProcessRegistry the deletion for process with ppid: %zu, pid: %zu filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
 index 901640e9..e49cf6b4 100644
 --- a/userspace/libc/include/nonstd.h

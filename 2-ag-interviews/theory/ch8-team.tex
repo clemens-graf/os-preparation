@@ -3,8 +3,8 @@
 
 The interview happens in \textbf{your group's repository}, not in base SWEB. Since Phase 0 it
 separates process and thread. The mechanisms are identical; some names and the place for
-per-process state differ. State of \code{osw26e3} \code{main} on 7 Oct 2026 (commit
-\code{b1c8888d}) --- check again before the interview, the team keeps changing it.
+per-process state differ. State of \code{osw26e3} \code{main} on 12 Oct 2026 (commit
+\code{947d1418}, \code{team/BASE}) --- check again before the interview, the team keeps changing it.
 
 \begin{center}
 \small
@@ -13,26 +13,26 @@ per-process state differ. State of \code{osw26e3} \code{main} on 7 Oct 2026 (com
 \textbf{Base SWEB / this course} & \textbf{Team repo (osw26e3)} \\
 \midrule
 \code{class UserProcess : public Thread} (the process \emph{is} its only thread) &
-\code{class UserProcess} (no thread), \code{class UserThread : public Thread}, \code{createMainThread()} \\
-\code{currentThread->loader\_} & \code{currentThread->getLoader()} (the loader belongs to the process) \\
-\code{currentThread->process\_} (added in A0-08) & \code{currentThread->getProcess()} (\code{Thread::process\_}) \\
+\code{class UserProcess} (no thread), \code{class UserThread : public Thread}; \code{create}, \code{createThread}, \code{fork} \\
+\code{currentThread->loader\_} & \code{currentThread->getProcess()->getLoader()} (a \code{Loader\&}) \\
+page tables: \code{loader\_->arch\_memory\_} & \code{process->getAddressSpace()} --- the address space belongs to the \code{UserProcess} \\
+\code{Loader::arch\_memory\_lock\_} (added by this course) & \code{process->getThreadLock()} --- the page fault handler holds it for stack pages; it does \textbf{not} hold it around \code{loadPage} \\
 per-process state in \code{Loader} (\code{heap\_size\_}, segv handler, \ldots) & per-process state in \code{UserProcess} \\
-\code{Loader::arch\_memory\_lock\_} (added by this course) & \textbf{none yet} --- the first thing a tutor asks about once there are threads; the team solutions add the same Mutex to the \code{Loader} \\
 per-thread state in \code{Thread} (A0-11) & per-user-thread state in \code{UserThread}: \code{(UserThread*) currentThread} \\
-\code{sc\_meminfo 1500} & 1500 is your \code{mkdir}: team mode uses 1505 \\
-\code{UserProcess::createThread} (A0-08) & your team's \code{pthread\_create} (P1) --- know its steps \\
-syscall numbers 1400--1799 & your own block (1500--1999) --- avoid collisions with the team's syscalls \\
-\code{process\_->waitForThreads()} in \code{exit} & your team's exit/join design \\
+one stack page, ex03 grows it & a stack slot per thread (\code{USERSTACK\_PAGES} + guard page), grown in the page fault handler \\
+\code{UserProcess::createThread} (A0-08, the course) & your team's \code{pthread\_create} / \code{pthread\_join} / \code{fork} --- know their steps \\
+\code{exit} waits for the other threads (A0-08) & \code{exitProcess} kills all threads (POSIX) \\
+\code{sc\_meminfo 1500} & 1000/1001 \code{pthread\_create/exit}, 1500 \code{mkdir}, 1501 \code{pthread\_join}, 2000--2002 \code{fork}\ldots: meminfo uses 1505 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \section*{Practising on your team's code}
 
-\code{task team setup} imports that commit into the training copy as branch \code{team/main} (your
-team repo is only read), \code{task mode team} makes every A0 task and example start from it, and
-\code{task solution} then shows a version written for your team's classes. Every A0 card has a
-section \emph{In your team repo}; \code{team/README.md} lists all differences.
+The course runs on your team's code by default: \code{task} imports that commit into the training
+copy as branch \code{main} (your team repo is only read), every A0 task and example starts from
+it, and the cards, notes and solutions use your team's classes. \code{task mode base} switches to base
+SWEB; \code{team/README.md} lists all differences.
 
 \begin{infobox}[title=\textbf{Before the interview: 15 minutes in the team repo}]
 \begin{enumerate}

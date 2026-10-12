@@ -1,6 +1,33 @@
 # A0-08 pthread_create – solution notes
 
-Patch: [`solution.patch`](solution.patch). This is the biggest A0 task – and the mechanics
+## In your team's code: read and explain
+
+Your team's `main` already has `pthread_create` (Michael), so the team version of this task is a
+**study task**: `task start a0-08` / `task solution a0-08` give you `main` plus the course tests,
+and `task test` runs them against your team's implementation – 8 of 9 pass. The missing check
+("thread finished after main returned") is a different, POSIX-like design: in your team's code
+`exit` / returning from `main` ends the whole process (`UserProcess::exitProcess` kills all
+threads).
+
+Where things are in your team's code:
+
+| Step | Your team's code |
+|---|---|
+| syscall, checks | `Syscall::pthreadCreate` (`Syscall.cpp`) |
+| stack slot + first stack page | `UserProcess::allocateNewStack` → `allocateNewStackSlotNumber`, `mapStackPage`; slots of `USERSTACK_PAGES + GUARD_PAGE` pages |
+| the thread object | `UserProcess::createThread` (under `thread_lock_`) → `new UserThread(process, …, entry, true, start_routine, arg, stack_top)` |
+| registers | `UserThread` constructor: `createUserRegisters(rip = entry, rsp = stack_top)`, `setThreadArguments` (rdi/rsi), `setAddressSpace` |
+| bookkeeping | `registerThread` → a `UserThreadData` in `threads_` (tid, exit value, exited/joined – your join uses it) |
+| start | `Scheduler::addNewThread` in the syscall, after `*thread = tid` |
+| stack growth | page fault handler: `isUserStackFault` → map pages down to the fault; guard page → kill |
+| end | `exitThread` (stack pages freed, value stored, joiners woken) / `exitProcess` (kills every thread) |
+
+Locking in your team's code: one Mutex per process, `thread_lock_`, for the thread list, the stack
+slots and the page tables (the page fault handler takes it for stack pages).
+
+## The course's own version (base SWEB, `task mode base`)
+
+Patch: [`solution.patch`](solution.patch) – built from scratch on base SWEB. This is the biggest A0 task – and the mechanics
 P1 implements in the team repo for A1. Know every step.
 
 ## Files touched

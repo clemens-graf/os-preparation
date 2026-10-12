@@ -33,18 +33,24 @@ counts it as success. [A0-12](../../a0/12-alias-page/) is the same task done rig
 ```cpp
 size_t Syscall::get_physical_address(size_t virtual_address)
 {
-  UserProcess *process = (UserProcess*)currentThread;
-  ArchMemoryMapping m = process->loader_->arch_memory_.resolveMapping(virtual_address >> 12);
+  UserProcess* process = currentThread->getProcess();
+  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(virtual_address >> 12);
   return m.page_ppn;
 }
 
 void Syscall::map_address(size_t virtual_address, size_t ppn)
 {
-  UserProcess *process = (UserProcess*)currentThread;
-  bool mapped = process->loader_->arch_memory_.mapPage(virtual_address >> 12, ppn, 1);
+  UserProcess* process = currentThread->getProcess();
+  bool mapped = process->getAddressSpace().mapPage(virtual_address >> 12, ppn, 1);
   assert(mapped);
 }
 ```
+
+The tutorial wrote `UserProcess *process = (UserProcess*)currentThread;` and
+`process->loader_->…` – that works in base SWEB, where `UserProcess` *is* a `Thread`. In your
+team's code `UserProcess` is no `Thread` any more: the cast would still compile and read garbage.
+The version on your branch (`task example ex12`) therefore uses `currentThread->getProcess()` and
+its address space, `getAddressSpace()`.
 
 - `resolveMapping(vpn)` walks the four page-table levels of *this* process and fills an
   `ArchMemoryMapping`: `m.page_ppn` is the frame, `m.page_size` is `PAGE_SIZE` if a 4 KiB page
@@ -100,8 +106,9 @@ PageManager::freePPN(...)
 The program is long finished by then. What happens:
 
 1. `main` returns → `_start` calls `exit` → `Syscall::exit` → `currentThread->kill()`.
-2. The **CleanupThread** deletes the dead thread: `~UserProcess` → `delete loader_` →
-   `~Loader` → `~ArchMemory` (a member of the Loader).
+2. The **CleanupThread** deletes the dead thread: `~UserThread` → `process->threadExited()` →
+   the last thread: `delete this` → `~UserProcess` → `delete arch_memory_` → `~ArchMemory`.
+   (Base SWEB: `~UserProcess` → `~Loader` → `~ArchMemory`, a member of the Loader.)
 3. `~ArchMemory` walks every present entry of the user half and calls
    `PageManager::freePPN(ppn)` for each. It assumes **every user frame is mapped exactly once**.
 4. The frame of `global` is mapped twice – at `0x8006000` and at `0x424242424000` – so it is
@@ -121,8 +128,8 @@ or come up as a question:
 | `va` is not checked against `USER_BREAK` | `map_address(0xffffffff80100000, ppn)` reaches the kernel half of the page tables | `-1` for `va >= USER_BREAK` |
 | `assert(mapped)` | a user program can crash the kernel on purpose: map an address that is already mapped (tested: `map_address` onto kernel text → `Assertion mapped failed`) | return `-1`; an `assert` is for kernel bugs, never for bad user input |
 | `get_physical_address` returns `m.page_ppn` blindly | 0 for a page that is not mapped (yet) – but 0 is a real frame number; a kernel address returns the kernel's frame | `-1` unless `va < USER_BREAK` and `m.page_size == PAGE_SIZE` |
-| no lock around `arch_memory_` | fine while a process has one thread; with threads (A1) two syscalls or page faults change the tables at once | `loader->arch_memory_lock_` (ex02), around the check **and** the `mapPage` |
-| `(UserProcess*)currentThread` | unnecessary in base SWEB (`currentThread->loader_` exists); wrong in the team repo, where a thread is not a process | `currentThread->loader_` / the team repo's `getLoader()` |
+| no lock around `arch_memory_` | fine while a process has one thread; with threads (A1) two syscalls or page faults change the tables at once | `process->getThreadLock()` (ex02), around the check **and** the `mapPage` |
+| `(UserProcess*)currentThread` | wrong in your team's code, where a thread is not a process – compiles, reads garbage (in base SWEB merely unnecessary) | `currentThread->getProcess()->getAddressSpace()` |
 | `*address = 1;` in `tutorial2.c` | writes byte `0x242` of the page that holds `global` – whatever variable lives there is overwritten | compute the alias of `global` first (as the tutorial does afterwards) |
 | kernel `map_address` returns nothing, the libc wrapper returns `size_t` | the user always gets 0, also on failure | return `0` / `-1` |
 | syscall numbers 142/143 | fine in base SWEB | in the team repo: your own block (1500–1999) |

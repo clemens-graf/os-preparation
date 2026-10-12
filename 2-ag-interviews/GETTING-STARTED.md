@@ -31,9 +31,10 @@ Open a **new terminal** (the alias only exists in new terminals), then check:
 task list
 ```
 
-Expected: a table with every example and task (`ex01 … ex12`, `a0-01 … a0-12`, `a1-…`,
-`a2-…`), all without a state. The training repo exists already. Only on another laptop, or
-after deleting it, do you need:
+Expected: first one line `importing your team's code …` (only the very first time), then a
+table with every example and task (`ex01 … ex12`, `a0-01 … a0-12`, `a1-…`, `a2-…`). The
+training repo exists already. Only on another laptop, or after deleting it, do you need
+(your team repo must be cloned to `repos/osw26e3` first):
 
 ```bash
 task setup
@@ -100,7 +101,7 @@ tutorials exactly as the tutors wrote them (with their bugs – that is the less
 ### `task start <id>` – begin (or continue) a task
 
 ```bash
-task start a0-01                        # new: branch task/a0-01-meminfo from main + tests
+task start a0-01                        # new: branch task/a0-01-meminfo from main (your team's code) + tests
 task start a0-09                        # builds on A0-08: starts from main + A0-08's solution
 task start a0-01                        # again later: just switches back to your attempt
 ```
@@ -182,21 +183,22 @@ task reset a0                           # every started A0 task (also a1, a2, ex
 Nothing is lost: the old attempt (including uncommitted changes) is kept as
 `backup/a0-01-meminfo-<date>-<time>`.
 
-### `task team setup` + `task mode team` – practise on your team's code
+### Your team's code – the default
+
+Every A0 task and example starts from **your team's code**: the commit in `team/BASE` of your
+team repo `osw26e3`, imported into the training copy as branch `main` (`task` does that by
+itself the first time; it only *reads* `repos/osw26e3`). That is the code you have in the
+interview: `currentThread->getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`. A1/A2 tasks have no version
+for your team's code yet – they use base SWEB automatically and say so.
 
 ```bash
-task team setup                         # once: your team's main (pinned commit) → branch team/main
-task mode team                          # tasks, solutions, examples now start from your team's code
-task start a0-01                        # → branch team/task/a0-01-meminfo
-task test                               # same as always
-task solution a0-01                     # → team/solution/a0-01-meminfo: written for getLoader(), UserProcess, ...
-task mode base                          # back to base SWEB - both kinds of branches stay
+task team setup                         # import the team code again (e.g. after team/BASE changed)
+task mode base                          # only if you want base SWEB for everything (branches under base-sweb/)
+task mode team                          # back to the default
 task mode                               # which mode am I in?
 ```
-`team setup` only *reads* `repos/osw26e3` (it fetches one commit from it); nothing changes there.
-Team-mode branches all start with `team/`, so base and team attempts never mix. On your team's code
-GRUB starts SWEB right away (no Enter needed). What is different, task by task:
-[`team/README.md`](team/README.md) and the section *In your team repo* on every A0 card.
+On your team's code GRUB starts SWEB right away (no Enter needed). What is different from base
+SWEB: [`team/README.md`](team/README.md).
 
 ## 4. Git in the training repo
 
@@ -287,8 +289,7 @@ Special commands: `&prog` = start without waiting, `!sleep N` = wait, `!key f3` 
 
 ## 8. Training plan until the A0 interview (13–17 Oct)
 
-Do the first pass of a task in whichever mode you like; **simulate the interview in team mode**
-(`task mode team`) – that is the code you will have in front of you.
+Everything runs on your team's code – the code you will have in front of you.
 
 1. **Learn:** `guide.pdf` chapters 2–4 (what is where, recipes, locking).
 2. **Examples**, each with `task example exNN`, its README and `task test`:
@@ -312,7 +313,6 @@ task gdb gdb                 # ... attach from a 2nd terminal; task nodebug afte
 task solution a0-01          # the reference solution
 task diff a0-01              # my attempt vs. the solution
 task reset a0-01             # start over (backup kept)
-task team setup              # once: import your team's code
-task mode team               # practise on your team's code (task mode base: back)
+task mode                    # team (your team's code, default) or base
 cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "wip"   # save
 ```

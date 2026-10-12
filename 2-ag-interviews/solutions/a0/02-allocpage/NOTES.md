@@ -1,28 +1,29 @@
 # A0-02 allocpage / freepage – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/02-allocpage/solution.patch`](../../../team/solutions/a0/02-allocpage/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## Files touched
 
 `syscall-definitions.h` (1510, 1511), `Syscall.h`, `Syscall.cpp` (two cases, `allocPage`,
-`freePage`), `Loader.h/.cpp` (page-table lock), `nonstd.h/.c` (wrappers).
+`freePage`), `nonstd.h/.c` (wrappers). The lock: your team's `getThreadLock()`.
 
 ## The code
 
 ```cpp
 size_t Syscall::allocPage()
 {
-  Loader* loader = currentThread->loader_;
+  UserProcess* process = currentThread->getProcess();
   size_t first_vpn = ALLOC_REGION_START / PAGE_SIZE;
   size_t ppn = PageManager::instance()->allocPPN();      // outside the lock
 
   {
-    ScopeLock lock(loader->arch_memory_lock_);
+    ScopeLock lock(process->getThreadLock());
     for (size_t vpn = first_vpn; vpn < first_vpn + ALLOC_REGION_PAGES; ++vpn)
     {
-      if (loader->arch_memory_.resolveMapping(vpn).page_size != 0)
+      if (process->getAddressSpace().resolveMapping(vpn).page_size != 0)
         continue;
-      bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
+      bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
       assert(mapped && "we hold the lock and the slot was free");
       return vpn * PAGE_SIZE;
     }
@@ -36,11 +37,11 @@ size_t Syscall::freePage(size_t address)
   if (address % PAGE_SIZE != 0 || address < ALLOC_REGION_START ||
       address >= ALLOC_REGION_START + ALLOC_REGION_PAGES * PAGE_SIZE)
     return (size_t) -1;
-  Loader* loader = currentThread->loader_;
-  ScopeLock lock(loader->arch_memory_lock_);
-  if (loader->arch_memory_.resolveMapping(address / PAGE_SIZE).page_size == 0)
+  UserProcess* process = currentThread->getProcess();
+  ScopeLock lock(process->getThreadLock());
+  if (process->getAddressSpace().resolveMapping(address / PAGE_SIZE).page_size == 0)
     return (size_t) -1;
-  loader->arch_memory_.unmapPage(address / PAGE_SIZE);  // frees the physical page too
+  process->getAddressSpace().unmapPage(address / PAGE_SIZE);  // frees the physical page too
   ArchMemory::flushTlb();
   return 0;
 }

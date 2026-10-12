@@ -1,10 +1,11 @@
 # A0-04 magic page – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/04-magic-page/solution.patch`](../../../team/solutions/a0/04-magic-page/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## Files touched
 
-`PageFaultHandler.cpp` (`MAGIC_PAGE`, new branch), `Loader.h/.cpp` (`mapReadOnlyPage`,
+`PageFaultHandler.cpp` (`MAGIC_PAGE`, new branch), `UserProcess.h/.cpp` (`mapReadOnlyPage`,
 page-table lock).
 
 ## The code
@@ -17,16 +18,16 @@ if (address / PAGE_SIZE == MAGIC_PAGE / PAGE_SIZE)
   const char prefix[] = "coffee for ";
   memcpy(content, prefix, sizeof(prefix) - 1);
   strncpy(content + sizeof(prefix) - 1, currentThread->getName(), PAGE_SIZE - sizeof(prefix));
-  if (!currentThread->loader_->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
+  if (!currentThread->getProcess()->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
     PageManager::instance()->freePPN(ppn);
 }
 
-bool Loader::mapReadOnlyPage(size_t vpn, size_t ppn)
+bool UserProcess::mapReadOnlyPage(size_t vpn, size_t ppn)
 {
-  ScopeLock lock(arch_memory_lock_);
-  if (!arch_memory_.mapPage(vpn, ppn, 1))
+  ScopeLock lock(thread_lock_);
+  if (!arch_memory_->mapPage(vpn, ppn, 1))
     return false;
-  ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
+  ArchMemoryMapping m = arch_memory_->resolveMapping(vpn);
   m.pt[m.pti].writeable = 0;
   return true;
 }

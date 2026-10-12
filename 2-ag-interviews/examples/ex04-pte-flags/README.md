@@ -6,8 +6,8 @@ Test: `ex_pte_flags.sweb` (4 checks, then the process must be killed by its writ
 ## The code
 
 ```cpp
-ScopeLock lock(loader->arch_memory_lock_);
-ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
+ScopeLock lock(process->getThreadLock());
+ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
 if (m.page_size != PAGE_SIZE)              // not mapped – m.pt may even be nullptr
   return (size_t) -1;
 m.pt[m.pti].writeable = writable ? 1 : 0;

@@ -26,43 +26,43 @@ Notes:        Simplifications for A0: no pthread_join, exit() from a thread othe
 Done when 9 checks pass, *"thread finished after main returned"* appears, and after
 `exit` there is no `leaking` warning (all stacks and page tables freed).
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-Your team already split process and thread – so hint 1 below (base SWEB: "`UserProcess` *is* the
-only thread") does not apply. What you have instead:
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-- `UserProcess` = loader + working dir + file; `createMainThread()` creates the first thread.
-- `UserThread(process, name, terminal)` = the main thread: maps the stack page below `USER_BREAK`,
-  `createUserRegisters`, `setAddressSpace`. **That constructor is your template** for every further thread.
-- `~UserThread` currently does `delete process` – for **every** thread. With two threads that frees the
-  address space while the other one still runs: the first thing to change.
+**In your team's code `pthread_create` already exists** (Michael's work, merged), so here the
+task is to **read and explain it**, not to build it. `task start a0-08` gives you `main` plus the
+course tests, and `task test` runs them against your team's implementation: 8 of the 9 checks pass.
+The 9th, *"thread finished after main returned"*, is a different design: in your team's code the
+process ends when `main` returns (`exitProcess` kills all threads – that is what POSIX does); the
+course's A0 version waited for the threads.
 
-The team solution (numbers 1550/1551 are free):
+Find and explain, as if the tutor asked:
+- `Syscall::pthreadCreate` → `UserProcess::createThread(entry, true, start_routine, arg)`: which
+  checks, which lock (`thread_lock_`), when is the thread added to the scheduler?
+- `UserProcess::allocateNewStack` / `allocateNewStackSlotNumber`: where do the stacks go, why a
+  **guard page**, how big is a stack (`USERSTACK_PAGES`)?
+- The `UserThread` constructor: `createUserRegisters`, `setAddressSpace`, `setThreadArguments` –
+  which registers, and why does the thread start in libc's `pthread_start`?
+- The page fault handler: how does a thread's stack **grow** (`isUserStackFault`)?
+- `exitThread` / `exitProcess` / `UserThreadData`: who frees the stack, the thread object, the
+  process? (Your join builds on exactly this.)
+- What is shared between the threads, what is private?
 
-- a second constructor `UserThread(process, stack_slot, entry, start_routine, argument)`: maps 4 pages at
-  the top of its slot, `rip = entry`, `rdi`/`rsi` = the two arguments, same `getLoader()->arch_memory_`.
-  `stack_slot_ == 0` is the main thread (`isMainThread()`), the slot is also the thread id.
-- `UserProcess::createThread()`, `threadFinished()`, `waitForThreads()` with `threads_lock_` + a
-  `Condition` (the counters are per process).
-- `~UserThread`: an extra thread unmaps its stack and calls `threadFinished()` as its last action; only
-  the main thread deletes the process – `exit()` of the main thread first waits for the others.
-- In the syscalls: `currentThread->getProcess()`, and `((UserThread*) currentThread)->isMainThread()`.
+To build it yourself from scratch: `task mode base` – there the A0-08 card below applies.
 
-Your teammate's `pthread_create` (P1, branch `feature/pthread-create-basic`) may look different – in the
-interview, know **its** steps.
-
-Team version of the solution: `task solution a0-08` in team mode. All name changes: [team/README.md](../../team/README.md).
+_Base SWEB (`task mode base`): `UserProcess` *is* the main thread; you build `UserThread` and `pthread_create` yourself (the card below)._
 
 ## Hints
 
 <details><summary>1 – what IS a thread in SWEB?</summary>
 
 A `Thread` object = a kernel stack + kernel registers + (for user threads) user registers
-+ a `loader_` (address space) + an entry in the scheduler's list. In base SWEB,
-`UserProcess` *is* the only thread of a process. Look at its constructor: it maps one stack
-page, creates user registers (`ArchThreads::createUserRegisters`), sets the address space
-(`ArchThreads::setAddressSpace`) and `ProcessRegistry` adds it to the scheduler. A new
-thread needs the same steps – with the **same** `loader_` and a **different** stack.
++ a process (`getProcess()`, whose loader is the address space) + an entry in the scheduler's
+list. In your team's code a user thread is a `UserThread`. Look at its constructor: it maps one
+stack page, creates user registers (`ArchThreads::createUserRegisters`), sets the address space
+(`ArchThreads::setAddressSpace`); `ProcessRegistry::createProcess` adds it to the scheduler. A
+new thread needs the same steps – with the **same** address space (`getAddressSpace()`) and a **different** stack.
 </details>
 
 <details><summary>2 – where does the new thread start?</summary>
@@ -83,8 +83,9 @@ never run again).
 
 <details><summary>4 – lifetime: who frees the address space?</summary>
 
-`UserProcess::~UserProcess` deletes `loader_` (and with it the page tables). If the main
-thread dies first, the other threads run on freed page tables. Count the threads of the
+`UserProcess::~UserProcess` deletes its `loader_` (and with it the page tables), and your
+team's `~UserThread` deletes the process. If any thread deletes it while others still run,
+they run on freed page tables. Count the threads of the
 process; the main thread's `exit` waits (Mutex + Condition) until the count is 0; the
 destructor of each extra thread decrements it **as its very last action**.
 </details>

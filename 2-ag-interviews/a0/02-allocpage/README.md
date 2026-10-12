@@ -24,13 +24,15 @@ Notes:        Two threads calling allocpage at the same time must get different 
 Done when all 10 checks pass and the last access to a freed page kills the process
 (`No section refers to the given address` / exit code 666).
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Numbers 1510/1511 are free in your team repo.
-- Page tables and lock: `Loader* loader = currentThread->getLoader();` then `loader->arch_memory_` and
-  `loader->arch_memory_lock_` (the lock from A0-01 – your team has none yet).
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-02` in team mode. All name changes: [team/README.md](../../team/README.md).
+- `UserProcess* process = currentThread->getProcess();` – then `process->getAddressSpace()`
+  (`mapPage`, `resolveMapping`, `unmapPage`) and `process->getThreadLock()` around search + map.
+- 1510/1511 are free in your team's syscall list.
+
+_Base SWEB (`task mode base`): `currentThread->loader_->arch_memory_` and a new `Loader::arch_memory_lock_`._
 
 ## Hints
 

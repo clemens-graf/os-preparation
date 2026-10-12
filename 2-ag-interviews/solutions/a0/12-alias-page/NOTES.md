@@ -1,6 +1,8 @@
 # A0-12 two addresses, one page – solution notes
 
-Patch: [`solution.patch`](solution.patch) (against upstream `f6fcb2ab`, tests excluded).
+Patch for your team's code: [`team/solutions/a0/12-alias-page/solution.patch`](../../../team/solutions/a0/12-alias-page/solution.patch)
+(`task solution a0-12`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here – there the
+alias list and the lock live in the `Loader`.
 Starting point: the tutorial version, [ex12](../../../examples/ex12-tutorial2/).
 
 ## Pieces
@@ -11,8 +13,8 @@ Starting point: the tutorial version, [ex12](../../../examples/ex12-tutorial2/).
 | `getPhysicalAddress`, `mapAddress` + two `case`s | `Syscall.h`, `Syscall.cpp` |
 | `mapsPhysicalPage(ppn)`: walk the user half | `ArchMemory` |
 | `unmapPage(vpn, free_physical_page = true)` | `ArchMemory` |
-| `arch_memory_lock_` (ex02) + `alias_vpns_` | `Loader.h`, constructor, `loadPage` |
-| unmap the aliases without freeing | `Loader::~Loader` |
+| `alias_vpns_` + `addAlias(vpn)` (the lock: your team's `thread_lock_`) | `UserProcess.h` |
+| unmap the aliases without freeing | `~UserProcess`, right before `delete arch_memory_` |
 | wrappers, `#include "types.h"` | `nonstd.h`, `nonstd.c` |
 
 ## The two syscalls
@@ -22,11 +24,11 @@ size_t Syscall::getPhysicalAddress(size_t address)
 {
   if (address >= USER_BREAK)
     return (size_t) -1;
-  Loader* loader = currentThread->loader_;
-  loader->arch_memory_lock_.acquire();
-  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
+  UserProcess* process = currentThread->getProcess();
+  process->getThreadLock().acquire();
+  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
   size_t ppn = (m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
-  loader->arch_memory_lock_.release();
+  process->getThreadLock().release();
   return ppn;
 }
 
@@ -35,22 +37,23 @@ size_t Syscall::mapAddress(size_t address, size_t ppn)
   if (address >= USER_BREAK)
     return (size_t) -1;
   size_t vpn = address / PAGE_SIZE;
-  Loader* loader = currentThread->loader_;
-  loader->arch_memory_lock_.acquire();
-  bool mapped = loader->arch_memory_.mapsPhysicalPage(ppn)    // only frames of this process
-                && loader->arch_memory_.mapPage(vpn, ppn, 1);   // false: vpn already mapped
+  UserProcess* process = currentThread->getProcess();
+  process->getThreadLock().acquire();
+  bool mapped = process->getAddressSpace().mapsPhysicalPage(ppn)    // only frames of this process
+                && process->getAddressSpace().mapPage(vpn, ppn, 1);   // false: vpn already mapped
   if (mapped)
-    loader->alias_vpns_.push_back(vpn);                         // ~Loader unmaps it, no free
-  loader->arch_memory_lock_.release();
+    process->addAlias(vpn);                                     // ~UserProcess unmaps it, no free
+  process->getThreadLock().release();
   return mapped ? 0 : (size_t) -1;
 }
 ```
 
-`~Loader`, before anything else:
+`~UserProcess`, right before `delete arch_memory_`:
 
 ```cpp
 for (size_t vpn : alias_vpns_)
-  arch_memory_.unmapPage(vpn, false);       // the frame is still mapped at its original place
+  arch_memory_->unmapPage(vpn, false);      // the frame is still mapped at its original place
+delete arch_memory_;
 ```
 
 ## Why each step
@@ -67,34 +70,36 @@ for (size_t vpn : alias_vpns_)
   kernel bug. An assert there lets any program crash the kernel.
 - **The alias list + unmap without free:** `~ArchMemory` frees *every* present user page.
   An alias frame is present twice → `freePPN` twice → `"Double free PPN"` panic, in the
-  CleanupThread (which runs the destructors). `Loader::~Loader`'s body runs before the members
-  are destroyed, so it can remove the aliases first. The original mapping keeps the frame and
-  frees it exactly once.
+  CleanupThread (which runs the destructors). In your team's code the address space belongs to
+  the `UserProcess`, and `~UserProcess` deletes it – so the aliases are removed there, right
+  before `delete arch_memory_`. The original mapping keeps the frame and frees it exactly once.
 - **No TLB flush** after `mapPage`: the entry was not present, so no stale translation can be
-  cached. None in `~Loader` either: that address space never runs again (the CleanupThread runs
+  cached. None in `~UserProcess` either: that address space never runs again (the CleanupThread runs
   on another `cr3` – `~ArchMemory` even asserts it).
 
 ## Locking
 
-One lock: `Loader::arch_memory_lock_` (Mutex), the page-table lock of ex02. It protects the
-page tables and `alias_vpns_`. Critical sections:
+One lock: your team's `UserProcess::thread_lock_` (`getThreadLock()`, a Mutex). The page fault
+handler already takes it when it maps stack pages, so it is the page-table lock of your code. It
+protects the page tables and `alias_vpns_`. Critical sections:
 
 - `getPhysicalAddress`: the `resolveMapping` (another thread could unmap the page while the
   walk reads the tables);
-- `mapAddress`: ownership walk **+** `mapPage` **+** `push_back` – one section. Released in
+- `mapAddress`: ownership walk **+** `mapPage` **+** `addAlias` – one section. Released in
   between, another thread of the process could unmap and free the frame after the check (with
   a syscall like A0-02's `freepage`), and the new alias would point to a frame that now belongs
   to somebody else;
-- `Loader::loadPage`: its `mapPage` (the page fault path changes the same tables).
+- (your team's `Loader::loadPage` maps **without** the lock – the page fault handler releases
+  `thread_lock_` before it calls it. A gap a tutor may point at; it is your team's code.)
 
-`~Loader` takes no lock: no thread of the process exists any more. Lock order:
-`arch_memory_lock_` → PageManager's lock (taken inside `mapPage` for new page tables) → the
+`~UserProcess` takes no lock: no thread of the process exists any more. Lock order:
+`thread_lock_` → PageManager's lock (taken inside `mapPage` for new page tables) → the
 kernel heap lock (`push_back`). Never the other way round.
 
 ## Pitfalls
 
-- `-Werror=reorder`: `arch_memory_lock_` and `alias_vpns_` are declared after `arch_memory_`
-  and before `fd_` – the initializer list must follow that order.
+- `-Werror=reorder`: new members either go into the constructor's initializer list in
+  declaration order, or get a default member initializer – `alias_vpns_` needs neither.
 - `nonstd.h` does not include `types.h` – without it `size_t` is unknown in user programs.
 - Returning `-1U` instead of `(size_t) -1`: user space then sees `0xFFFFFFFF`, not -1.
 - Forgetting the stack: `alias_basic` also aliases the stack page – it is freed by `~ArchMemory`
@@ -105,7 +110,7 @@ kernel heap lock (`push_back`). Never the other way round.
 ## Answers to the card's questions
 
 - **Panic in the tutorial version:** see "Why each step"; CleanupThread because it deletes the
-  dead thread and with it the `UserProcess` → `Loader` → `ArchMemory`.
+  dead thread: `~UserThread` → `~UserProcess` → `~ArchMemory`.
 - **0:** a valid frame number. `&global` fails before the first access because SWEB maps pages
   lazily – the page fault on the first access maps it.
 - **Any ppn:** read and write any physical memory – other processes, the kernel, page tables.

@@ -33,15 +33,19 @@ Done when all 23 checks pass and the final `exit` reports neither a kernel panic
 `alias_errors.sweb` everything `map_address` must refuse, `mult.sweb` + `exit` show that the
 kernel survived and freed every frame exactly once.
 
-## In your team repo (`task mode team`)
+## Your team's code
 
-- Numbers 1560/1561 are free.
-- **Never** copy the tutorial's `(UserProcess*) currentThread`: in your team repo `UserProcess` is no
-  `Thread` any more – the cast compiles and reads garbage. Use `currentThread->getLoader()`.
-- The alias list stays in the `Loader`, next to `arch_memory_` and its lock: `~Loader` must unmap the
-  aliases before `arch_memory_` is destroyed, and your `~UserProcess` deletes the loader.
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-Team version of the solution: `task solution a0-12` in team mode. All name changes: [team/README.md](../../team/README.md).
+- **Never** copy the tutorial's `(UserProcess*) currentThread`: in your team's code `UserProcess`
+  is no `Thread` – the cast compiles and reads garbage. Use `currentThread->getProcess()`, the page
+  tables are `process->getAddressSpace()`, the lock `process->getThreadLock()`.
+- The address space belongs to the `UserProcess`: `~UserProcess` does `delete arch_memory_`. So the
+  alias list goes into `UserProcess` too (`addAlias(vpn)` under `thread_lock_`), and
+  `~UserProcess` unmaps the aliases (`unmapPage(vpn, false)`) **right before** `delete arch_memory_`.
+- 1560/1561 are free.
+
+_Base SWEB (`task mode base`): the tutorial's cast happens to work there; the alias list lives in the `Loader`, cleaned up in `~Loader`._
 
 ## Hints
 
@@ -49,7 +53,8 @@ Team version of the solution: `task solution a0-12` in team mode. All name chang
 
 ex12's two functions are the skeleton (same six places, numbers 1560/1561). Then fix them one
 by one: `address >= USER_BREAK` → `-1`; replace `assert(mapped)` by a return value; return
-`(size_t) -1`, never `-1U`. `currentThread->loader_` is enough – no cast to `UserProcess`.
+`(size_t) -1`, never `-1U`. Use `currentThread->getProcess()` – the tutorial's cast to
+`UserProcess` is wrong in your team's code.
 </details>
 
 <details><summary>2 – get_physical_address: when is a page mapped?</summary>
@@ -70,17 +75,18 @@ half – the four loops of `ArchMemory::~ArchMemory()`, PML4 index `0 .. 255` �
 <details><summary>4 – the double free at exit</summary>
 
 `~ArchMemory` frees every present user page – it assumes each frame is mapped once. Remember
-every alias vpn (a list in the `Loader`), and unmap them **without freeing** before
-`arch_memory_` is destroyed. `Loader::~Loader()` runs before its members are destroyed – the
+every alias vpn (a list in your `UserProcess`), and unmap them **without freeing** before
+`arch_memory_` is destroyed. In `~UserProcess`, right before `delete arch_memory_` – the
 right place. `unmapPage` always frees: give it a parameter
 `bool free_physical_page = true` (A1-10 does the same for shared pages).
 </details>
 
 <details><summary>5 – locking</summary>
 
-The page-table lock from ex02: `Mutex arch_memory_lock_` in the `Loader` (initialised first:
-`-Werror=reorder`), also around the `mapPage` in `Loader::loadPage`. It protects the page
-tables *and* your alias list. Not needed in `~Loader`: no thread of the process is left.
+The page-table lock: your team's `process->getThreadLock()` – the page fault handler takes it
+for stack pages too. Hold it around the ownership walk **and** `mapPage` (one critical section)
+and while you add to the alias list. Not needed in `~UserProcess`: no thread of the process is
+left. (Base SWEB: the course adds `Loader::arch_memory_lock_` for this.)
 </details>
 
 ## Questions a tutor might ask
@@ -93,6 +99,6 @@ tables *and* your alias list. Not needed in `~Loader`: no thread of the process 
 - Why must the ownership check and `mapPage` be one critical section?
 - Explain `(vpn << 12) + (address & 0xfff)`. Why is the offset the same in the virtual and the
   physical address?
-- No TLB flush after `mapPage` – why is that correct? Do you need one in `~Loader`?
+- No TLB flush after `mapPage` – why is that correct? Do you need one in `~UserProcess`?
 - Which other syscall would break your solution? (One that unmaps **and frees** a page, like
   A0-02's `freepage`: the alias would keep a freed frame. What would you need then?)

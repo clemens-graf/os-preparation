@@ -1,39 +1,38 @@
 # A0-03 heaplimit – solution notes
 
-Patch: [`solution.patch`](solution.patch).
+Patch for your team's code: [`team/solutions/a0/03-heaplimit/solution.patch`](../../../team/solutions/a0/03-heaplimit/solution.patch)
+(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
 
 ## Files touched
 
 | File | What |
 |---|---|
-| `Loader.h` | `HEAP_START`, `HEAP_MAX_SIZE`, `size_t heap_size_` (per process, under `arch_memory_lock_`), `mapHeapPage(vpn)` |
-| `Loader.cpp` | init `heap_size_(0)` (initializer order = declaration order, `-Werror=reorder`!), `mapHeapPage` |
+| `UserProcess.h` | `HEAP_START`, `HEAP_MAX_SIZE`; `size_t heap_size_` (per process, under `thread_lock_`); `mapHeapPage(vpn)`, `setHeapLimit(size)` |
+| `UserProcess.cpp` | init `heap_size_(0)` (initializer order = declaration order, `-Werror=reorder`!), the two methods |
 | `PageFaultHandler.cpp` | new branch before `loadPage` for heap addresses |
-| `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_heaplimit 1520`, `heapLimit(size)` |
+| `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_heaplimit 1520`, `heapLimit(size)` → `currentThread->getProcess()->setHeapLimit(size)` |
 | `nonstd.h/.c` | `HEAP_START` for user space, wrapper |
 
 ## The page fault side
 
+First in the valid branch of `handlePageFault` – before your team's code takes `thread_lock_`
+for stack growth (`mapHeapPage` takes it itself):
+
 ```cpp
-if (checkPageFaultIsValid(address, user, present, switch_to_us))
+if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)
 {
-  Loader* loader = currentThread->loader_;
-  if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)
-  {
-    if (!loader->mapHeapPage(address / PAGE_SIZE))
-      Syscall::exit(9998);                     // above the limit
-  }
-  else
-    loader->loadPage(address);
+  if (!currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE))
+    Syscall::exit(9998);                     // above the limit
+  return;
 }
 
-bool Loader::mapHeapPage(size_t vpn)
+bool UserProcess::mapHeapPage(size_t vpn)   // per-process state: UserProcess
 {
   size_t ppn = PageManager::instance()->allocPPN();
-  arch_memory_lock_.acquire();
+  thread_lock_.acquire();
   bool inside = vpn * PAGE_SIZE < HEAP_START + heap_size_;
-  bool mapped = inside && arch_memory_.mapPage(vpn, ppn, 1);
-  arch_memory_lock_.release();
+  bool mapped = inside && arch_memory_->mapPage(vpn, ppn, 1);
+  thread_lock_.release();
   if (!mapped)
     PageManager::instance()->freePPN(ppn);
   return inside;
@@ -42,8 +41,9 @@ bool Loader::mapHeapPage(size_t vpn)
 
 ## The syscall side
 
-Round up to pages, then under the lock: unmap every mapped heap page between the new and
-the old limit, flush the TLB, store the new size.
+Round up to pages, then `currentThread->getProcess()->setHeapLimit(size)`: under the lock,
+unmap every mapped heap page between the new and the old limit, flush the TLB, store the new
+size.
 
 ## Locking
 
@@ -56,6 +56,9 @@ the old limit, flush the TLB, store the new size.
   its physical page and returns `true` (inside) – both continue, the page is mapped once.
 - `Syscall::exit` is called **after** the lock is released. A thread that dies while holding
   a mutex blocks every other thread of the process forever (and `~Thread` asserts).
+- Why `UserProcess` and not `Loader`: the limit belongs to the process; the `Loader` is about the
+  program file and the page tables. The lock is still the page-table lock, because limit and
+  mappings must change together.
 
 ## Pitfalls
 

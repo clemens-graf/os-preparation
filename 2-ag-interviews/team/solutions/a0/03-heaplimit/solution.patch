@@ -1,20 +1,5 @@
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e17..99d00bef 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,10 @@ class Loader
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-   private:
- 
-     /**
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 5bbf8acf..381c7b2d 100644
+index 2e8e0e15..4154dd1d 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
 @@ -18,6 +18,9 @@ class Syscall
@@ -26,14 +11,14 @@ index 5bbf8acf..381c7b2d 100644
 +    static size_t heapLimit(size_t size);
      static void trace();
  
-     static size_t getThreadCount();
+     // process stuff
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 5acc4be5..49e5c9b2 100644
+index 694ec106..1846c006 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -2,6 +2,10 @@
- 
- #include "Thread.h"
+@@ -11,6 +11,10 @@
+ #define GUARD_PAGE 1
+ #define USER_BREAK_VPN USER_BREAK / PAGE_SIZE
  
 +// A0-03: the lazy heap region (512 GiB away from everything else)
 +#define HEAP_START 0x0000600000000000ULL
@@ -41,10 +26,10 @@ index 5acc4be5..49e5c9b2 100644
 +
  class UserThread;
  
- 
-@@ -31,6 +35,17 @@ class UserProcess
- 
-     UserThread* createMainThread(); // create first thread here
+ struct UserThreadData
+@@ -187,6 +191,17 @@ class UserProcess
+      */
+     void freeUserThreadStack(UserThreadData* thread_data);
  
 +    /**
 +     * A0-03: maps a zero page at vpn if it lies below the current heap limit
@@ -58,23 +43,24 @@ index 5acc4be5..49e5c9b2 100644
 +    void setHeapLimit(size_t size);
 +
    private:
- 
-     size_t pid_ = 0; // Todo
-@@ -40,5 +55,9 @@ class UserProcess
-     uint32 terminal_number_;
-     
-     int32 fd_;
+     /**
+      * Opens the executable for the path, creates a Loader for it and loads /
+@@ -196,6 +211,10 @@ class UserProcess
+      * @param fd the file descriptor of the opened executable, -1 on fail
+      * @return Loader* the initialized loader, nullptr if it could not be loaded
+      */
 +
 +    // A0-03: the lazy heap [HEAP_START, HEAP_START + heap_size_) - per process, so it lives here.
-+    // Protected by loader_->arch_memory_lock_: the limit and the mappings change together.
-+    size_t heap_size_;
- };
++    // Protected by thread_lock_ (like the page tables): the limit and the mappings change together.
++    size_t heap_size_ = 0;
+     static Loader* loadExecutable(const char* path, int& fd);
  
+     /**
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 69f00b8d..d02c7696 100644
+index 7696511e..ac4b4f26 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,6 +17,9 @@
+@@ -16,6 +16,9 @@
  #define sc_createprocess 191
  #define sc_trace 252
  
@@ -83,41 +69,9 @@ index 69f00b8d..d02c7696 100644
 +
  // Our custom syscalls:
  
- //pthread create / exit ca. 1000 - 1499
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc3796..b7f7d4c3 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -10,7 +10,8 @@
- #include "FileDescriptor.h"
- #include "Scheduler.h"
- 
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
-+    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
- 
-@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
-     Syscall::exit(666);
-   }
- 
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
-+  arch_memory_lock_.release();
-   if (!page_mapped)
-   {
-     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
-@@ -79,6 +82,7 @@ void Loader::loadPage(pointer virtual_address)
-   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
- }
- 
-+
- bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
- {
-   assert(program_binary_lock_.isHeldBy(currentThread));
+ // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index a23a1231..93bb0987 100644
+index 25e2b4c7..6a679c35 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -127,12 +81,12 @@ index a23a1231..93bb0987 100644
 +#include "ScopeLock.h"
 +#include "Loader.h"
 +#include "UserProcess.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -62,6 +65,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-       break;
-     case sc_tortillas_finished:
+@@ -85,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
        break;
 +    case sc_heaplimit:
 +      return_value = heapLimit(arg1);
@@ -140,7 +94,7 @@ index a23a1231..93bb0987 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -195,6 +201,17 @@ void Syscall::trace()
+@@ -349,6 +355,17 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -159,35 +113,31 @@ index a23a1231..93bb0987 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 144e8f7c..f5720f32 100644
+index 37db7fb4..873bacad 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -10,9 +10,10 @@
+@@ -9,6 +9,7 @@
  #include "offsets.h"
  #include "Scheduler.h"
  #include "UserThread.h"
 +#include "ScopeLock.h"
+ #include "Mutex.h"
+ #include "ArchMemory.h"
  
- UserProcess::UserProcess(ustl::string filename, FileSystemInfo *fs_info, uint32 terminal_number) :
--    filename_(filename), working_dir_(fs_info), loader_(0), terminal_number_(terminal_number), fd_(VfsSyscall::open(filename, O_RDONLY))
-+    filename_(filename), working_dir_(fs_info), loader_(0), terminal_number_(terminal_number), fd_(VfsSyscall::open(filename, O_RDONLY)), heap_size_(0)
- {
- 
-   if (fd_ >= 0)
-@@ -62,3 +63,29 @@ UserThread* UserProcess::createMainThread()
-   debug(USERPROCESS, "Main thread created\n");
-   return new_thread;
+@@ -474,3 +475,29 @@ void UserProcess::exitProcess()
+   caller->kill();
+   assert(false && "Thread contiued after exit is called");
  }
 +
 +bool UserProcess::mapHeapPage(size_t vpn)
 +{
 +  size_t ppn = PageManager::instance()->allocPPN();
-+  loader_->arch_memory_lock_.acquire();
++  thread_lock_.acquire();
 +  // check the limit and map in ONE critical section: setHeapLimit() could shrink the heap
 +  // between a check and a later mapPage(), leaving a page mapped above the limit
 +  bool inside = vpn * PAGE_SIZE < HEAP_START + heap_size_;
-+  bool mapped = inside && loader_->arch_memory_.mapPage(vpn, ppn, 1);
-+  loader_->arch_memory_lock_.release();
++  bool mapped = inside && arch_memory_->mapPage(vpn, ppn, 1);
++  thread_lock_.release();
 +  if (!mapped)
 +    PageManager::instance()->freePPN(ppn);   // above the limit, or another thread mapped it first
 +  return inside;
@@ -195,46 +145,44 @@ index 144e8f7c..f5720f32 100644
 +
 +void UserProcess::setHeapLimit(size_t size)
 +{
-+  ScopeLock lock(loader_->arch_memory_lock_);
++  ScopeLock lock(thread_lock_);
 +  for (size_t vpn = (HEAP_START + size) / PAGE_SIZE; vpn < (HEAP_START + heap_size_) / PAGE_SIZE; ++vpn)
 +  {
-+    if (loader_->arch_memory_.resolveMapping(vpn).page_size != 0)
-+      loader_->arch_memory_.unmapPage(vpn);
++    if (arch_memory_->resolveMapping(vpn).page_size != 0)
++      arch_memory_->unmapPage(vpn);
 +  }
 +  ArchMemory::flushTlb();
 +  heap_size_ = size;
 +}
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index ba617df1..3c654d86 100644
+index 2dfb14e4..fbecf249 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -5,6 +5,7 @@
  #include "offsets.h"
  #include "Scheduler.h"
- #include "Loader.h"
+ #include "UserProcess.h"
 +#include "UserProcess.h"
  #include "Syscall.h"
  #include "ArchThreads.h"
- extern "C" void arch_contextSwitch();
-@@ -64,7 +65,17 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ #include "UserThread.h"
+@@ -72,6 +73,16 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   if (checkPageFaultIsValid(address, user, present, switch_to_us))
    {
-     assert(currentThread->getProcess() && "Thread has no process -> no loader\n");
-     assert(currentThread->getLoader() && "Process of thread has no loader\n");
--    currentThread->getLoader()->loadPage(address);
-+    Loader* loader = currentThread->getLoader();
-+    if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)  // A0-03
++    if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)  // A0-03: the lazy heap
 +    {
-+      if (!currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE))
++      if (!currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE))   // takes thread_lock_
 +      {
 +        debug(PAGEFAULT, "heap access above the limit\n");
 +        Syscall::exit(9998);                     // never exit while holding a lock!
 +      }
++      return;
 +    }
-+    else
-+      loader->loadPage(address);
-   }
-   else
-   {
++
+     // UserProcess* current_process = currentThread->getProcess();
+     // assert(current_process && "Thread has no process");
+     // current_process->getLoader().loadPage(address, current_process->getAddressSpace());
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
 index 901640e9..3c4173a6 100644
 --- a/userspace/libc/include/nonstd.h

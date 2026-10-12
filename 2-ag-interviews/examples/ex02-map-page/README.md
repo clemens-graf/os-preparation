@@ -11,9 +11,9 @@ size_t ppn = PageManager::instance()->allocPPN();               // 1. a physical
 char* kernel_view = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
 memcpy(kernel_view, greeting, sizeof(greeting));                 // 2. fill it via the ident mapping
 
-loader->arch_memory_lock_.acquire();
-bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);         // 3. map it (user_access = 1)
-loader->arch_memory_lock_.release();
+process->getThreadLock().acquire();
+bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);         // 3. map it (user_access = 1)
+process->getThreadLock().release();
 
 if (!mapped)                                                     // 4. already mapped: give it back
   PageManager::instance()->freePPN(ppn);
@@ -28,22 +28,26 @@ if (!mapped)                                                     // 4. already m
 
 ## The page-table lock
 
-Base SWEB has **no lock** around the page tables: one thread per process, so nobody else
-could change them. The moment a process has a second thread (A1) – or another kernel path
-touches its tables – you need one. This example introduces it, and every solution uses it:
+Two threads of a process must not change its page tables at the same time. In your team's code
+that lock already exists: **`process->getThreadLock()`**, the per-process Mutex your page fault
+handler takes when it maps stack pages. Every A0 solution uses it around `mapPage`/`unmapPage`:
 
 ```cpp
-// Loader.h
-Mutex arch_memory_lock_;   // protects arch_memory_: every mapPage/unmapPage/PTE change
+UserProcess* process = currentThread->getProcess();
+process->getThreadLock().acquire();
+bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
+process->getThreadLock().release();
 ```
 
-and wraps the existing `mapPage` in `Loader::loadPage` with it too. A Mutex (not a SpinLock):
-the critical sections can be long and may allocate.
+A Mutex (not a SpinLock): the critical sections can be long and may allocate. Lock order:
+`thread_lock_` → PageManager's lock (taken inside `mapPage` when it needs a new page table).
+Never the other way round.
 
-Lock order: `arch_memory_lock_` → PageManager's lock (taken inside `mapPage` when it needs a
-new page table). Never the other way round.
+(Base SWEB has no such lock – one thread per process. There the course adds
+`Mutex arch_memory_lock_` to the `Loader`, initialised first in its constructor
+because of `-Werror=reorder`.)
 
 ## Traps
 
-- **Initializer order:** `Loader`'s constructor must initialise members in declaration order
-  (`-Werror=reorder`), so `arch_memory_lock_("...")` comes first in the list.
+- **Initializer order** (base SWEB only, when you add a lock to the `Loader`): members are
+  initialised in declaration order (`-Werror=reorder`).
