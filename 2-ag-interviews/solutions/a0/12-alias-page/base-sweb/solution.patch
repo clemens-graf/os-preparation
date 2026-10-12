@@ -1,0 +1,272 @@
+diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
+index b44b0073..ae6c3dc9 100644
+--- a/arch/x86/64/include/ArchMemory.h
++++ b/arch/x86/64/include/ArchMemory.h
+@@ -51,7 +51,7 @@ class ArchMemory
+      * @param virtual_page The virtual page which shall be unmapped
+      * @return Currently always returns true
+      */
+-    bool unmapPage(uint64 virtual_page);
++    bool unmapPage(uint64 virtual_page, bool free_physical_page = true);   // A0-12: false for aliases
+ 
+     /**
+      * Takes a physical page number (PPN) and returns a virtual address that can be used to access given physical page.
+@@ -81,6 +81,12 @@ class ArchMemory
+      * @param vpage The virtual page to resolve
+      * @return Returns a completely or partially filled out ArchMemoryMapping object
+      */
++    /**
++     * A0-12: is physical page ppn mapped anywhere in the user half of this address space?
++     * (caller must hold the lock that protects this ArchMemory)
++     */
++    bool mapsPhysicalPage(size_t ppn);
++
+     static const ArchMemoryMapping resolveMapping(uint64 pml4, uint64 vpage);
+ 
+     const ArchMemoryMapping resolveMapping(uint64 vpage);
+diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
+index 0134550a..5acd2964 100644
+--- a/arch/x86/64/source/ArchMemory.cpp
++++ b/arch/x86/64/source/ArchMemory.cpp
+@@ -33,13 +33,14 @@ bool ArchMemory::checkAndRemove(pointer map_ptr, uint64 index)
+   return true;
+ }
+ 
+-bool ArchMemory::unmapPage(uint64 virtual_page)
++bool ArchMemory::unmapPage(uint64 virtual_page, bool free_physical_page)
+ {
+   ArchMemoryMapping m = resolveMapping(virtual_page);
+ 
+   assert(m.page_ppn != 0 && m.page_size == PAGE_SIZE && m.pt[m.pti].present);
+   m.pt[m.pti].present = 0;
+-  PageManager::instance()->freePPN(m.page_ppn);
++  if (free_physical_page)
++    PageManager::instance()->freePPN(m.page_ppn);
+   ((uint64*)m.pt)[m.pti] = 0; // for easier debugging
+   bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
+   if (empty)
+@@ -158,6 +159,36 @@ ArchMemory::~ArchMemory()
+   PageManager::instance()->freePPN(page_map_level_4_);
+ }
+ 
++bool ArchMemory::mapsPhysicalPage(size_t ppn)
++{
++  // there is no reverse map: walk every present entry of the user half (like ~ArchMemory)
++  PageMapLevel4Entry* pml4 = (PageMapLevel4Entry*) getIdentAddressOfPPN(page_map_level_4_);
++  for (uint64 pml4i = 0; pml4i < PAGE_MAP_LEVEL_4_ENTRIES / 2; pml4i++)
++  {
++    if (!pml4[pml4i].present)
++      continue;
++    PageDirPointerTableEntry* pdpt = (PageDirPointerTableEntry*) getIdentAddressOfPPN(pml4[pml4i].page_ppn);
++    for (uint64 pdpti = 0; pdpti < PAGE_DIR_POINTER_TABLE_ENTRIES; pdpti++)
++    {
++      if (!pdpt[pdpti].pd.present)
++        continue;
++      PageDirEntry* pd = (PageDirEntry*) getIdentAddressOfPPN(pdpt[pdpti].pd.page_ppn);
++      for (uint64 pdi = 0; pdi < PAGE_DIR_ENTRIES; pdi++)
++      {
++        if (!pd[pdi].pt.present)
++          continue;
++        PageTableEntry* pt = (PageTableEntry*) getIdentAddressOfPPN(pd[pdi].pt.page_ppn);
++        for (uint64 pti = 0; pti < PAGE_TABLE_ENTRIES; pti++)
++        {
++          if (pt[pti].present && pt[pti].page_ppn == ppn)
++            return true;
++        }
++      }
++    }
++  }
++  return false;
++}
++
+ pointer ArchMemory::checkAddressValid(uint64 vaddress_to_check)
+ {
+   if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e17..7d376354 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,15 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
++    // A0-12: virtual pages created by map_address - their frames are mapped a second time
++    // somewhere else in this process. ~Loader unmaps them WITHOUT freeing the frame.
++    // Protected by arch_memory_lock_.
++    ustl::list<size_t> alias_vpns_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db19..041f21f7 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,9 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A0-12
++    static size_t getPhysicalAddress(size_t address);
++    static size_t mapAddress(size_t address, size_t ppn);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d197..f5639d6a 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,7 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-12
++#define sc_get_physical_address 1560
++#define sc_map_address 1561
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc3796..aa215b56 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,12 +10,19 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), alias_vpns_(), fd_(fd), hdr_(0),
++    phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+ Loader::~Loader()
+ {
++  // A0-12: arch_memory_ (a member) is destroyed AFTER this body and frees every present user
++  // page. An alias shares its frame with another mapping - unmap it first, without freeing,
++  // or that frame is freed twice ("Double free PPN"). No lock: the process has no threads left.
++  for (size_t vpn : alias_vpns_)
++    arch_memory_.unmapPage(vpn, false);
++
+   delete userspace_debug_info_;
+   delete hdr_;
+   userspace_debug_info_ = nullptr;
+@@ -70,7 +77,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b4..242e74c2 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,7 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +50,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_get_physical_address:
++      return_value = getPhysicalAddress(arg1);
++      break;
++    case sc_map_address:
++      return_value = mapAddress(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +188,35 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++size_t Syscall::getPhysicalAddress(size_t address)
++{
++  if (address >= USER_BREAK)
++    return (size_t) -1;
++  Loader* loader = currentThread->loader_;
++
++  loader->arch_memory_lock_.acquire();
++  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
++  // page_size == PAGE_SIZE: a 4 KiB page is mapped. Otherwise page_ppn is 0 - a real frame
++  // number, so "not mapped (yet)" must be -1.
++  size_t ppn = (m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
++  loader->arch_memory_lock_.release();
++  return ppn;
++}
++
++size_t Syscall::mapAddress(size_t address, size_t ppn)
++{
++  if (address >= USER_BREAK)
++    return (size_t) -1;
++  size_t vpn = address / PAGE_SIZE;
++  Loader* loader = currentThread->loader_;
++
++  // ONE critical section: "the frame is mine" must still hold when it is mapped
++  loader->arch_memory_lock_.acquire();
++  bool mapped = loader->arch_memory_.mapsPhysicalPage(ppn)       // only frames of this process
++                && loader->arch_memory_.mapPage(vpn, ppn, 1);      // false: vpn already mapped
++  if (mapped)
++    loader->alias_vpns_.push_back(vpn);                            // ~Loader unmaps it without free
++  loader->arch_memory_lock_.release();
++  return mapped ? 0 : (size_t) -1;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b55..7c4d688e 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "../../../common/include/kernel/syscall-definitions.h"
++#include "types.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -16,6 +17,12 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A0-12: the physical page number of the page that contains address, or -1
++extern size_t get_physical_address(size_t address);
++
++// A0-12: map the page that contains address to physical page ppn; 0 or -1
++extern size_t map_address(size_t address, size_t ppn);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d11..3b5af61e 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -8,6 +8,16 @@ int createprocess(const char* path, int sleep)
+   return __syscall(sc_createprocess, (long) path, sleep, 0x00, 0x00, 0x00);
+ }
+ 
++size_t get_physical_address(size_t address)
++{
++  return __syscall(sc_get_physical_address, address, 0x00, 0x00, 0x00, 0x00);
++}
++
++size_t map_address(size_t address, size_t ppn)
++{
++  return __syscall(sc_map_address, address, ppn, 0x00, 0x00, 0x00);
++}
++
+ extern int main();
+ 
+ void _start()

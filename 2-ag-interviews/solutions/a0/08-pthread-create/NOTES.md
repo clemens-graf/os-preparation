@@ -27,7 +27,7 @@ slots and the page tables (the page fault handler takes it for stack pages).
 
 ## The course's own version (base SWEB, `task mode base`)
 
-Patch: [`solution.patch`](solution.patch) – built from scratch on base SWEB. This is the biggest A0 task – and the mechanics
+Patch: [`base-sweb/solution.patch`](base-sweb/solution.patch) – built from scratch on base SWEB. This is the biggest A0 task – and the mechanics
 P1 implements in the team repo for A1. Know every step.
 
 ## Files touched

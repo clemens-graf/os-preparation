@@ -30,8 +30,10 @@ task reset ex01           # back to the unchanged example
 ```
 
 Each example applies on its own to a clean `main` (they do not depend on each other).
-Syscall numbers 1400–1499 (except ex11 and ex12, which keep the tutorials' numbers 1000 and
-142/143). There is no ex10: the tutorial examples carry the number of their task (11, 12). `example.patch` is plain `git diff` output – reading it is the
+`example.patch` is the version for your team's code; the base-SWEB version is in `base-sweb/`
+(ex03 has only a base-SWEB version: your team's stack already grows).
+Syscall numbers 1400–1499 (except ex11 and ex12: the tutorials' 142/143, and 1580 for tutorial 1 –
+its original 1000 is your team's `pthread_create`). There is no ex10: the tutorial examples carry the number of their task (11, 12). `example.patch` is plain `git diff` output – reading it is the
 fastest way to see *which line goes where*. ex07 has no test program: `task test` presses F8 and
 shows the `[FKEY]` line the kernel prints. ex11 and ex12 demonstrate bugs of the tutorial code: ex11's
 second program is killed by a General Protection Fault, ex12's run ends in a kernel panic –

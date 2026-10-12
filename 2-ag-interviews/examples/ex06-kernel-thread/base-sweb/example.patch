@@ -1,0 +1,186 @@
+diff --git a/common/include/console/debug.h b/common/include/console/debug.h
+index df50d37..4cc5795 100644
+--- a/common/include/console/debug.h
++++ b/common/include/console/debug.h
+@@ -48,6 +48,7 @@ const size_t USERPROCESS        = Ansi_Cyan    | OUTPUT_ENABLED;
+ const size_t PROCESS_REG        = Ansi_Yellow  | OUTPUT_ENABLED;
+ const size_t BACKTRACE          = Ansi_Cyan    | OUTPUT_ENABLED;
+ const size_t USERTRACE          = Ansi_Red     | OUTPUT_ENABLED;
++const size_t TICKER             = Ansi_Cyan    | OUTPUT_ENABLED; // EX06: own debug flag
+ 
+ //group memory management
+ const size_t PM                 = Ansi_Green | OUTPUT_ENABLED;
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..f4f88ef 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // EX06
++    static size_t ticker(size_t count);
+ };
+ 
+diff --git a/common/include/kernel/TickerThread.h b/common/include/kernel/TickerThread.h
+new file mode 100644
+index 0000000..cf054b2
+--- /dev/null
++++ b/common/include/kernel/TickerThread.h
+@@ -0,0 +1,24 @@
++#pragma once
++
++#include "Thread.h"
++
++class Mutex;
++class Condition;
++
++/**
++ * EX06: a kernel thread. It prints "tick" count times, every 5 timer ticks,
++ * then tells the waiting syscall that it is done.
++ */
++class TickerThread : public Thread
++{
++  public:
++    TickerThread(size_t count, Mutex* lock, Condition* done_condition, bool* done);
++
++    void Run() override;
++
++  private:
++    size_t count_;
++    Mutex* lock_;                // these three belong to the waiting syscall (its kernel stack)
++    Condition* done_condition_;
++    bool* done_;
++};
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..9b79bec 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// EX06
++#define sc_ticker 1440
++
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..e0381b3 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,9 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "Condition.h"
++#include "Mutex.h"
++#include "TickerThread.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +52,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_ticker:
++      return_value = ticker(arg1);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +187,22 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// EX06: start a kernel thread and sleep until it is finished
++size_t Syscall::ticker(size_t count)
++{
++  if (count == 0 || count > 20)
++    return (size_t) -1;
++
++  Mutex lock("Syscall::ticker lock");
++  Condition done_condition(&lock, "Syscall::ticker done_condition");
++  bool done = false;
++
++  Scheduler::instance()->addNewThread(new TickerThread(count, &lock, &done_condition, &done));
++
++  lock.acquire();
++  while (!done)               // while, not if: re-check the state after every wake-up
++    done_condition.wait();    // releases lock while sleeping, holds it again afterwards
++  lock.release();
++  return count;
++}
+diff --git a/common/source/kernel/TickerThread.cpp b/common/source/kernel/TickerThread.cpp
+new file mode 100644
+index 0000000..d568b5c
+--- /dev/null
++++ b/common/source/kernel/TickerThread.cpp
+@@ -0,0 +1,29 @@
++#include "TickerThread.h"
++#include "Scheduler.h"
++#include "Mutex.h"
++#include "Condition.h"
++#include "kprintf.h"
++
++TickerThread::TickerThread(size_t count, Mutex* lock, Condition* done_condition, bool* done) :
++    Thread(0, "TickerThread", Thread::KERNEL_THREAD), count_(count), lock_(lock),
++    done_condition_(done_condition), done_(done)
++{
++}
++
++void TickerThread::Run()
++{
++  for (size_t i = 1; i <= count_; ++i)
++  {
++    size_t until = Scheduler::instance()->getTicks() + 5;
++    while (Scheduler::instance()->getTicks() < until)
++      Scheduler::instance()->yield();          // a kernel thread must give the CPU away itself
++    debug(TICKER, "tick %zu/%zu\n", i, count_);
++  }
++
++  lock_->acquire();
++  *done_ = true;                               // change the state ...
++  done_condition_->signal();                   // ... and signal while holding the mutex
++  lock_->release();
++  // From here on lock_, done_condition_ and done_ may already be gone (the waiter returned).
++  // Run() returns -> threadStartHack calls kill() -> the CleanupThread deletes this object.
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..f32f090 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,9 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// EX06
++extern int ticker(size_t count);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..6327edc 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++int ticker(size_t count)
++{
++  return __syscall(sc_ticker, count, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

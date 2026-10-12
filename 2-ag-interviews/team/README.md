@@ -4,7 +4,8 @@ In the interview you work in **your team repo**, not in base SWEB. So the course
 default: every A0 task and every example starts from a snapshot of your team's `main`
 (`osw26e3`), and the cards, hints, notes and reference solutions use your team's classes and names.
 
-Everything in this folder was made and tested on the commit in [`BASE`](BASE)
+The team versions – `../solutions/a0/*/solution.patch` and `../examples/*/example.patch`; the base-SWEB
+versions are next to them in a `base-sweb/` subfolder – were made and tested on the commit in [`BASE`](BASE)
 (`osw26e3` main of 12 Oct 2026, `947d1418` – with `pthread_create`, `pthread_join`, `fork`, the
 growing stack): all A0 tasks and examples build and pass their tests on it.
 
@@ -83,7 +84,7 @@ task.
 
 ## When your team's main moves on
 
-`team/BASE` pins the commit; the team solutions are made and tested on it. To practise on a newer
+`team/BASE` pins the commit; the team versions of the solutions and examples are made and tested on it. To practise on a newer
 team state, the team patches have to be re-made on that commit and `BASE` updated (then `task`
 moves `main` by itself and warns about old task branches).
 

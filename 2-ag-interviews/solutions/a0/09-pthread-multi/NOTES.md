@@ -1,8 +1,7 @@
 # A0-09 pthread_multi – solution notes
 
-Patch for your team's code: [`team/solutions/a0/09-pthread-multi/solution.patch`](../../../team/solutions/a0/09-pthread-multi/solution.patch)
-(`task solution` puts it on a branch). The base-SWEB version (`task mode base`) is
-[`solution.patch`](solution.patch) here.
+Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
+Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 
 ## The code
 

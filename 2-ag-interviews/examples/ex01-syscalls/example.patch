@@ -1,22 +1,23 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..2688a59 100644
+index 2e8e0e15..15224c6d 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,9 @@ class Syscall
+@@ -18,6 +18,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
 +
 +    // EX01
 +    static size_t getTicks();
 +    static size_t getThreadName(size_t user_buffer, size_t size);
- };
+     static void trace();
  
+     // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..1cdb5ab 100644
+index 7696511e..95502f01 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,7 @@
+@@ -16,6 +16,10 @@
  #define sc_createprocess 191
  #define sc_trace 252
  
@@ -24,8 +25,11 @@ index dd99d19..1cdb5ab 100644
 +#define sc_getticks 1400
 +#define sc_getthreadname 1401
 +
+ // Our custom syscalls:
+ 
+ // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..c66b701 100644
+index 25e2b4c7..743d5482 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,7 @@
@@ -33,12 +37,12 @@ index 964cd5b..c66b701 100644
  #include "File.h"
  #include "Scheduler.h"
 +#include "kstring.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +50,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+@@ -85,6 +86,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
        break;
 +    case sc_getticks:
 +      return_value = getTicks();
@@ -48,12 +52,11 @@ index 964cd5b..c66b701 100644
 +      break;
      default:
        return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +188,24 @@ void Syscall::trace()
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -349,6 +356,27 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
-+
 +// EX01: a syscall without arguments - just return a value (it ends up in the user's rax)
 +size_t Syscall::getTicks()
 +{
@@ -74,8 +77,12 @@ index 964cd5b..c66b701 100644
 +  ((char*) user_buffer)[length] = '\0';
 +  return length;
 +}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..d3c9020 100644
+index 901640e9..40078749 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -86,9 +93,9 @@ index 3f341b5..d3c9020 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,10 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,10 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// EX01
 +extern size_t getticks(void);
@@ -98,7 +105,7 @@ index 3f341b5..d3c9020 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..a39c6e5 100644
+index befb9485..344510da 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,16 @@ int createprocess(const char* path, int sleep)

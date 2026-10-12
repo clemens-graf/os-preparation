@@ -1,7 +1,8 @@
 # ex12 – tutorial 2: one physical page at two virtual addresses
 
 The change from the A0 preparation tutorial (7 Oct), **exactly as it was written there**
-(`example.patch` = the tutorial's `tutorial2.patch` without the test program). Two syscalls:
+(`base-sweb/example.patch` = the tutorial's `tutorial2.patch` without the test program; `example.patch` =
+the same on your team's code, with `getProcess()->getAddressSpace()` instead of the cast). Two syscalls:
 
 - `get_physical_address(va)` – the physical page number (ppn) behind virtual address `va`;
 - `map_address(va, ppn)` – map the page that contains `va` to physical page `ppn`.

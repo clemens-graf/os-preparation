@@ -1,7 +1,7 @@
 # A0-01 meminfo – solution notes
 
-Patch for your team's code: [`team/solutions/a0/01-meminfo/solution.patch`](../../../team/solutions/a0/01-meminfo/solution.patch)
-(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
+Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
+Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 
 Syscall number **1505** – your team's `mkdir` already has 1500.
 

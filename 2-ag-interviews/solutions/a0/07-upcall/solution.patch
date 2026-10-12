@@ -1,68 +1,33 @@
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..99d00be 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,10 @@ class Loader
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-   private:
- 
-     /**
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..4d40d15 100644
+index 2e8e0e15..737b0a3c 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,8 @@ class Syscall
+@@ -18,6 +18,9 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
 +
 +    // A0-07
 +    static size_t upcall(size_t function, size_t argument);
- };
+     static void trace();
  
+     // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..9d620a5 100644
+index 7696511e..fad070a7 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
+@@ -16,6 +16,9 @@
  #define sc_createprocess 191
  #define sc_trace 252
  
 +// A0-07
 +#define sc_upcall 1540
 +
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..012218d 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -10,7 +10,8 @@
- #include "FileDescriptor.h"
- #include "Scheduler.h"
+ // Our custom syscalls:
  
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
-+    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
- 
-@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
-     Syscall::exit(666);
-   }
- 
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
-+  arch_memory_lock_.release();
-   if (!page_mapped)
-   {
-     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+ // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..84cd702 100644
+index 25e2b4c7..fdfb7d89 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -72,24 +37,23 @@ index 964cd5b..84cd702 100644
 +#include "ArchThreads.h"
 +#include "ScopeLock.h"
 +#include "Loader.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +52,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+@@ -85,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
        break;
 +    case sc_upcall:
 +      return_value = upcall(arg1, arg2);
 +      break;
      default:
        return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +187,30 @@ void Syscall::trace()
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -349,6 +355,33 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
-+
 +// A0-07: let the thread call function(argument) and then continue after the syscall.
 +// We fake what a "call function" instruction would have done at the point of the syscall:
 +// push the return address (the instruction after int $0x80) and jump to function.
@@ -101,10 +65,10 @@ index 964cd5b..84cd702 100644
 +  ArchThreadRegisters* regs = currentThread->user_registers_;
 +  size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t); // red zone, alignment, return address slot
 +
-+  Loader* loader = currentThread->loader_;
++  UserProcess* process = currentThread->getProcess();
 +  {
-+    ScopeLock lock(loader->arch_memory_lock_);
-+    pointer slot = loader->arch_memory_.checkAddressValid(rsp);  // is that stack slot mapped?
++    ScopeLock lock(process->getThreadLock());
++    pointer slot = process->getAddressSpace().checkAddressValid(rsp);  // is that stack slot mapped?
 +    if (!slot)
 +      return (size_t) -1;
 +    *(size_t*) slot = regs->rip;   // write via the ident mapping: cannot page fault here
@@ -116,8 +80,12 @@ index 964cd5b..84cd702 100644
 +  // which is exactly what upcall() returns in user space
 +  return 0;
 +}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..4b12c17 100644
+index 901640e9..5367184f 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -128,9 +96,9 @@ index 3f341b5..4b12c17 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,9 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A0-07: runs function(argument) and returns its result
 +extern size_t upcall(size_t (*function)(size_t), size_t argument);
@@ -139,7 +107,7 @@ index 3f341b5..4b12c17 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..8b965b6 100644
+index befb9485..2c9a8bce 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)

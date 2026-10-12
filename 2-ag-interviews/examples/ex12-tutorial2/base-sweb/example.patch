@@ -1,0 +1,121 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db19..dfbe7ac6 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -17,6 +17,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    static size_t get_physical_address(size_t virtual_address);
++    static void map_address(size_t virtual_address, size_t ppn);
++
+     static void trace();
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d197..f4d5d47b 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++#define sc_get_physical_address 142
++#define sc_map_address 143
++
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b4..0e9a4c9d 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,8 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "UserProcess.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +51,14 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++
++    case sc_get_physical_address:
++      return_value = get_physical_address(arg1);
++      break;
++
++    case sc_map_address:
++      map_address(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -56,6 +66,22 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+   return return_value;
+ }
+ 
++size_t Syscall::get_physical_address(size_t virtual_address)
++{
++  UserProcess *process = (UserProcess*)currentThread;
++
++  ArchMemoryMapping m = process->loader_->arch_memory_.resolveMapping(virtual_address >> 12);
++  return m.page_ppn;
++}
++
++void Syscall::map_address(size_t virtual_address, size_t ppn)
++{
++  UserProcess *process = (UserProcess*)currentThread;
++
++  bool mapped = process->loader_->arch_memory_.mapPage(virtual_address >> 12, ppn, 1);
++  assert(mapped);
++}
++
+ void Syscall::pseudols(const char *pathname, char *buffer, size_t size)
+ {
+   if(buffer && ((size_t)buffer >= USER_BREAK || (size_t)buffer + size > USER_BREAK))
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b55..7021c5f3 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ 
+ #include "../../../common/include/kernel/syscall-definitions.h"
++#include "types.h"
+ 
+ #ifdef __cplusplus
+ extern "C" {
+@@ -16,6 +17,10 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++extern size_t get_physical_address(size_t virtual_address);
++
++extern size_t map_address(size_t virtual_address, size_t ppn);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d11..66440216 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -8,6 +8,16 @@ int createprocess(const char* path, int sleep)
+   return __syscall(sc_createprocess, (long) path, sleep, 0x00, 0x00, 0x00);
+ }
+ 
++size_t get_physical_address(size_t virtual_address)
++{
++  return __syscall(sc_get_physical_address, virtual_address,0, 0x00, 0x00, 0x00);
++}
++
++size_t map_address(size_t virtual_address, size_t ppn)
++{
++  return __syscall(sc_map_address, virtual_address, ppn, 0x00, 0x00, 0x00);
++}
++
+ extern int main();
+ 
+ void _start()

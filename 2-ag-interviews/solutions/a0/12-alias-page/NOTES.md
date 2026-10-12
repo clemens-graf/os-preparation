@@ -1,8 +1,7 @@
 # A0-12 two addresses, one page – solution notes
 
-Patch for your team's code: [`team/solutions/a0/12-alias-page/solution.patch`](../../../team/solutions/a0/12-alias-page/solution.patch)
-(`task solution a0-12`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here – there the
-alias list and the lock live in the `Loader`.
+Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
+Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch) – there the alias list and the lock live in the `Loader`.
 Starting point: the tutorial version, [ex12](../../../examples/ex12-tutorial2/).
 
 ## Pieces

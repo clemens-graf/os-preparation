@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index b44b007..8881f9c 100644
+index 19431844..ec0546e4 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -74,6 +74,12 @@ class ArchMemory
@@ -16,10 +16,10 @@ index b44b007..8881f9c 100644
       * Fills out an ArchMemoryMapping object by translating the given
       * virtual page and collecting infos from the page tables along the way.
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 0134550..1de030a 100644
+index 6aff17ae..abf115bc 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -158,6 +158,34 @@ ArchMemory::~ArchMemory()
+@@ -205,6 +205,34 @@ ArchMemory::~ArchMemory()
    PageManager::instance()->freePPN(page_map_level_4_);
  }
  
@@ -54,71 +54,34 @@ index 0134550..1de030a 100644
  pointer ArchMemory::checkAddressValid(uint64 vaddress_to_check)
  {
    if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..99d00be 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,10 @@ class Loader
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-   private:
- 
-     /**
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..ee85680 100644
+index 2e8e0e15..5f652844 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,8 @@ class Syscall
+@@ -18,6 +18,9 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
 +
 +    // A0-01
 +    static size_t memInfo(size_t user_info);
- };
+     static void trace();
  
+     // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..bfbe188 100644
+index 7696511e..464206e1 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
- #define sc_createprocess 191
- #define sc_trace 252
+@@ -23,6 +23,7 @@
+ #define sc_tortillas_finished 9999
  
-+// A0 tasks use 1500-1599
-+#define sc_meminfo 1500
-+
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..012218d 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -10,7 +10,8 @@
- #include "FileDescriptor.h"
- #include "Scheduler.h"
+ // 1000 - 1499 [Michi]
++#define sc_meminfo 1505      // A0-01 (the card's 1500 is taken by mkdir)
+ #define sc_pthread_create 1000
+ #define sc_pthread_exit 1001
  
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
-+    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
- 
-@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
-     Syscall::exit(666);
-   }
- 
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
-+  arch_memory_lock_.release();
-   if (!page_mapped)
-   {
-     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..15499fd 100644
+index 25e2b4c7..e6a3cf4a 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -128,24 +91,23 @@ index 964cd5b..15499fd 100644
 +#include "ScopeLock.h"
 +#include "PageManager.h"
 +#include "Loader.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +52,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+@@ -85,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
        break;
 +    case sc_meminfo:
 +      return_value = memInfo(arg1);
 +      break;
      default:
        return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +187,28 @@ void Syscall::trace()
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -349,6 +355,31 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
-+
 +// A0-01: must match struct meminfo in userspace/libc/include/nonstd.h
 +struct MemInfo
 +{
@@ -163,15 +125,19 @@ index 964cd5b..15499fd 100644
 +  info.total_pages = PageManager::instance()->getTotalNumPages();
 +  info.free_pages = PageManager::instance()->getNumFreePages();
 +  {
-+    Loader* loader = currentThread->loader_;
-+    ScopeLock lock(loader->arch_memory_lock_);      // no thread may change the tables during the walk
-+    info.process_pages = loader->arch_memory_.countUserPages();
++    UserProcess* process = currentThread->getProcess();
++    ScopeLock lock(process->getThreadLock());      // no thread may change the tables during the walk
++    info.process_pages = process->getAddressSpace().countUserPages();
 +  }
 +  *(MemInfo*) user_info = info;                     // one copy into user memory, after all locks are released
 +  return 0;
 +}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..a4a4947 100644
+index 901640e9..27e90d84 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -182,9 +148,9 @@ index 3f341b5..a4a4947 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,15 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,15 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A0-01
 +struct meminfo
@@ -199,7 +165,7 @@ index 3f341b5..a4a4947 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..c121c33 100644
+index befb9485..25f3e800 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)

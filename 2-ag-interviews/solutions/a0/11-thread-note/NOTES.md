@@ -1,7 +1,7 @@
 # A0-11 a note per thread – solution notes
 
-Patch for your team's code: [`team/solutions/a0/11-thread-note/solution.patch`](../../../team/solutions/a0/11-thread-note/solution.patch)
-(`task solution`). Base SWEB (`task mode base`): [`solution.patch`](solution.patch) here.
+Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
+Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 Starting point: the tutorial version, [ex11](../../../examples/ex11-tutorial1/).
 
 ## Pieces

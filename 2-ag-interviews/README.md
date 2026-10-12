@@ -10,12 +10,12 @@ will ask yourself every time: **which file do I have to touch for this?**
 |---|---|
 | [`GETTING-STARTED.md`](GETTING-STARTED.md) | **start here:** every command you type, with examples – setup, the daily loop, tests, debugging, git, reading the output, problems |
 | [`guide.pdf`](guide.pdf) | The theory: what happens where in SWEB, recipes for every kind of change, **locking** (the biggest source of deductions), the A0/A1/A2 task families, base SWEB vs. your team repo |
-| [`examples/`](examples/) | 11 worked reference changes with walkthroughs: syscalls, mapping pages, page faults, PTE flags, registers, kernel threads, F-keys, disk, loader, and the two A0 tutorials (ex11, ex12) exactly as the tutors wrote them |
+| [`examples/`](examples/) | 11 worked reference changes on **your team's code** (`example.patch`; base SWEB in `base-sweb/`) with walkthroughs: syscalls, mapping pages, page faults, PTE flags, registers, kernel threads, F-keys, disk, loader, and the two A0 tutorials (ex11, ex12) exactly as the tutors wrote them |
 | [`a0/`](a0/) | 11 tasks for the A0 interview (13–17 Oct), incl. both tutorials done right (A0-11, A0-12) |
 | [`a1/`](a1/) | 14 tasks for the A1 interview |
 | [`a2/`](a2/) | 12 tasks for the A2 interview |
-| [`solutions/`](solutions/) | a tested solution for every task: `solution.patch` + `NOTES.md` (files, steps, locking, pitfalls, answers) |
-| [`team/`](team/) | the solutions and examples for **your team's code** (`osw26e3`, the default) and what differs from base SWEB – [`team/README.md`](team/README.md) |
+| [`solutions/`](solutions/) | a tested solution for every task: `solution.patch` (A0: for **your team's code**, the base-SWEB one in `base-sweb/`; A1/A2: base SWEB) + `NOTES.md` (files, steps, locking, pitfalls, answers) |
+| [`team/`](team/) | which commit of your team's code the course runs on (`BASE`) and what differs from base SWEB – [`team/README.md`](team/README.md) |
 | [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug), `run_test.sh`, `sweb_run.py`, `tasks.txt` |
 | [`theory/`](theory/) | LaTeX sources of the guide (`cd theory && make`) |
 

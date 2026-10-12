@@ -1,0 +1,156 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..99d00be 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 8088db1..4d40d15 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,5 +18,8 @@ class Syscall
+ 
+     static size_t createprocess(size_t path, size_t sleep);
+     static void trace();
++
++    // A0-07
++    static size_t upcall(size_t function, size_t argument);
+ };
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index dd99d19..9d620a5 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -17,3 +17,6 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// A0-07
++#define sc_upcall 1540
++
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..012218d 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,8 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +71,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 964cd5b..84cd702 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,9 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "ArchThreads.h"
++#include "ScopeLock.h"
++#include "Loader.h"
+ 
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+@@ -49,6 +52,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pseudols:
+       pseudols((const char*) arg1, (char*) arg2, arg3);
+       break;
++    case sc_upcall:
++      return_value = upcall(arg1, arg2);
++      break;
+     default:
+       return_value = -1;
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+@@ -181,3 +187,30 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++
++// A0-07: let the thread call function(argument) and then continue after the syscall.
++// We fake what a "call function" instruction would have done at the point of the syscall:
++// push the return address (the instruction after int $0x80) and jump to function.
++size_t Syscall::upcall(size_t function, size_t argument)
++{
++  if (function == 0 || function >= USER_BREAK)
++    return (size_t) -1;
++
++  ArchThreadRegisters* regs = currentThread->user_registers_;
++  size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t); // red zone, alignment, return address slot
++
++  Loader* loader = currentThread->loader_;
++  {
++    ScopeLock lock(loader->arch_memory_lock_);
++    pointer slot = loader->arch_memory_.checkAddressValid(rsp);  // is that stack slot mapped?
++    if (!slot)
++      return (size_t) -1;
++    *(size_t*) slot = regs->rip;   // write via the ident mapping: cannot page fault here
++  }
++  regs->rsp = rsp;
++  regs->rip = function;
++  regs->rdi = argument;
++  // our return value lands in rax and is overwritten by function's return value -
++  // which is exactly what upcall() returns in user space
++  return 0;
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 3f341b5..4b12c17 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -16,6 +18,9 @@ extern "C" {
+  */ 
+ extern int createprocess(const char* path, int sleep);
+ 
++// A0-07: runs function(argument) and returns its result
++extern size_t upcall(size_t (*function)(size_t), size_t argument);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index b9ec3d1..8b965b6 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++size_t upcall(size_t (*function)(size_t), size_t argument)
++{
++  return __syscall(sc_upcall, (size_t) function, argument, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

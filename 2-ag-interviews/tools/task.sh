@@ -120,8 +120,8 @@ fi
 set_mode() {
   MODE="$1"
   case "$MODE" in
-    team) BP=""; ROOT="main"; PATCHES="$COURSE/team" ;;
-    base) BP="base-sweb/"; ROOT="base-sweb/main"; PATCHES="$COURSE" ;;
+    team) BP=""; ROOT="main" ;;
+    base) BP="base-sweb/"; ROOT="base-sweb/main" ;;
     *) die "unknown mode '$MODE' (team or base)" ;;
   esac
 }
@@ -208,16 +208,23 @@ commit_on() {
 
 tests_of() { ls "$COURSE/$1"/*.c 2>/dev/null || true; }
 
-# patch_of ID DIR -> the solution/example patch for the current mode
-patch_of() {
-  local f
-  if [[ "$1" == ex* ]]; then f="$PATCHES/$2/example.patch"; else f="$PATCHES/solutions/$2/solution.patch"; fi
-  [ -f "$f" ] || die "no patch $f"
-  echo "$f"
-}
+# Where the patches are: solutions/<dir>/solution.patch, examples/<dir>/example.patch = the version for
+# your team's code. A task that also has a base-SWEB version keeps it in a base-sweb/ subfolder next
+# to it. Without that subfolder (A1, A2, ex03) the patch there is the base-SWEB one and there is no
+# team version.
+patch_dir() { if [[ "$1" == ex* ]]; then echo "$COURSE/$2"; else echo "$COURSE/solutions/$2"; fi; }
+patch_name() { if [[ "$1" == ex* ]]; then echo example.patch; else echo solution.patch; fi; }
 
 has_team_version() {   # has_team_version ID DIR
-  if [[ "$1" == ex* ]]; then [ -f "$COURSE/team/$2/example.patch" ]; else [ -f "$COURSE/team/solutions/$2/solution.patch" ]; fi
+  [ -d "$(patch_dir "$1" "$2")/base-sweb" ]
+}
+
+# patch_of ID DIR -> the solution/example patch for the current mode
+patch_of() {
+  local d f; d="$(patch_dir "$1" "$2")"
+  if [ "$MODE" = base ] && [ -d "$d/base-sweb" ]; then f="$d/base-sweb/$(patch_name "$1")"; else f="$d/$(patch_name "$1")"; fi
+  [ -f "$f" ] || die "no patch $f"
+  echo "$f"
 }
 
 # set_mode_for: in team mode, a task without a team version (A1, A2) uses base SWEB

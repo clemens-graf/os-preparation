@@ -1,31 +1,32 @@
 diff --git a/common/include/console/debug.h b/common/include/console/debug.h
-index df50d37..74aca15 100644
+index 5382f733..9e32aec0 100644
 --- a/common/include/console/debug.h
 +++ b/common/include/console/debug.h
-@@ -48,6 +48,7 @@ const size_t USERPROCESS        = Ansi_Cyan    | OUTPUT_ENABLED;
- const size_t PROCESS_REG        = Ansi_Yellow  | OUTPUT_ENABLED;
- const size_t BACKTRACE          = Ansi_Cyan    | OUTPUT_ENABLED;
- const size_t USERTRACE          = Ansi_Red     | OUTPUT_ENABLED;
+@@ -48,6 +48,7 @@ const size_t LOCK               = Ansi_Yellow  | OUTPUT_ENABLED;
+ const size_t LOADER             = Ansi_White   | OUTPUT_ENABLED;
+ const size_t SCHEDULER          = Ansi_Yellow  | OUTPUT_ENABLED;
+ const size_t SYSCALL            = Ansi_Blue    | OUTPUT_ENABLED;
 +const size_t FKEY               = Ansi_Cyan    | OUTPUT_ENABLED; // EX07
- 
- //group memory management
- const size_t PM                 = Ansi_Green | OUTPUT_ENABLED;
+ const size_t MAIN               = Ansi_Red     | OUTPUT_ENABLED;
+ const size_t THREAD             = Ansi_Magenta | OUTPUT_ENABLED;
+ const size_t USERPROCESS        = Ansi_Cyan    | OUTPUT_ENABLED;
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..a0bd6c8 100644
+index 2e8e0e15..dfc357e6 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,9 @@ class Syscall
+@@ -18,6 +18,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
 +
 +    // EX07: set by the Console thread when F8 is pressed, consumed by the next syscall
 +    static size_t f8_pending_;
 +    static void handleF8();
- };
+     static void trace();
  
+     // process stuff
 diff --git a/common/source/console/Console.cpp b/common/source/console/Console.cpp
-index 6df1da5..8262ef6 100644
+index 6df1da55..8262ef6f 100644
 --- a/common/source/console/Console.cpp
 +++ b/common/source/console/Console.cpp
 @@ -5,6 +5,8 @@
@@ -52,13 +53,13 @@ index 6df1da5..8262ef6 100644
        PageManager::instance()->printBitmap();
        kprintfd("Used kernel memory: %zu\n", KernelMemoryManager::instance()->getUsedKernelMemory(true));
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..8dd2de2 100644
+index 25e2b4c7..65ac583a 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -7,10 +7,19 @@
- #include "ProcessRegistry.h"
- #include "File.h"
- #include "Scheduler.h"
+@@ -12,10 +12,19 @@
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
 +#include "PageManager.h"
 +#include "ArchThreads.h"
 +
@@ -75,10 +76,10 @@ index 964cd5b..8dd2de2 100644
    if ((syscall_number != sc_sched_yield) && (syscall_number != sc_outline)) // no debug print because these might occur very often
    {
      debug(SYSCALL, "Syscall %zd called with arguments %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx)\n",
-@@ -181,3 +190,12 @@ void Syscall::trace()
-   currentThread->printBacktrace();
+@@ -386,3 +395,12 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
  }
- 
 +
 +// EX07: runs in the context of whichever user thread makes the next syscall:
 +// its page tables are active, so its user memory and registers can be used safely here.

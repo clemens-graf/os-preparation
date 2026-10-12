@@ -1,0 +1,113 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..d1b4b6f 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -28,12 +28,22 @@ class Loader
+      */
+     void loadPage(pointer virtual_address);
+ 
++    /**
++     * A0-04: maps ppn read-only at vpn
++     * @return false if vpn was already mapped (then nothing changes)
++     */
++    bool mapReadOnlyPage(size_t vpn, size_t ppn);
++
+     Stabs2DebugInfo const* getDebugInfos() const;
+ 
+     void* getEntryFunction() const;
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..6223464 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -9,8 +9,10 @@
+ #include "File.h"
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
++#include "ScopeLock.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -70,7 +72,9 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
+@@ -79,6 +83,18 @@ void Loader::loadPage(pointer virtual_address)
+   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
+ }
+ 
++bool Loader::mapReadOnlyPage(size_t vpn, size_t ppn)
++{
++  ScopeLock lock(arch_memory_lock_);
++  if (!arch_memory_.mapPage(vpn, ppn, 1))   // mapPage always maps writable ...
++    return false;
++  // ... so clear the bit before releasing the lock: no other thread of this process
++  // may ever see (and write to) the page while it is still writable
++  ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
++  m.pt[m.pti].writeable = 0;
++  return true;                              // not present before -> not in the TLB -> no flush needed
++}
++
+ bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
+ {
+   assert(program_binary_lock_.isHeldBy(currentThread));
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 3224b05..f2ac04e 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -7,10 +7,16 @@
+ #include "Loader.h"
+ #include "Syscall.h"
+ #include "ArchThreads.h"
++#include "PageManager.h"
++#include "ArchMemory.h"
++#include "kstring.h"
+ extern "C" void arch_contextSwitch();
+ 
+ const size_t PageFaultHandler::null_reference_check_border_ = PAGE_SIZE;
+ 
++// A0-04
++#define MAGIC_PAGE 0xC0FFEE000ULL
++
+ inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
+                                                     bool present, bool switch_to_us)
+ {
+@@ -61,7 +67,18 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   if (checkPageFaultIsValid(address, user, present, switch_to_us))
+   {
+-    currentThread->loader_->loadPage(address);
++    if (address / PAGE_SIZE == MAGIC_PAGE / PAGE_SIZE)          // A0-04
++    {
++      size_t ppn = PageManager::instance()->allocPPN();
++      char* content = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
++      const char prefix[] = "coffee for ";
++      memcpy(content, prefix, sizeof(prefix) - 1);
++      strncpy(content + sizeof(prefix) - 1, currentThread->getName(), PAGE_SIZE - sizeof(prefix));
++      if (!currentThread->loader_->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
++        PageManager::instance()->freePPN(ppn);                  // another thread was faster
++    }
++    else
++      currentThread->loader_->loadPage(address);
+   }
+   else
+   {

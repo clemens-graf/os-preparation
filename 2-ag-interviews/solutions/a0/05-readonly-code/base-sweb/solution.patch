@@ -1,0 +1,70 @@
+diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
+index c32e5e1..99d00be 100644
+--- a/common/include/kernel/Loader.h
++++ b/common/include/kernel/Loader.h
+@@ -34,6 +34,10 @@ class Loader
+ 
+     ArchMemory arch_memory_;
+ 
++    // protects arch_memory_ (the page tables of this process):
++    // every mapPage/unmapPage/PTE change for this process happens while holding it
++    Mutex arch_memory_lock_;
++
+   private:
+ 
+     /**
+diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
+index b4dc379..6b24eb8 100644
+--- a/common/source/kernel/Loader.cpp
++++ b/common/source/kernel/Loader.cpp
+@@ -10,7 +10,11 @@
+ #include "FileDescriptor.h"
+ #include "Scheduler.h"
+ 
+-Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
++// A0-05: ELF segment permission flag (p_flags): 1 = PF_X, 2 = PF_W, 4 = PF_R
++#define ELF_PF_W 2
++
++Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
++    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ {
+ }
+ 
+@@ -28,6 +32,7 @@ void Loader::loadPage(pointer virtual_address)
+   const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
+   const pointer virt_page_end_addr = virt_page_start_addr + PAGE_SIZE;
+   bool found_page_content = false;
++  bool writable = false;     // A0-05: does any segment on this page allow writing?
+   // get a new page for the mapping
+   size_t ppn = PageManager::instance()->allocPPN();
+ 
+@@ -54,10 +59,12 @@ void Loader::loadPage(pointer virtual_address)
+           Syscall::exit(999);
+         }
+         found_page_content = true;
++        writable |= ((*it).p_flags & ELF_PF_W) != 0;
+       }
+       else if((*it).p_vaddr + (*it).p_memsz > virt_page_start_addr)
+       {
+         found_page_content = true;
++        writable |= ((*it).p_flags & ELF_PF_W) != 0;   // .bss is part of a writable segment
+       }
+     }
+   }
+@@ -70,7 +77,16 @@ void Loader::loadPage(pointer virtual_address)
+     Syscall::exit(666);
+   }
+ 
++  arch_memory_lock_.acquire();
+   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
++  if (page_mapped && !writable)
++  {
++    // A0-05: code and read-only data. Clear the bit before releasing the lock -
++    // no other thread may see the page writable, not even for a moment.
++    ArchMemoryMapping m = arch_memory_.resolveMapping(virt_page_start_addr / PAGE_SIZE);
++    m.pt[m.pti].writeable = 0;
++  }
++  arch_memory_lock_.release();
+   if (!page_mapped)
+   {
+     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");

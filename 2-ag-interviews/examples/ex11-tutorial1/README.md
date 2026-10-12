@@ -1,7 +1,8 @@
 # ex11 – tutorial 1: a syscall that takes a user string
 
 The first A0 preparation tutorial, **exactly as it was written there**
-(`example.patch` = the tutorial's `tutorial-1.patch`). One syscall,
+(`base-sweb/example.patch` = the tutorial's `tutorial-1.patch`; `example.patch` = the same on your
+team's code – only the number changes: 1000 is your `pthread_create`, so 1580). One syscall,
 `tutorial_syscall(const char* string)`: the kernel copies the user string (at most 15
 characters) into a string member of the calling thread, protected by a Mutex, and prints it
 with a debug flag of its own.
