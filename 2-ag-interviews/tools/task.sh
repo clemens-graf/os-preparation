@@ -328,6 +328,8 @@ cmd_reset() {
     set_mode "$mode_saved"; set_mode_for 2>/dev/null
     local work; work="$(work_branch "$T_ID" "$T_NAME")"
     branch_exists "$work" || continue
+    # uncommitted changes on ANOTHER branch would be carried over to the fresh branch
+    if [ "$(current_branch)" != "$work" ]; then require_clean; fi
     backup_branch "$work"
     if [ "$(current_branch)" = "$work" ]; then
       g switch -q "$ROOT"
