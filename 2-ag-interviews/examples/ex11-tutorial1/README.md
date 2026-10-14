@@ -1,8 +1,8 @@
 # ex11 – tutorial 1: a syscall that takes a user string
 
 The first A0 preparation tutorial, **exactly as it was written there**
-(`base-sweb/example.patch` = the tutorial's `tutorial-1.patch`; `example.patch` = the same on your
-team's code – only the number changes: 1000 is your `pthread_create`, so 1580). One syscall,
+(`example.patch` = the tutorial's `tutorial-1.patch`, moved to your team's code – only the number
+changes: 1000 is your `pthread_create`, so 1580). One syscall,
 `tutorial_syscall(const char* string)`: the kernel copies the user string (at most 15
 characters) into a string member of the calling thread, protected by a Mutex, and prints it
 with a debug flag of its own.
@@ -82,7 +82,7 @@ The three ideas the tutorial shows:
 | `Mutex s_mutex` per thread | the field is only ever touched by its own thread in its own syscall – the lock protects nothing here. It is needed as soon as **another** thread or kernel path reads or writes `s` | say *which* accesses it orders; a per-thread field that only its own thread uses needs no lock |
 | `ustl::string s` | `s = temp` allocates on the kernel heap – fine under a Mutex, never with interrupts off or under a SpinLock in an interrupt path | or `char s[16]`: no allocation |
 | `public:` members in `Thread`, named `s` | works; in the team repo per-thread state of user threads belongs into your `UserThread`, with a real name | |
-| `sc_tutorial 1000` | fine in base SWEB | your own block in the team repo (1500–1999) |
+| `sc_tutorial 1000` | the tutorial's number – in your team's code that is `pthread_create` | your own block (1500–1999) |
 
 ## Try it
 

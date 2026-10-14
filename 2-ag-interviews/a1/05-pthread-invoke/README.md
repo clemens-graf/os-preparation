@@ -17,6 +17,10 @@ Return Value: 0, or -1 if the thread does not exist or is the caller
 target runs first after `pthread_invoke` in at least 18 of 20 tries (with a plain `sched_yield`
 it is about 4/20).
 
+## Your team's code
+
+`Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadDataByTid(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
+
 ## Hints
 
 <details><summary>1 – how to tell the scheduler?</summary>

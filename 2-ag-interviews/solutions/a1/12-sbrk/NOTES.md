@@ -5,7 +5,7 @@ Patch: [`solution.patch`](solution.patch). Same mechanism as A0-03 (heaplimit), 
 ```cpp
 size_t Syscall::sbrk(ssize_t increment)
 {
-  ScopeLock lock(loader->arch_memory_lock_);
+  ScopeLock lock(process->getThreadLock());
   size_t old_brk = loader->brk_;
   size_t new_brk = old_brk + increment;
   if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)   // also wrap-around

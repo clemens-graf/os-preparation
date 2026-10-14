@@ -17,6 +17,10 @@ Parameters:   void* address / size_t ppn
 `task.sh start a1-09` → `task.sh test`. Done when 8 checks pass. Note: a page that was never
 touched has no physical page yet (lazy loading) – the test checks that too.
 
+## Your team's code
+
+`process->getAddressSpace().resolveMapping(vpn)` under `process->getThreadLock()`; `ptov` needs a new walk `ArchMemory::findVirtualPage(ppn)` (a copy of the destructor's loops, `public:` in `ArchMemory.h`).
+
 ## Hints
 
 <details><summary>1 – vtop</summary>

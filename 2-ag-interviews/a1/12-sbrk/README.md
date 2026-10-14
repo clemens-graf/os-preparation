@@ -19,6 +19,10 @@ Return Value: old break, or (void*) -1 if the new break would be below the start
 `task.sh start a1-12` → `task.sh test`. Done when 7 checks pass and the last access above the
 shrunk break kills the process.
 
+## Your team's code
+
+Like A0-03: `brk_ = BRK_START`, `mapBrkPage(vpn)` and `sbrk(increment)` in `UserProcess` (under `thread_lock_`). The heap case goes **first** in the page fault handler's valid branch, before it takes `thread_lock_` (`mapBrkPage` takes it itself), then `return`. The libc `sbrk` stub is in `userspace/libc/src/unistd.c`.
+
 ## Hints
 
 <details><summary>1 – compare with A0-03</summary>

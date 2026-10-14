@@ -99,24 +99,25 @@ at exit. A frame you map a second time (an alias, a shared page) must be unmappe
 
 \begin{lstlisting}[style=cpp]
 // map a fresh page (outside the lock: allocate; inside: map)
+UserProcess* process = currentThread->getProcess();
 size_t ppn = PageManager::instance()->allocPPN();
-loader->arch_memory_lock_.acquire();
-bool mapped = loader->arch_memory_.mapPage(vpn, ppn, 1);
+process->getThreadLock().acquire();      // your team's page-table lock
+bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
 if (mapped && read_only)
 {
-  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(vpn);
+  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(vpn);
   m.pt[m.pti].writeable = 0;            // same critical section as mapPage
 }
-loader->arch_memory_lock_.release();
+process->getThreadLock().release();
 if (!mapped)
   PageManager::instance()->freePPN(ppn); // someone else mapped it first
 
 // unmap
-loader->arch_memory_lock_.acquire();
-if (loader->arch_memory_.resolveMapping(vpn).page_size)
-  loader->arch_memory_.unmapPage(vpn);   // frees the ppn - don't free it again
+process->getThreadLock().acquire();
+if (process->getAddressSpace().resolveMapping(vpn).page_size)
+  process->getAddressSpace().unmapPage(vpn);   // frees the ppn - don't free it again
 ArchMemory::flushTlb();
-loader->arch_memory_lock_.release();
+process->getThreadLock().release();
 \end{lstlisting}
 
 \textbf{TLB rule:} after \emph{removing} rights (unmap, read-only, NX, swap out) flush the TLB;

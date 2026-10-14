@@ -5,7 +5,7 @@ Patch: [`solution.patch`](solution.patch).
 ```cpp
 if (address % PAGE_SIZE || length == 0 || /* range beyond USER_BREAK */) return -1;
 if ((prot & PROT_WRITE) && (prot & PROT_EXEC)) return -1;          // W xor X
-ScopeLock lock(loader->arch_memory_lock_);
+ScopeLock lock(process->getThreadLock());
 for (vpn in range) if (not present) return -1;                     // all or nothing: check first
 for (vpn in range) {
   pte.user_access = prot != 0;                                     // PROT_NONE

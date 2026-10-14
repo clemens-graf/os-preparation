@@ -49,9 +49,6 @@ Find and explain, as if the tutor asked:
   process? (Your join builds on exactly this.)
 - What is shared between the threads, what is private?
 
-To build it yourself from scratch: `task mode base` – there the A0-08 card below applies.
-
-_Base SWEB (`task mode base`): `UserProcess` *is* the main thread; you build `UserThread` and `pthread_create` yourself (the card below)._
 
 ## Hints
 

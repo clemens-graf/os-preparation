@@ -1,0 +1,82 @@
+diff --git a/userspace/libc/src/semaphore.c b/userspace/libc/src/semaphore.c
+index 71ba1d16..55ed087d 100644
+--- a/userspace/libc/src/semaphore.c
++++ b/userspace/libc/src/semaphore.c
+@@ -1,4 +1,11 @@
+ #include "semaphore.h"
++#include "pthread.h"
++#include "sched.h"
++
++// A1-17: a sem_t is only a counter, so ONE spinlock (A1-16) protects the counters of all
++// semaphores. sem_wait never sleeps while holding it: check under the lock, and if the value
++// is 0, release the lock and give the CPU away before trying again.
++static pthread_spinlock_t sem_lock = 0;
+ 
+ 
+ /**
+@@ -7,7 +14,11 @@
+  */
+ int sem_wait(sem_t *sem)
+ {
+-  return -1;
++  if (!sem)
++    return -1;
++  while (sem_trywait(sem) != 0)
++    sched_yield();                     // value is 0: let sem_post run, then try again
++  return 0;
+ }
+ 
+ /**
+@@ -16,6 +27,16 @@ int sem_wait(sem_t *sem)
+  */
+ int sem_trywait(sem_t *sem)
+ {
++  if (!sem)
++    return -1;
++  pthread_spin_lock(&sem_lock);
++  if (*sem > 0)
++  {
++    (*sem)--;                          // check and decrement under the same lock
++    pthread_spin_unlock(&sem_lock);
++    return 0;
++  }
++  pthread_spin_unlock(&sem_lock);
+   return -1;
+ }
+ 
+@@ -25,7 +46,11 @@ int sem_trywait(sem_t *sem)
+  */
+ int sem_init(sem_t *sem, int pshared, unsigned value)
+ {
+-  return -1;
++  (void) pshared;
++  if (!sem)
++    return -1;
++  *sem = value;
++  return 0;
+ }
+ 
+ /**
+@@ -34,7 +59,7 @@ int sem_init(sem_t *sem, int pshared, unsigned value)
+  */
+ int sem_destroy(sem_t *sem)
+ {
+-  return -1;
++  return sem ? 0 : -1;
+ }
+ 
+ /**
+@@ -43,7 +68,12 @@ int sem_destroy(sem_t *sem)
+  */
+ int sem_post(sem_t *sem)
+ {
+-  return -1;
++  if (!sem)
++    return -1;
++  pthread_spin_lock(&sem_lock);
++  (*sem)++;
++  pthread_spin_unlock(&sem_lock);
++  return 0;
+ }
+ 
+ 

@@ -1,7 +1,6 @@
 # A0-05 read-only code – solution notes
 
 Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
-Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 
 ## Files touched
 
@@ -48,8 +47,7 @@ bool page_mapped = arch_memory_.mapPage(vpn, ppn, true, writable);
 ## Locking
 
 No moment in which another thread sees the page writable: `mapPage(..., writable)` creates the
-entry with the right bit in one step (base SWEB: map + clear the bit inside one critical section
-of the page-table lock). `phdrs_` is read under `program_binary_lock_` (already taken by
+entry with the right bit in one step. `phdrs_` is read under `program_binary_lock_` (already taken by
 `loadPage` for the file reads).
 
 ## Answers to the tutor questions

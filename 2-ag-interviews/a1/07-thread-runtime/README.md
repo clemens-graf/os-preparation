@@ -19,6 +19,10 @@ Notes:        The timer runs at 1193180 / 65536 = 18.2 Hz: one tick = 54925 us.
 `task.sh start a1-07` → `task.sh test`. Done when 5 checks pass: a busy thread is charged
 many ticks, a yielding one almost none, `clock()` includes ended threads.
 
+## Your team's code
+
+Per thread → `Thread.h`: `volatile size_t cpu_ticks_ = 0;`, incremented in `Scheduler::incTicks()` (called from the timer interrupt). Per process → `UserProcess`: `finished_ticks_` (added in `exitThread`) + the running threads in `threads_`. `thread_runtime(0)` = the calling thread. `clock()` in `userspace/libc/src/time.c` is a stub – it calls the new syscall.
+
 ## Hints
 
 <details><summary>1 – where to count?</summary>
@@ -30,7 +34,7 @@ timer writes is fine.
 
 <details><summary>2 – ended threads</summary>
 
-Their objects are gone. Add their ticks to a per-process total in `threadFinished` (the
+Their objects are gone. Add their ticks to a per-process total in `exitThread` (the
 destructor still has the counter).
 </details>
 

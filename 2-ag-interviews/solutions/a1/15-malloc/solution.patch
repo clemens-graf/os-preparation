@@ -1,0 +1,92 @@
+diff --git a/userspace/libc/src/stdlib.c b/userspace/libc/src/stdlib.c
+index 5f07407c..589fe9a8 100644
+--- a/userspace/libc/src/stdlib.c
++++ b/userspace/libc/src/stdlib.c
+@@ -1,12 +1,53 @@
+ #include "stdlib.h"
++#include "string.h"
++
++// A1-15: a simple heap on a static pool. Every block starts with a header; free() only marks
++// the block unused, malloc() takes the first unused block that is big enough (first fit) or
++// appends a new block at the end of the used part of the pool.
++#define POOL_SIZE (1024 * 1024)
++#define ALIGN 16
++
++struct BlockHeader
++{
++  size_t size;              // usable bytes after the header
++  size_t used;              // 1 = handed out, 0 = free
++};
++
++static char pool[POOL_SIZE] __attribute__((aligned(ALIGN)));   // .bss: zero, pages loaded on first use
++static size_t pool_end = 0;                                    // bytes of the pool in use so far
+ 
+ void *malloc(size_t size)
+ {
+-  return 0;
++  if (size == 0 || size > POOL_SIZE)
++    return 0;
++  size = (size + ALIGN - 1) & ~(size_t) (ALIGN - 1);           // keep every block aligned
++
++  for (size_t offset = 0; offset < pool_end;)                  // 1. reuse a free block
++  {
++    struct BlockHeader* block = (struct BlockHeader*) (pool + offset);
++    if (!block->used && block->size >= size)
++    {
++      block->used = 1;
++      return block + 1;                                        // the memory right after the header
++    }
++    offset += sizeof(struct BlockHeader) + block->size;
++  }
++
++  if (pool_end + sizeof(struct BlockHeader) + size > POOL_SIZE)   // 2. or append a new one
++    return 0;
++  struct BlockHeader* block = (struct BlockHeader*) (pool + pool_end);
++  block->size = size;
++  block->used = 1;
++  pool_end += sizeof(struct BlockHeader) + size;
++  return block + 1;
+ }
+ 
+ void free(void *ptr)
+ {
++  if (ptr == 0)
++    return;
++  struct BlockHeader* block = (struct BlockHeader*) ptr - 1;   // the header is right before the block
++  block->used = 0;
+ }
+ 
+ int atexit(void (*function)(void))
+@@ -16,10 +57,30 @@ int atexit(void (*function)(void))
+ 
+ void *calloc(size_t nmemb, size_t size)
+ {
+-  return 0;
++  if (size != 0 && nmemb > POOL_SIZE / size)                  // nmemb * size would be too big (or overflow)
++    return 0;
++  void* ptr = malloc(nmemb * size);
++  if (ptr)
++    memset(ptr, 0, nmemb * size);                              // a reused block contains old data
++  return ptr;
+ }
+ 
+ void *realloc(void *ptr, size_t size)
+ {
+-  return 0;
++  if (ptr == 0)
++    return malloc(size);
++  if (size == 0)
++  {
++    free(ptr);
++    return 0;
++  }
++  struct BlockHeader* block = (struct BlockHeader*) ptr - 1;
++  if (block->size >= size)                                     // still fits
++    return ptr;
++  void* bigger = malloc(size);
++  if (bigger == 0)
++    return 0;                                                  // the old block stays valid
++  memcpy(bigger, ptr, block->size);
++  free(ptr);
++  return bigger;
+ }

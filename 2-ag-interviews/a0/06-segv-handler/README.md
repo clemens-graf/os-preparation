@@ -39,7 +39,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   address))` â†’ continue in the handler, else kill as before. (A guard-page hit stays a kill: the
   stack is broken, the handler would have none.)
 
-_Base SWEB (`task mode base`): handler fields and `deliverSegv` in the `Loader` (`currentThread->loader_`)._
 
 ## Hints
 

@@ -29,7 +29,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   `bool writeable = true` and map a code page read-only right away â€“ no window in which another
   thread could see it writable, no lock needed for that.
 
-_Base SWEB (`task mode base`): the same idea; the course solution maps first and clears the bit under `Loader::arch_memory_lock_`._
 
 ## Hints
 

@@ -15,6 +15,10 @@ Return Value: the sum, -1 on a bad pointer
 
 `task.sh start a1-13` → `task.sh test`. Done when 4 checks pass (the weights make a wrong order visible).
 
+## Your team's code
+
+Only the six places – no team-specific state. Number 1710 is free in your block.
+
 ## Hints
 
 <details><summary>1 – how to get 15 values across</summary>

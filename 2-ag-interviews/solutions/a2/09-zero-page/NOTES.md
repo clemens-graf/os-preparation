@@ -20,7 +20,7 @@ void ArchMemory::initSharedZeroPage()        // from startup()
 if (present && writing && address < USER_BREAK && loader && loader->copyOnWrite(vpn))
   return;
 
-bool Loader::copyOnWrite(size_t vpn)          // under arch_memory_lock_
+bool UserProcess::copyOnWrite(size_t vpn)          // under thread_lock_
 {
   if (pte.page_ppn != shared_zero_ppn_) return pte.writeable;   // someone else copied it already
   pte.page_ppn = PageManager::instance()->allocPPN();           // zeroed = the copy

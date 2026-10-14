@@ -32,15 +32,14 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
   (`mapPage`, `resolveMapping`, `unmapPage`) and `process->getThreadLock()` around search + map.
 - 1510/1511 are free in your team's syscall list.
 
-_Base SWEB (`task mode base`): `currentThread->loader_->arch_memory_` and a new `Loader::arch_memory_lock_`._
 
 ## Hints
 
 <details><summary>1 – the building blocks</summary>
 
 `PageManager::instance()->allocPPN()` (a zeroed physical page),
-`arch_memory_.mapPage(vpn, ppn, user_access)`, `arch_memory_.resolveMapping(vpn)`
-(`.page_size != 0` means mapped), `arch_memory_.unmapPage(vpn)`. Note: `mapPage` takes a
+`process->getAddressSpace().mapPage(vpn, ppn, user_access)`, `….resolveMapping(vpn)`
+(`.page_size != 0` means mapped), `….unmapPage(vpn)`. Note: `mapPage` takes a
 **page number** (address / `PAGE_SIZE`), not an address.
 </details>
 

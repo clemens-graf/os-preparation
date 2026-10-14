@@ -15,11 +15,15 @@ Description:  The loader sets the NX bit (execution_disabled) on every page that
 `task.sh start a2-08` → `task.sh test`. Done when calling into `.data` and into the stack kills
 the program, and `mult.sweb` still works.
 
+## Your team's code
+
+Your team's `Loader::loadPage(address, arch_memory)` runs **without** the page-table lock: set NX right after `mapPage` (or give `mapPage` an NX parameter, like A0-05's `writeable`). Stack pages: `UserProcess::mapStackPage` (every stack page goes through it – also the ones the page fault handler adds).
+
 ## Hints
 
 <details><summary>1 – where</summary>
 
-`Loader::loadPage` (like A0-05, with PF_X instead of PF_W) and `UserProcess`'s constructor for the stack page.
+`Loader::loadPage` (like A0-05, with PF_X instead of PF_W) and `UserProcess::mapStackPage` for every stack page.
 </details>
 
 <details><summary>2 – the fault</summary>

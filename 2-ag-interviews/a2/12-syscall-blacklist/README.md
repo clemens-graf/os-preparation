@@ -15,6 +15,10 @@ Return Value: 0 (also if already blacklisted), -1 (exit, or list full: 16 entrie
 `task.sh start a2-12` → `task.sh test`. Done when `sched_yield` returns -1 after blacklisting it,
 and nothing is printed after `write` was blacklisted.
 
+## Your team's code
+
+Per process → `UserProcess`: `blacklist_[16]`, `blacklist_count_`, its own `Mutex blacklist_lock_{"…"}` (default member initializer). The check goes to the top of `Syscall::syscallException` – next to your team's cancellation check.
+
 ## Hints
 
 <details><summary>1 – where</summary>

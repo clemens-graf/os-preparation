@@ -14,6 +14,10 @@ Description:  When F3 is pressed, all present pages of a process are swapped out
 `task.sh start a2-06` → `task.sh test`: starts `fkey_swap_check.sweb`, presses F3 while it runs,
 then checks that its pages were swapped out and come back intact.
 
+## Your team's code
+
+Builds on A2-01. `Console::handleKey` sets `Syscall::f3_pending_`; the top of `Syscall::syscallException` calls `getProcess()->swapOutAll()` – your team's cancellation check is there too.
+
 ## Hints
 
 <details><summary>1 – the context problem</summary>

@@ -24,6 +24,10 @@ Notes:        Pick an address that is not on the stack (the stack holds essentia
 `task.sh start a2-02` → `task.sh test`. Done when 7 checks pass (the example prints 5, 6, 5) and
 the backup's slot is freed when the process exits.
 
+## Your team's code
+
+Builds on A2-01. `backups_[32]` + `createPageBackup/loadPageBackup` in `UserProcess` (under `thread_lock_`); the slots are freed in `~UserProcess`.
+
 ## Hints
 
 <details><summary>1 – 'a new type of request'</summary>

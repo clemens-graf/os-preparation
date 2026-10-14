@@ -1,6 +1,6 @@
 diff --git a/common/include/kernel/BootRecord.h b/common/include/kernel/BootRecord.h
 new file mode 100644
-index 0000000..52fd96c
+index 00000000..52fd96cd
 --- /dev/null
 +++ b/common/include/kernel/BootRecord.h
 @@ -0,0 +1,41 @@
@@ -46,35 +46,35 @@ index 0000000..52fd96c
 +    OnDisk record_;
 +};
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..5d334ff 100644
+index a996aca5..512f3c1c 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,9 @@ class Syscall
+@@ -32,6 +32,8 @@ class Syscall
  
-     static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
-+
-+    // A2-11
-+    static size_t getMotd(size_t user_buffer);
-+    static size_t setMotd(size_t user_text);
- };
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
++    static size_t getMotd(size_t user_buffer);   // A2-11
++    static size_t setMotd(size_t user_text);     // A2-11
  
+     static size_t getThreadCount();
+     static size_t getProcessCount();
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..4148bc5 100644
+index 51f0de2a..45bfeeed 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,8 @@
- #define sc_createprocess 191
- #define sc_trace 252
- 
-+// A2-11
-+#define sc_bootcount 1790
+@@ -32,6 +32,9 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_bootcount 1790   // A2-11
 +#define sc_getmotd 1791
 +#define sc_setmotd 1792
-+
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
 diff --git a/common/source/kernel/BootRecord.cpp b/common/source/kernel/BootRecord.cpp
 new file mode 100644
-index 0000000..c0d0708
+index 00000000..c0d07088
 --- /dev/null
 +++ b/common/source/kernel/BootRecord.cpp
 @@ -0,0 +1,61 @@
@@ -140,18 +140,18 @@ index 0000000..c0d0708
 +  return device_->writeData(0, sizeof(record_), (char*) &record_) == sizeof(record_);
 +}
 diff --git a/common/source/kernel/ProcessRegistry.cpp b/common/source/kernel/ProcessRegistry.cpp
-index f60baa0..7b82644 100644
+index 94f2a4e0..1b71b9aa 100644
 --- a/common/source/kernel/ProcessRegistry.cpp
 +++ b/common/source/kernel/ProcessRegistry.cpp
-@@ -6,6 +6,7 @@
- #include "VfsSyscall.h"
- #include "VirtualFileSystem.h"
+@@ -10,6 +10,7 @@
  #include "PageManager.h"
+ #include "UserThread.h"
+ #include "Loader.h"
 +#include "BootRecord.h"
  
  ProcessRegistry* ProcessRegistry::instance_ = 0;
  
-@@ -31,6 +32,8 @@ void ProcessRegistry::Run()
+@@ -36,6 +37,8 @@ void ProcessRegistry::Run()
    if (!progs_ || !progs_[0])
      return;
  
@@ -161,21 +161,21 @@ index f60baa0..7b82644 100644
  
    debug(PROCESS_REG, "mkdir /usr\n");
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..05fa0b7 100644
+index 86cf85a2..4ea692ee 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,8 @@
- #include "ProcessRegistry.h"
- #include "File.h"
+@@ -9,6 +9,8 @@
  #include "Scheduler.h"
-+#include "BootRecord.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
 +#include "kstring.h"
++#include "BootRecord.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +51,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -88,6 +90,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_bootcount:
 +      return_value = BootRecord::instance()->bootCount();
@@ -186,18 +186,18 @@ index 964cd5b..05fa0b7 100644
 +    case sc_setmotd:
 +      return_value = setMotd(arg1);
 +      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +192,24 @@ void Syscall::trace()
-   currentThread->printBacktrace();
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+@@ -448,3 +459,24 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
  }
- 
 +
 +// A2-11
 +size_t Syscall::getMotd(size_t user_buffer)
 +{
-+  if (user_buffer == 0 || user_buffer >= USER_BREAK - MOTD_SIZE)
++  if (user_buffer == 0 || user_buffer > USER_BREAK - MOTD_SIZE)
 +    return (size_t) -1;
 +  char motd[MOTD_SIZE];
 +  BootRecord::instance()->getMotd(motd);
@@ -207,7 +207,7 @@ index 964cd5b..05fa0b7 100644
 +
 +size_t Syscall::setMotd(size_t user_text)
 +{
-+  if (user_text == 0 || user_text >= USER_BREAK - MOTD_SIZE)
++  if (user_text == 0 || user_text > USER_BREAK - MOTD_SIZE)
 +    return (size_t) -1;
 +  char text[MOTD_SIZE];
 +  memcpy(text, (void*) user_text, MOTD_SIZE);    // copy in (at most MOTD_SIZE bytes) ...
@@ -215,7 +215,7 @@ index 964cd5b..05fa0b7 100644
 +  return BootRecord::instance()->setMotd(text) ? 0 : (size_t) -1;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..4a4afd0 100644
+index 901640e9..fe003400 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -226,9 +226,9 @@ index 3f341b5..4a4afd0 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,11 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,11 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A2-11: boot counter and message of the day, kept on the swap partition across reboots
 +extern size_t bootcount(void);
@@ -239,13 +239,18 @@ index 3f341b5..4a4afd0 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..75c32e1 100644
+index befb9485..70910a0f 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -10,6 +10,21 @@ int createprocess(const char* path, int sleep)
- 
- extern int main();
- 
+@@ -23,4 +23,20 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A2-11
 +size_t bootcount(void)
 +{
 +  return __syscall(sc_bootcount, 0x00, 0x00, 0x00, 0x00, 0x00);
@@ -260,7 +265,3 @@ index b9ec3d1..75c32e1 100644
 +{
 +  return __syscall(sc_setmotd, (size_t) text, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

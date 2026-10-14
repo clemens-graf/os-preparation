@@ -35,7 +35,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   `getLoader().loadPage(address, getAddressSpace())`. Put the heap case **first** in the valid
   branch (before it takes the lock â€“ `mapHeapPage` takes it itself) and `return` afterwards.
 
-_Base SWEB (`task mode base`): the limit lives in the `Loader` (`currentThread->loader_`)._
 
 ## Hints
 

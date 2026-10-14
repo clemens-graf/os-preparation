@@ -1,54 +1,91 @@
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..6a86aed 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,14 @@ class Loader
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..a892864a 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -157,6 +157,11 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
  
-     ArchMemory arch_memory_;
- 
-+    // A2-12: syscalls this process may not use any more (protected by blacklist_lock_)
-+    static const size_t MAX_BLACKLIST = 16;
-+    Mutex blacklist_lock_;
-+    size_t blacklist_[MAX_BLACKLIST];
-+    size_t blacklist_count_;
++    /** A2-12: may this process still use syscall_number? */
 +    bool isBlacklisted(size_t syscall_number);
++    /** A2-12: blocks syscall_number for this process forever @return 0 or -1 (exit, or list full) */
 +    size_t addToBlacklist(size_t syscall_number);
 +
-   private:
- 
      /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+@@ -257,4 +262,10 @@ class UserProcess
+     size_t next_stack_slot_;
+ 
+     ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
++
++    // A2-12: syscalls this process may not use any more (protected by blacklist_lock_)
++    static const size_t MAX_BLACKLIST = 16;
++    Mutex blacklist_lock_{"UserProcess::blacklist_lock_"};
++    size_t blacklist_[MAX_BLACKLIST] = {};
++    size_t blacklist_count_ = 0;
+ };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..863ad86 100644
+index 51f0de2a..9e140dd7 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
- #define sc_createprocess 191
- #define sc_trace 252
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_blacklist 1795   // A2-12
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
  
-+// A2-12
-+#define sc_blacklist 1795
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..276f5de6 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -18,6 +18,13 @@
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+   size_t return_value = 0;
 +
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..6a9a0b9 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -9,8 +9,10 @@
- #include "File.h"
- #include "FileDescriptor.h"
++  // A2-12: a blocked syscall is not executed at all
++  if (currentThread->getProcess() && currentThread->getProcess()->isBlacklisted(syscall_number))
++  {
++    debug(SYSCALL, "syscall %zu is blacklisted for %s\n", syscall_number, currentThread->getName());
++    return (size_t) -1;
++  }
+   if ((syscall_number != sc_sched_yield) && (syscall_number != sc_outline)) // no debug print because these might occur very often
+   {
+     debug(SYSCALL, "Syscall %zd called with arguments %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx)\n",
+@@ -88,6 +95,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
++    case sc_blacklist:
++      return_value = currentThread->getProcess()->addToBlacklist(arg1);
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f37eb7ef..27a96761 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -10,7 +10,9 @@
  #include "Scheduler.h"
+ #include "UserThread.h"
+ #include "Mutex.h"
 +#include "ScopeLock.h"
+ #include "ArchMemory.h"
 +#include "syscall-definitions.h"
  
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : blacklist_lock_("Loader::blacklist_lock_"), blacklist_(), blacklist_count_(0), fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+   filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
+@@ -550,3 +552,32 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
  
-@@ -79,6 +81,34 @@ void Loader::loadPage(pointer virtual_address)
-   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
  }
- 
-+bool Loader::isBlacklisted(size_t syscall_number)
++
++// A2-12
++bool UserProcess::isBlacklisted(size_t syscall_number)
 +{
 +  // even a read needs the lock: another thread may be adding an entry right now
 +  ScopeLock lock(blacklist_lock_);
@@ -60,7 +97,7 @@ index b4dc379..6a9a0b9 100644
 +  return false;
 +}
 +
-+size_t Loader::addToBlacklist(size_t syscall_number)
++size_t UserProcess::addToBlacklist(size_t syscall_number)
 +{
 +  if (syscall_number == sc_exit)
 +    return (size_t) -1;                 // a process that cannot exit would live forever
@@ -75,48 +112,8 @@ index b4dc379..6a9a0b9 100644
 +  blacklist_[blacklist_count_++] = syscall_number;
 +  return 0;
 +}
-+
- bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
- {
-   assert(program_binary_lock_.isHeldBy(currentThread));
-diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..00a054c 100644
---- a/common/source/kernel/Syscall.cpp
-+++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,7 @@
- #include "ProcessRegistry.h"
- #include "File.h"
- #include "Scheduler.h"
-+#include "Loader.h"
- 
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -17,6 +18,13 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-           syscall_number, arg1, arg1, arg2, arg2, arg3, arg3, arg4, arg4, arg5, arg5);
-   }
- 
-+  // A2-12: a blocked syscall is not executed at all
-+  if (currentThread->loader_ && currentThread->loader_->isBlacklisted(syscall_number))
-+  {
-+    debug(SYSCALL, "syscall %zu is blacklisted for %s\n", syscall_number, currentThread->getName());
-+    return (size_t) -1;
-+  }
-+
-   switch (syscall_number)
-   {
-     case sc_sched_yield:
-@@ -49,6 +57,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
-       break;
-+    case sc_blacklist:
-+      return_value = currentThread->loader_->addToBlacklist(arg1);
-+      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..7596e72 100644
+index 901640e9..ee8b214a 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -127,9 +124,9 @@ index 3f341b5..7596e72 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,9 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A2-12: the calling process can never use this syscall again (returns -1 instead). Not exit.
 +extern int blacklist(size_t syscall_number);
@@ -138,18 +135,19 @@ index 3f341b5..7596e72 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..3cbc1c0 100644
+index befb9485..a6925c57 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
- 
- extern int main();
- 
+@@ -23,4 +23,10 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A2-12
 +int blacklist(size_t syscall_number)
 +{
 +  return __syscall(sc_blacklist, syscall_number, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

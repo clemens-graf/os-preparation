@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index e05ce60..6785d65 100644
+index 5b4fdd56..385c963a 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -84,6 +84,12 @@ class ArchMemory
@@ -16,10 +16,10 @@ index e05ce60..6785d65 100644
       * Fills out an ArchMemoryMapping object by translating the given
       * virtual page and collecting infos from the page tables along the way.
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 616dfa4..cf3a1b7 100644
+index 297a1aab..4b297982 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -188,6 +188,37 @@ void ArchMemory::forEachSwappedPage(void (*callback)(size_t slot))
+@@ -235,6 +235,37 @@ void ArchMemory::forEachSwappedPage(void (*callback)(size_t slot))
    }
  }
  
@@ -57,35 +57,36 @@ index 616dfa4..cf3a1b7 100644
  pointer ArchMemory::checkAddressValid(uint64 vaddress_to_check)
  {
    if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index 3d0cc9a..9125541 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -37,6 +37,9 @@ class Loader
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index a996aca5..b0647343 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -33,6 +33,9 @@ class Syscall
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
+ 
++    // A2-06: set by the Console thread on F3, consumed by the next syscall of any process
++    static size_t f3_pending_;
++
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+ 
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 7c564a65..b0054248 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -166,6 +166,9 @@ class UserProcess
       */
      bool swapIn(size_t vpn);
  
 +    /** A2-06: swaps out every present page of this process @return how many */
 +    size_t swapOutAll();
 +
-     Stabs2DebugInfo const* getDebugInfos() const;
- 
-     void* getEntryFunction() const;
-diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8962818..81dd346 100644
---- a/common/include/kernel/Syscall.h
-+++ b/common/include/kernel/Syscall.h
-@@ -21,5 +21,8 @@ class Syscall
- 
-     // A2-01
-     static size_t swapOut(size_t address);
-+
-+    // A2-06: set by the Console thread on F3, consumed by the next syscall of any process
-+    static size_t f3_pending_;
- };
- 
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
 diff --git a/common/source/console/Console.cpp b/common/source/console/Console.cpp
-index 6df1da5..96269fe 100644
+index 6df1da55..96269fef 100644
 --- a/common/source/console/Console.cpp
 +++ b/common/source/console/Console.cpp
 @@ -5,6 +5,8 @@
@@ -109,45 +110,23 @@ index 6df1da5..96269fe 100644
      case KEY_F9:
        PageManager::instance()->printBitmap();
        kprintfd("Used kernel memory: %zu\n", KernelMemoryManager::instance()->getUsedKernelMemory(true));
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index f96df95..85b14ab 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -133,6 +133,22 @@ bool Loader::swapIn(size_t vpn)
-   return true;
- }
- 
-+size_t Loader::swapOutAll()
-+{
-+  // collect first, swap out afterwards: swapOut takes arch_memory_lock_ itself, and it changes
-+  // the tables we would be walking
-+  const size_t MAX = 512;
-+  size_t* vpns = new size_t[MAX];
-+  arch_memory_lock_.acquire();
-+  size_t count = arch_memory_.collectPresentPages(vpns, MAX);
-+  arch_memory_lock_.release();
-+  size_t swapped = 0;
-+  for (size_t i = 0; i < count; ++i)
-+    swapped += swapOut(vpns[i]) == 0;     // a page may be gone meanwhile: then swapOut says -1
-+  delete[] vpns;
-+  return swapped;
-+}
-+
- bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
- {
-   assert(program_binary_lock_.isHeldBy(currentThread));
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 3f1baac..df8fadd 100644
+index be6e68e9..6134be82 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -8,11 +8,21 @@
- #include "File.h"
+@@ -9,6 +9,7 @@
  #include "Scheduler.h"
- #include "SwapManager.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
 +#include "ArchThreads.h"
- #include "Loader.h"
+ #include "SwapManager.h"
  
-+size_t Syscall::f3_pending_ = 0;
+ #define PTHREAD_CREATE_ERROR -1
+@@ -16,9 +17,18 @@
+ #define PTHREAD_CANCELED_VALUE ((void*) -1)
+ #define PTHREAD_CANCEL_ERROR -1
+ 
++size_t Syscall::f3_pending_ = 0;   // A2-06
 +
  size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
  {
@@ -156,9 +135,34 @@ index 3f1baac..df8fadd 100644
 +  // A2-06: F3 was pressed - this process is the one: swap out all its pages, in its own context
 +  if (f3_pending_ && ArchThreads::testSetLock(f3_pending_, 0))
 +  {
-+    size_t swapped = currentThread->loader_->swapOutAll();
++    size_t swapped = currentThread->getProcess()->swapOutAll();
 +    debug(SYSCALL, "F3: swapped out %zu pages of %s\n", swapped, currentThread->getName());
 +  }
    if ((syscall_number != sc_sched_yield) && (syscall_number != sc_outline)) // no debug print because these might occur very often
    {
      debug(SYSCALL, "Syscall %zd called with arguments %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx)\n",
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index 42479e1c..804ff896 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -601,3 +601,20 @@ bool UserProcess::swapIn(size_t vpn)
+   pte.present = 1;                            // last: only now may the process use it again
+   return true;
+ }
++
++// A2-06
++size_t UserProcess::swapOutAll()
++{
++  // collect first, swap out afterwards: swapOut takes thread_lock_ itself, and it changes
++  // the tables we would be walking
++  const size_t MAX = 512;
++  size_t* vpns = new size_t[MAX];
++  thread_lock_.acquire();
++  size_t count = arch_memory_->collectPresentPages(vpns, MAX);
++  thread_lock_.release();
++  size_t swapped = 0;
++  for (size_t i = 0; i < count; ++i)
++    swapped += swapOut(vpns[i]) == 0;     // a page may be gone meanwhile: then swapOut says -1
++  delete[] vpns;
++  return swapped;
++}

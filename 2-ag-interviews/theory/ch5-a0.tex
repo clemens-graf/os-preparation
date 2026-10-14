@@ -37,18 +37,16 @@ A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 
 \item A thread = address space (\code{getAddressSpace()}) + stack + registers + scheduler entry;
   \code{createUserRegisters}, \code{setAddressSpace}, \code{addNewThread}; destructor in the
   CleanupThread.
-\item Per-process state: where (\code{UserProcess}; base SWEB: \code{Loader}) and which lock.
-\item The page-table lock --- and why neither base SWEB nor your team's code has one yet.
+\item Per-process state: where (\code{UserProcess}) and which lock.
+\item The page-table lock: \code{thread\_lock\_} (\code{getThreadLock()}) --- and that \code{loadPage}
+  maps without it.
 \item Address arithmetic: \code{vpn = addr >> 12}, \code{offset = addr \& 0xfff},
   \code{addr = (vpn << 12) + offset}; a frame mapped twice is freed twice at exit.
 \end{enumerate}
 
 \section{The mechanics of \code{pthread\_create} in one picture}
 
-This is the course's own version (base SWEB, A0-08). Your team's \code{pthread\_create} follows the
-same steps with other names --- \code{UserProcess::createThread} (under \code{thread\_lock\_}),
-\code{allocateNewStack} with a guard page, \code{setThreadArguments}, \code{UserThreadData} for
-join --- see the A0-08 notes.
+Your team's \code{pthread\_create} (A0-08 is a study task: explain it):
 
 \begin{center}
 \begin{tikzpicture}[
@@ -56,17 +54,17 @@ join --- see the A0-08 notes.
               inner sep=4pt, text width=6.6cm},
   arr/.style={-{Stealth[length=2mm]}, thick}]
   \node[box] (a) {\textbf{user}: \code{pthread\_create(\&t, 0, f, arg)} $\to$
-     \code{\_\_syscall(sc\_pthread\_create, \&t, f, arg, pthreadStart)}};
-  \node[box, below=3mm of a] (b) {\textbf{kernel}: check pointers, touch \code{\&t};
-     \code{process->createThread()}: slot + count under \code{threads\_lock\_}};
-  \node[box, below=3mm of b] (c) {\code{new UserThread(process, slot, \ldots)}: same address space;
-     map stack pages (page-table lock); \code{createUserRegisters(rip = pthreadStart,
-     rsp = top - 8)}, \code{rdi = f}, \code{rsi = arg}; \code{setAddressSpace}};
-  \node[box, below=3mm of c] (d) {\code{*\&t = id}; \code{Scheduler::addNewThread(thread)} --- from now on it may run};
+     \code{\_\_syscall(sc\_pthread\_create, \&t, pthread\_start, f, arg)}};
+  \node[box, below=3mm of a] (b) {\textbf{kernel}: \code{Syscall::pthreadCreate} checks the pointers;
+     \code{process->createThread(entry, true, f, arg)} under \code{thread\_lock\_}};
+  \node[box, below=3mm of b] (c) {\code{allocateNewStack}: a slot (4 pages + guard), one page mapped;
+     \code{new UserThread(\ldots)}: \code{createUserRegisters(rip = pthread\_start, rsp = top)},
+     \code{setThreadArguments(rdi = f, rsi = arg)}, \code{setAddressSpace}; \code{registerThread}: \code{UserThreadData}, tid};
+  \node[box, below=3mm of c] (d) {\code{*t = tid}; \code{Scheduler::addNewThread(thread)} --- from now on it may run};
   \node[box, below=3mm of d] (e) {first schedule: \code{arch\_contextSwitch} loads its user registers
-     $\to$ \code{pthreadStart(f, arg)} $\to$ \code{f(arg)} $\to$ \code{pthread\_exit(result)}};
-  \node[box, below=3mm of e] (f) {\code{kill()} $\to$ CleanupThread: \code{\textasciitilde UserThread}: unmap stack,
-     \code{process->threadFinished()} (last!)};
+     $\to$ \code{pthread\_start(f, arg)} $\to$ \code{f(arg)} $\to$ \code{pthread\_exit(result)}};
+  \node[box, below=3mm of e] (f) {\code{exitThread}: free the stack, store the value, \code{exited\_},
+     broadcast $\to$ \code{kill()} $\to$ CleanupThread: \code{\textasciitilde UserThread} $\to$ \code{threadExited()}};
   \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d); \draw[arr] (d) -- (e); \draw[arr] (e) -- (f);
 \end{tikzpicture}
 \end{center}
@@ -105,7 +103,7 @@ const size_t TUTORIAL = Ansi_Blue | OUTPUT_ENABLED;      // debug.h: one line pe
 \section{Tutorial 2: one page at two addresses}
 \label{sec:tutorial2}
 
-The second A0 tutorial (7 Oct) added two syscalls. The tutorial wrote them for base SWEB
+The second A0 tutorial (7 Oct) added two syscalls. The tutorial wrote them for upstream SWEB
 (\code{(UserProcess*)currentThread}, \code{process->loader\_}); in your team's code
 \code{UserProcess} is no \code{Thread}, so ex12 uses \code{getProcess()->getAddressSpace()}:
 

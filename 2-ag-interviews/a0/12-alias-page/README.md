@@ -45,7 +45,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
   `~UserProcess` unmaps the aliases (`unmapPage(vpn, false)`) **right before** `delete arch_memory_`.
 - 1560/1561 are free.
 
-_Base SWEB (`task mode base`): the tutorial's cast happens to work there; the alias list lives in the `Loader`, cleaned up in `~Loader`._
 
 ## Hints
 
@@ -59,7 +58,7 @@ by one: `address >= USER_BREAK` → `-1`; replace `assert(mapped)` by a return v
 
 <details><summary>2 – get_physical_address: when is a page mapped?</summary>
 
-`ArchMemoryMapping m = arch_memory_.resolveMapping(address / PAGE_SIZE);` –
+`ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);` –
 `m.page_size == PAGE_SIZE` means a 4 KiB page is mapped, then `m.page_ppn` is its frame.
 Otherwise `page_ppn` is 0, which is a *real* frame number – answer `-1`.
 </details>
@@ -86,7 +85,7 @@ right place. `unmapPage` always frees: give it a parameter
 The page-table lock: your team's `process->getThreadLock()` – the page fault handler takes it
 for stack pages too. Hold it around the ownership walk **and** `mapPage` (one critical section)
 and while you add to the alias list. Not needed in `~UserProcess`: no thread of the process is
-left. (Base SWEB: the course adds `Loader::arch_memory_lock_` for this.)
+left.
 </details>
 
 ## Questions a tutor might ask

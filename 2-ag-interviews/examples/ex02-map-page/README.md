@@ -43,11 +43,7 @@ A Mutex (not a SpinLock): the critical sections can be long and may allocate. Lo
 `thread_lock_` → PageManager's lock (taken inside `mapPage` when it needs a new page table).
 Never the other way round.
 
-(Base SWEB has no such lock – one thread per process. There the course adds
-`Mutex arch_memory_lock_` to the `Loader`, initialised first in its constructor
-because of `-Werror=reorder`.)
-
 ## Traps
 
-- **Initializer order** (base SWEB only, when you add a lock to the `Loader`): members are
+- **Initializer order** (when you add a Mutex/Condition member to a class, e.g. A1-03): members are
   initialised in declaration order (`-Werror=reorder`).

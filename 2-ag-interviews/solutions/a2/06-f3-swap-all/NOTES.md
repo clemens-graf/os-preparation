@@ -10,11 +10,11 @@ case KEY_F3:
 
 // top of Syscall::syscallException - the process' own context
 if (f3_pending_ && ArchThreads::testSetLock(f3_pending_, 0))   // atomic read-and-clear
-  currentThread->loader_->swapOutAll();
+  currentThread->getProcess()->swapOutAll();
 
-size_t Loader::swapOutAll()
+size_t UserProcess::swapOutAll()
 {
-  lock; count = arch_memory_.collectPresentPages(vpns, 512); unlock;   // collect first
+  lock; count = arch_memory_->collectPresentPages(vpns, 512); unlock;   // collect first
   for (each vpn) swapOut(vpn);                                         // each takes the lock itself
 }
 ```

@@ -5,8 +5,8 @@ Patch: [`solution.patch`](solution.patch).
 ```cpp
 size_t Syscall::vtop(size_t address)
 {
-  ScopeLock lock(loader->arch_memory_lock_);
-  ArchMemoryMapping m = loader->arch_memory_.resolveMapping(address / PAGE_SIZE);
+  ScopeLock lock(process->getThreadLock());
+  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
   return m.page_size == PAGE_SIZE ? m.page_ppn : (size_t) -1;
 }
 ```

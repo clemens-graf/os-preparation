@@ -1,2 +1,2 @@
-947d1418a5cc97c682cd74305836f20aa3923a46  osw26e3 main, 12 Oct 2026 (Merge branch 'feature/pthread-join-errors' into 'main')
+401404755d61beb6a93493f89a2469dccdb0456e  osw26e3 main, 13 Oct 2026 (Merge branch 'feature/pthread-self' into 'main')
 # The team versions in team/ were made and tested on this commit. task.sh imports it as branch main.

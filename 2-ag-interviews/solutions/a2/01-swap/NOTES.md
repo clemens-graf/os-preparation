@@ -8,7 +8,7 @@ Patch: [`solution.patch`](solution.patch). This is the base of A2-02 … A2-06.
 |---|---|
 | `PTE_SWAPPED` marker, `forEachSwappedPage`, "table in use" = any non-zero entry | `ArchMemory.h/.cpp` |
 | `SwapManager`: `idea2`, slot bitmap, `writeOut(ppn)`, `readIn(slot, ppn)`, `freeSlot`, created in `startup()` after the block devices | new `common/{include,source}/mm/SwapManager.*` |
-| `Loader::swapOut(vpn)`, `Loader::swapIn(vpn)`, slot cleanup in `~Loader` | `Loader.h/.cpp` |
+| `UserProcess::swapOut(vpn)`, `UserProcess::swapIn(vpn)`, slot cleanup in `~UserProcess` | `UserProcess.h/.cpp` |
 | page fault: `if (!swapIn(vpn)) loadPage(address)` | `PageFaultHandler.cpp` |
 | `swapout`, `swapinfo` | syscalls + `nonstd.*` |
 
@@ -24,7 +24,7 @@ writeable, user_access unchanged -> correct again after swap-in
 ## swapOut
 
 ```cpp
-ScopeLock lock(arch_memory_lock_);
+ScopeLock lock(thread_lock_);
 /* resolve, must be present */
 pte.present = 0;                         // 1. nobody can use it any more ...
 ArchMemory::flushTlb();                  //    ... not even through the TLB
@@ -42,7 +42,7 @@ marker off, `present = 1` **last**.
 
 ## Locking
 
-- Lock order everywhere: `arch_memory_lock_` → `PageManager` (SpinLock, inside allocPPN/freePPN)
+- Lock order everywhere: `thread_lock_` → `PageManager` (SpinLock, inside allocPPN/freePPN)
   → `SwapManager::lock_`. Never the other way round.
 - Disk I/O while holding the page-table lock (a Mutex): allowed – the request yields until the IDE
   interrupt. It blocks the process' other page faults meanwhile – exactly what keeps them off the

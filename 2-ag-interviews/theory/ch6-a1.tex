@@ -12,14 +12,14 @@ base on top of A0-08; in the interview it is your team's implementation.
 \small
 \begin{tabular}{L{4cm}L{10.8cm}}
 \toprule
-\textbf{Question} & \textbf{Course solution (base SWEB) --- find the equivalent in your team repo} \\
+\textbf{Question} & \textbf{Your team's code} \\
 \midrule
-Which threads does a process have? & \code{UserProcess::slots\_[]}: state FREE / RUNNING / FINISHED, id, exit value, \code{UserThread*} (valid while RUNNING) \\
-Which lock? & \code{UserProcess::threads\_lock\_} (Mutex) for all of it; \code{threads\_changed\_} (Condition), broadcast whenever a thread finishes \\
-Where does the exit value survive the thread? & in the slot --- the thread object is deleted by the CleanupThread at an unknown time \\
-When is a thread object freed? & by the CleanupThread, after \code{kill()}; its destructor unmaps the stack and calls \code{threadFinished()} \emph{as its last action} \\
-How do I use another thread safely? & \code{findThread(id)} under \code{threads\_lock\_}, use the pointer only while holding it: the object is freed only after \code{threadFinished}, which needs that lock \\
-When is a slot reused? & after \code{pthread\_join} (FINISHED $\to$ FREE), never earlier \\
+Which threads does a process have? & \code{UserProcess::threads\_}: one \code{UserThreadData} per thread --- \code{tid\_}, \code{exit\_value\_}, \code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{thread\_} (\code{nullptr} once it exited) \\
+Which lock? & \code{thread\_lock\_} (Mutex, \code{getThreadLock()}) for all of it --- also the stack slots and the page tables; \code{thread\_exited\_} (Condition), broadcast in \code{exitThread} \\
+Where does the exit value survive the thread? & in its \code{UserThreadData} --- the thread object is deleted by the CleanupThread at an unknown time \\
+When is a thread object freed? & \code{exitThread} frees the stack, stores the value, sets \code{thread\_ = nullptr}, then \code{kill()}; the CleanupThread deletes it, \code{\textasciitilde UserThread} calls \code{threadExited()} (the last one deletes the process) \\
+How do I use another thread safely? & \code{findThreadDataByTid(tid)} under \code{thread\_lock\_}, use \code{thread\_} only while holding it: \code{exitThread} clears it under the same lock \\
+When is the record freed? & in \code{joinThread} (after the join), or in \code{exitProcess} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -69,9 +69,10 @@ It walks \code{threads\_}, picks the first \code{schedulable()} one and rotates 
 \section{Family 3: ending threads (exit, cancel)}
 
 \begin{itemize}
-\item \textbf{exit} (POSIX): the whole process ends. Base SWEB: the main thread waits for the others
-  (A0-08 simplification). Your team: all threads must be stopped --- \emph{from outside}, which is
-  the same problem as cancel.
+\item \textbf{exit} (POSIX): the whole process ends --- your team's \code{exitProcess} stops all
+  threads \emph{from outside} (\code{kill()}), which is the same problem as cancel. A thread
+  sleeping in \code{pthread\_join} stays in the waiters list of \code{thread\_exited\_} and the
+  kernel panics when the process is deleted --- broadcast before killing (A1-01 notes).
 \item \textbf{cancel} (deferred, A1-06): set a flag; the target dies at its next cancellation point
   (syscall entry, while waiting in join --- wake it with a broadcast), never in the middle of a
   syscall holding locks. A thread that never makes a syscall keeps running.

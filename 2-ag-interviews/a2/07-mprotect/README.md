@@ -18,6 +18,10 @@ Return Value: 0, or -1 (addr not page aligned, len 0, unmapped page, WRITE|EXEC)
 `task.sh start a2-07` → `task.sh test`. Done when 7 checks pass and calling code on a page made
 non-executable kills the process.
 
+## Your team's code
+
+`process->getAddressSpace()` under `process->getThreadLock()`; the PTE bits (`user_access`, `writeable`, `execution_disabled`) via `resolveMapping(vpn).pt[pti]`. A write to a protected page lands in your `checkPageFaultIsValid` (present) → exit 9999. The stub is in `userspace/libc/src/mman.c`.
+
 ## Hints
 
 <details><summary>1 – the PTE bits</summary>

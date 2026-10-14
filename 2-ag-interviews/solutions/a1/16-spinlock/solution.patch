@@ -1,0 +1,139 @@
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index 746aed2b..ffc79841 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -58,6 +58,17 @@ extern int pthread_cond_broadcast(pthread_cond_t *cond);
+ 
+ extern int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+ 
++// A1-16: the spinlock functions exist in pthread.c but were not declared
++extern int pthread_spin_init(pthread_spinlock_t *lock, int pshared);
++
++extern int pthread_spin_destroy(pthread_spinlock_t *lock);
++
++extern int pthread_spin_lock(pthread_spinlock_t *lock);
++
++extern int pthread_spin_trylock(pthread_spinlock_t *lock);
++
++extern int pthread_spin_unlock(pthread_spinlock_t *lock);
++
+ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
+ extern int pthread_setcanceltype(int type, int *oldtype);
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 7e3369e6..f46d5b7a 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -1,4 +1,5 @@
+ #include "pthread.h"
++#include "sched.h"
+ #include "unistd.h"
+ #include "sys/syscall.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+@@ -40,7 +41,8 @@ pthread_t pthread_self(void)
+  */
+ int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
+ {
+-  return -1;
++  (void) attr;
++  return pthread_spin_init(mutex, 0);         // A1-16: the same as the spinlock - it yields while waiting
+ }
+ 
+ /**
+@@ -93,7 +95,7 @@ int pthread_detach(pthread_t thread)
+  */
+ int pthread_mutex_destroy(pthread_mutex_t *mutex)
+ {
+-  return -1;
++  return pthread_spin_destroy(mutex);
+ }
+ 
+ /**
+@@ -102,7 +104,7 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
+  */
+ int pthread_mutex_lock(pthread_mutex_t *mutex)
+ {
+-  return -1;
++  return pthread_spin_lock(mutex);
+ }
+ 
+ /**
+@@ -111,7 +113,7 @@ int pthread_mutex_lock(pthread_mutex_t *mutex)
+  */
+ int pthread_mutex_unlock(pthread_mutex_t *mutex)
+ {
+-  return -1;
++  return pthread_spin_unlock(mutex);
+ }
+ 
+ /**
+@@ -159,13 +161,19 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
+   return -1;
+ }
+ 
++// A1-16: a lock is one unsigned int: 0 = free, 1 = held.
++// __sync_lock_test_and_set(lock, 1) writes 1 and returns the OLD value in ONE indivisible
++// step: "was it free? then it is mine now". With a normal "if (*lock == 0) *lock = 1;" two
++// threads can both see 0 (a timer interrupt between the check and the write) and both enter.
++// While we wait we give the CPU away (sched_yield) - the holder needs it to unlock.
++
+ /**
+  * function stub
+  * posix compatible signature - do not change the signature!
+  */
+ int pthread_spin_destroy(pthread_spinlock_t *lock)
+ {
+-  return -1;
++  return lock ? 0 : -1;
+ }
+ 
+ /**
+@@ -174,7 +182,11 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
+  */
+ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
+ {
+-  return -1;
++  (void) pshared;
++  if (!lock)
++    return -1;
++  *lock = 0;
++  return 0;
+ }
+ 
+ /**
+@@ -183,7 +195,11 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
+  */
+ int pthread_spin_lock(pthread_spinlock_t *lock)
+ {
+-  return -1;
++  if (!lock)
++    return -1;
++  while (__sync_lock_test_and_set(lock, 1))   // old value 1: someone else holds it
++    sched_yield();
++  return 0;
+ }
+ 
+ /**
+@@ -192,7 +208,9 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
+  */
+ int pthread_spin_trylock(pthread_spinlock_t *lock)
+ {
+-  return -1;
++  if (!lock)
++    return -1;
++  return __sync_lock_test_and_set(lock, 1) ? -1 : 0;
+ }
+ 
+ /**
+@@ -201,7 +219,10 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
+  */
+ int pthread_spin_unlock(pthread_spinlock_t *lock)
+ {
+-  return -1;
++  if (!lock)
++    return -1;
++  __sync_lock_release(lock);                  // *lock = 0, and the compiler keeps the order
++  return 0;
+ }
+ 
+ /**

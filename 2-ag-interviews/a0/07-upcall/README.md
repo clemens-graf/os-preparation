@@ -27,7 +27,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
 - The stack check: `process->getAddressSpace().checkAddressValid(rsp)` under
   `process->getThreadLock()` (`UserProcess* process = currentThread->getProcess();`).
 
-_Base SWEB (`task mode base`): `currentThread->loader_->arch_memory_` and `Loader::arch_memory_lock_`._
 
 ## Hints
 

@@ -1,10 +1,10 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 694ec106..b6433c9b 100644
+index ec56f120..7cb26f7d 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -53,6 +53,12 @@ class UserProcess
-     Loader& getLoader();
-     Mutex& getThreadLock() {return thread_lock_;}
+@@ -58,6 +58,12 @@ class UserProcess
+     ustl::string getFileName(){return filename_;}
+ 
  
 +    /**
 +     * A0-04: maps ppn read-only at vpn (map + clear the writable bit under thread_lock_)
@@ -16,7 +16,7 @@ index 694ec106..b6433c9b 100644
       * Tries to create the process with its address space.
       * If this fails to create (invalid executable etc.) then it does not create one!
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 37db7fb4..ac7782be 100644
+index f37eb7ef..c0d7b320 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -9,6 +9,7 @@
@@ -27,9 +27,9 @@ index 37db7fb4..ac7782be 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -474,3 +475,15 @@ void UserProcess::exitProcess()
-   caller->kill();
-   assert(false && "Thread contiued after exit is called");
+@@ -550,3 +551,15 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
  }
 +
 +bool UserProcess::mapReadOnlyPage(size_t vpn, size_t ppn)

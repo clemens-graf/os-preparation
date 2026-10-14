@@ -21,6 +21,10 @@ Return Value: 0, or -1 (not mapped / already swapped out / device full)
 `task.sh start a2-01` → `task.sh test`. Done when 10 checks pass: 8 pages out and back, slots
 counted and freed, the program's own stack and code page swapped out, slots freed at exit, no leak.
 
+## Your team's code
+
+`SwapManager` (new, `common/{include,source}/mm/`, `init()` in `startup()` after `doDeviceDetection`). `swapOut(vpn)` / `swapIn(vpn)` in `UserProcess` under `thread_lock_` (your page-table lock). The swap-in case goes **first** in the page fault handler's valid branch (before the stack/guard checks and `loadPage`), then `return`. `~UserProcess` frees the slots before `delete arch_memory_`.
+
 ## Hints
 
 <details><summary>1 – where is 'swapped, slot N' stored?</summary>
@@ -52,7 +56,7 @@ address – it does not have to be mapped anywhere.
 
 <details><summary>5 – process exit</summary>
 
-`~Loader` (before `arch_memory_` is destroyed): walk the tables, free the slot of every swapped
+`~UserProcess` (before `arch_memory_` is destroyed): walk the tables, free the slot of every swapped
 entry. Otherwise the leak shows up as `swapinfo() != 0` after the process is gone.
 </details>
 

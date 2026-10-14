@@ -1,7 +1,6 @@
 # A0-06 segv handler – solution notes
 
 Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
-Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 
 ## Files touched
 

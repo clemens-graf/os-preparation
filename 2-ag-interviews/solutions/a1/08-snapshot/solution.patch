@@ -1,10 +1,23 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..5fc3556 100644
+index a996aca5..90bc734e 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -2,6 +2,15 @@
+@@ -32,6 +32,8 @@ class Syscall
  
- #include <types.h>
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
++    static size_t snapshot();   // A1-08
++    static size_t revive();     // A1-08
+ 
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index d3bb979d..afc8be9a 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -4,6 +4,15 @@
+ 
+ class UserProcess;
  
 +// A1-08: everything needed to put a user thread back to an earlier point
 +#define SNAPSHOT_MAX_STACK (4 * 4096)
@@ -15,69 +28,48 @@ index 8088db1..5fc3556 100644
 +  char stack[SNAPSHOT_MAX_STACK];         // their content
 +};
 +
- class Syscall
+ class UserThread : public Thread
  {
-   public:
-@@ -18,5 +27,9 @@ class Syscall
+ public:
+@@ -45,6 +54,9 @@ public:
+   size_t getUserStackLowestMappedVpn() {return lowest_mapped_stack_vpn_;}
+   void setUserStackLowestMappedVpn(size_t new_lowest) {lowest_mapped_stack_vpn_ = new_lowest;}
  
-     static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
++  // A1-08: the last pthread_snapshot() of this thread (owned, deleted with the thread)
++  ThreadSnapshot* snapshot_ = nullptr;
 +
-+    // A1-08
-+    static size_t snapshot();
-+    static size_t revive();
- };
- 
-diff --git a/common/include/kernel/Thread.h b/common/include/kernel/Thread.h
-index 6411244..316970a 100644
---- a/common/include/kernel/Thread.h
-+++ b/common/include/kernel/Thread.h
-@@ -15,6 +15,7 @@ class Loader;
- class Terminal;
- class Mutex;
- class Lock;
-+struct ThreadSnapshot;
- 
- extern Thread* currentThread;
- 
-@@ -88,6 +89,9 @@ class Thread
- 
-     Loader* loader_;
- 
-+    // A1-08: the last pthread_snapshot() of this thread (owned, deleted with the thread)
-+    ThreadSnapshot* snapshot_;
-+
- 
-     void setState(ThreadState state);
- 
+ private:
+   bool registered_in_process_ = false;
+   void* user_stack_top_ = 0;
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..1daea14 100644
+index 51f0de2a..b068423b 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,7 @@
- #define sc_createprocess 191
- #define sc_trace 252
- 
-+// A1-08
-+#define sc_snapshot 1660
+@@ -32,6 +32,8 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_snapshot 1660   // A1-08
 +#define sc_revive 1661
-+
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..f400b29 100644
+index 86cf85a2..5340565d 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,8 @@
- #include "ProcessRegistry.h"
- #include "File.h"
+@@ -9,6 +9,8 @@
  #include "Scheduler.h"
-+#include "ArchThreads.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
 +#include "kstring.h"
++#include "ArchThreads.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +51,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -88,6 +90,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_snapshot:
 +      return_value = snapshot();
@@ -85,31 +77,26 @@ index 964cd5b..f400b29 100644
 +    case sc_revive:
 +      return_value = revive();
 +      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +189,53 @@ void Syscall::trace()
-   currentThread->printBacktrace();
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+@@ -448,3 +456,50 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
  }
- 
 +
-+// A1-08: the stack of the (only) thread of a process ends at USER_BREAK.
-+// (With several threads: the top of the calling thread's own stack.)
-+static size_t userStackTop()
-+{
-+  return USER_BREAK;
-+}
-+
++// A1-08: save registers + the used part of the user stack of the calling thread
 +size_t Syscall::snapshot()
 +{
-+  ArchThreadRegisters* regs = currentThread->user_registers_;
-+  size_t stack_size = userStackTop() - regs->rsp;
++  UserThread* thread = (UserThread*) currentThread;
++  ArchThreadRegisters* regs = thread->user_registers_;
++  size_t stack_size = (size_t) thread->getUserStackTop() - regs->rsp;   // this thread's own stack slot
 +  if (stack_size > SNAPSHOT_MAX_STACK)
 +    return (size_t) -1;
 +
-+  if (!currentThread->snapshot_)
-+    currentThread->snapshot_ = new ThreadSnapshot;
-+  ThreadSnapshot* s = currentThread->snapshot_;
++  if (!thread->snapshot_)
++    thread->snapshot_ = new ThreadSnapshot;
++  ThreadSnapshot* s = thread->snapshot_;
 +
 +  // field by field: copying the ArchThreadRegisters struct would also copy its fpu pointer
 +  // (and its destructor would free the fpu buffer of the thread)
@@ -127,13 +114,15 @@ index 964cd5b..f400b29 100644
 +  return 0;                                    // "taken"
 +}
 +
++// A1-08: back to the snapshot - pthread_snapshot() returns a second time, with 1
 +size_t Syscall::revive()
 +{
-+  ThreadSnapshot* s = currentThread->snapshot_;
++  UserThread* thread = (UserThread*) currentThread;
++  ThreadSnapshot* s = thread->snapshot_;
 +  if (!s)
 +    return (size_t) -1;
 +
-+  ArchThreadRegisters* regs = currentThread->user_registers_;
++  ArchThreadRegisters* regs = thread->user_registers_;
 +  memcpy((void*) s->rsp, s->stack, s->stack_size);   // these pages were mapped then and still are
 +  regs->rip = s->rip;  regs->rflags = s->rflags;  regs->rax = s->rax;  regs->rbx = s->rbx;
 +  regs->rcx = s->rcx;  regs->rdx = s->rdx;  regs->rsi = s->rsi;  regs->rdi = s->rdi;
@@ -142,43 +131,26 @@ index 964cd5b..f400b29 100644
 +  regs->r14 = s->r14;  regs->r15 = s->r15;
 +  return 1;    // written into rax: the old pthread_snapshot() call now returns 1
 +}
-diff --git a/common/source/kernel/Thread.cpp b/common/source/kernel/Thread.cpp
-index 50f59f1..52484ec 100644
---- a/common/source/kernel/Thread.cpp
-+++ b/common/source/kernel/Thread.cpp
-@@ -10,6 +10,7 @@
- #include "backtrace.h"
- #include "KernelMemoryManager.h"
- #include "Stabs2DebugInfo.h"
-+#include "Syscall.h"
+diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
+index 53def8c4..565833f6 100644
+--- a/common/source/kernel/UserThread.cpp
++++ b/common/source/kernel/UserThread.cpp
+@@ -64,6 +64,8 @@ UserThread::UserThread(UserProcess* child_process, UserThread* parent_thread) :
  
- #define BACKTRACE_MAX_FRAMES 20
- 
-@@ -30,7 +31,7 @@ extern "C" void threadStartHack()
- }
- 
- Thread::Thread(FileSystemInfo *working_dir, ustl::string name, Thread::TYPE type) :
--    kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0), loader_(0),
-+    kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0), loader_(0), snapshot_(0),
-     next_thread_in_lock_waiters_list_(0), lock_waiting_on_(0), holding_lock_list_(0), state_(Running), tid_(0),
-     my_terminal_(0), working_dir_(working_dir), name_(ustl::move(name))
+ UserThread::~UserThread()
  {
-@@ -45,6 +46,8 @@ Thread::~Thread()
-   debug(THREAD, "~Thread: freeing ThreadInfos\n");
-   delete user_registers_;
-   user_registers_ = 0;
 +  delete snapshot_;      // A1-08
-+  snapshot_ = 0;
-   delete kernel_registers_;
-   kernel_registers_ = 0;
-   if(unlikely(holding_lock_list_ != 0))
++  snapshot_ = nullptr;
+   UserProcess* process = getProcess();
+   if (!process)
+   {
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index ca5aae8..79d1e4c 100644
+index 746aed2b..01b6c0be 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -56,6 +56,12 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+@@ -37,6 +37,12 @@ extern void pthread_testcancel(void);
  
- extern int pthread_setcanceltype(int type, int *oldtype);
+ extern int pthread_join(pthread_t thread, void **value_ptr);
  
 +// A1-08: pthread_snapshot() saves the calling thread's registers and stack and returns 0.
 +// pthread_revive() puts the thread back to that point: pthread_snapshot() returns again, with 1.
@@ -186,25 +158,19 @@ index ca5aae8..79d1e4c 100644
 +extern int pthread_snapshot(void);
 +extern int pthread_revive(void);
 +
- #ifdef __cplusplus
- }
- #endif
+ extern int pthread_detach(pthread_t thread);
+ 
+ extern int pthread_mutex_init(pthread_mutex_t *mutex,
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index ded6eee..8a67b00 100644
+index 7e3369e6..fd7e9fd2 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -1,4 +1,6 @@
- #include "pthread.h"
-+#include "sys/syscall.h"
-+#include "../../../common/include/kernel/syscall-definitions.h"
- 
- /**
-  * function stub
-@@ -189,3 +191,13 @@ int pthread_setcanceltype(int type, int *oldtype)
+@@ -221,3 +221,14 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
    return -1;
  }
- 
 +
++// A1-08
 +int pthread_snapshot(void)
 +{
 +  return __syscall(sc_snapshot, 0x00, 0x00, 0x00, 0x00, 0x00);

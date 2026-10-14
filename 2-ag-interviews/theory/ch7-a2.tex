@@ -64,7 +64,7 @@ pages (A1-10) and the zero page (A2-09) must be excluded, swap slots (A2-01) fre
 
 \section{The swap device}
 
-\code{idea2} is a 50\,MiB partition of type 0x82 that base SWEB never uses:
+\code{idea2} is a 50\,MiB partition of type 0x82 that your team's code does not use yet:
 \begin{lstlisting}[style=cpp]
 BDVirtualDevice* swap = BDManager::getInstance()->getDeviceByName("idea2");
 \end{lstlisting} Slot $s$ = bytes

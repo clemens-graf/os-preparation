@@ -20,7 +20,15 @@ Return Value: 0 or -1
 ## Test
 
 `task.sh start a1-02` → `task.sh test`. Done when all 10 checks pass. The test fills 60 of the
-64 slots with ended-but-unjoined threads, so that creating 8 must fail half-way.
+64 places with ended-but-unjoined threads, so that creating 8 must fail half-way.
+
+## Your team's code
+
+Your team's `createThread` has no limit, so the rollback could never happen. The team solution
+adds one: **`MAX_USER_THREADS 64`** threads per process that are not joined yet (`threads_.size()`
+in `createThread`, under `thread_lock_` – a finished thread's `UserThreadData` stays in `threads_`
+until it is joined). `createThread` does not schedule the thread – `pthreadCreate` calls
+`addNewThread` afterwards – which is exactly what all-or-nothing needs.
 
 ## Hints
 
@@ -28,19 +36,23 @@ Return Value: 0 or -1
 
 Create every thread object first (they are not in the scheduler yet, so they cannot run),
 and only when all exist add them to the scheduler. If creation number k fails, delete the
-k-1 objects you created (not scheduled → you may delete them directly) and free their slots.
+k-1 objects you created (not scheduled → you may delete them directly) and everything
+`createThread` set up for them.
 </details>
 
 <details><summary>2 – deleting a thread that never ran</summary>
 
-Its destructor unmaps its stack and marks the slot FINISHED (as if it had ended). Nobody
-knows its id, so nobody will join it: mark the slot FREE afterwards (`discardThread`).
+Undo what `createThread` did, under `thread_lock_`: free its stack (`freeUserThreadStack`),
+remove its `UserThreadData` from `threads_` and delete it, `running_threads_--`. Then
+`setRegisteredInProcess(false)` (else its destructor calls `threadExited()` again) and `delete` it
+(`discardThread`).
 </details>
 
 <details><summary>3 – join_any without spinning</summary>
 
-Same Condition as join (broadcast in `threadFinished`). Loop: look for a FINISHED one among
-the ids; none → are any of them still RUNNING? no → -1; yes → wait. All under the lock.
+Same Condition as join (`thread_exited_`, broadcast in `exitThread`). Loop: look for one
+among the ids with `exited_` set; none → is any of them still joinable (known, not `joined_`)?
+no → -1; yes → wait. All under `thread_lock_`.
 </details>
 
 ## Questions a tutor might ask

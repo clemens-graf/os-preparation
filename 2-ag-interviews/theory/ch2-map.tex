@@ -84,7 +84,6 @@ Program start &
 boot: \code{startup()} (\file{main.cpp}) adds the \code{ProcessRegistry} thread $\to$ \code{Run()} mounts \file{/usr}, \code{createProcess(path)} for each entry of \code{user\_progs.h} (the shell).
 Shell runs \code{foo.sweb} $\to$ \code{createprocess} syscall $\to$ \code{ProcessRegistry::createProcess} $\to$ \code{new UserProcess(path)}:
 \code{UserProcess::create(path, \ldots)}: open file, \code{new Loader(fd)}, read ELF headers, a new \code{ArchMemory} $\to$ the main thread: a stack slot (\code{allocateNewStack}, one mapped page), \code{new UserThread(\ldots)}: \code{createUserRegisters(rip = ELF entry, rsp = stack top)}, \code{setAddressSpace} $\to$ \code{Scheduler::addNewThread}.
-(Base SWEB: the \code{UserProcess} constructor does all of it --- the process \emph{is} the thread.)
 The first schedule loads the user registers: the program starts in \code{\_start} (\file{nonstd.c}) $\to$ \code{main}. \\
 \addlinespace
 Kernel thread start &
@@ -155,8 +154,7 @@ That is not true in the timer interrupt, in \code{schedule()}, or in the keyboar
 \end{center}
 
 \textbf{Per-process state belongs into \code{UserProcess}} (\code{currentThread->getProcess()}),
-per-thread state of user threads into \code{UserThread}. (Base SWEB has no separate process object:
-there it goes into the \code{Loader}, \code{currentThread->loader\_} --- chapter~\ref{ch:team}.)
+per-thread state of user threads into \code{UserThread}. (chapter~\ref{ch:team}).
 
 \section{The address space}
 

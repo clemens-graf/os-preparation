@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index b44b007..237404d 100644
+index 19431844..de058515 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -33,6 +33,10 @@ class ArchMemory
@@ -13,8 +13,17 @@ index b44b007..237404d 100644
      static constexpr size_t RESERVED_START = 0xFFFFFFFF80000ULL;
      static constexpr size_t RESERVED_END = 0xFFFFFFFFC0000ULL;
  
+@@ -43,7 +47,7 @@ class ArchMemory
+      * @param user_access PTE flag indicating whether the virtual page shall be accessible by threads in user-mode
+      * @return True if successful, false otherwise (the PT entry already exists)
+      */
+-    [[nodiscard]] bool mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_access);
++    [[nodiscard]] bool mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_access, bool writeable = true); // A2-09: read-only in one step
+ 
+     /**
+      * Removes the mapping to a virtual_page by marking its PTE entry as non-valid and frees the underlying physical page.
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 0134550..aa0874e 100644
+index 6aff17ae..47687fb7 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
 @@ -11,6 +11,21 @@ PageDirPointerTableEntry kernel_page_directory_pointer_table[2 * PAGE_DIR_POINTE
@@ -39,7 +48,7 @@ index 0134550..aa0874e 100644
  ArchMemory::ArchMemory()
  {
    page_map_level_4_ = PageManager::instance()->allocPPN();
-@@ -39,7 +54,8 @@ bool ArchMemory::unmapPage(uint64 virtual_page)
+@@ -86,7 +101,8 @@ bool ArchMemory::unmapPage(uint64 virtual_page)
  
    assert(m.page_ppn != 0 && m.page_size == PAGE_SIZE && m.pt[m.pti].present);
    m.pt[m.pti].present = 0;
@@ -49,7 +58,25 @@ index 0134550..aa0874e 100644
    ((uint64*)m.pt)[m.pti] = 0; // for easier debugging
    bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
    if (empty)
-@@ -140,7 +156,8 @@ ArchMemory::~ArchMemory()
+@@ -127,7 +143,7 @@ void ArchMemory::insert(pointer map_ptr, uint64 index, uint64 ppn, uint64 bzero,
+   map[index].present = 1;
+ }
+ 
+-bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_access)
++bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_access, bool writeable)
+ {
+   debug(A_MEMORY, "%zx %zx %zx %zx\n", page_map_level_4_, virtual_page, physical_page, user_access);
+   ArchMemoryMapping m = resolveMapping(page_map_level_4_, virtual_page);
+@@ -153,7 +169,7 @@ bool ArchMemory::mapPage(uint64 virtual_page, uint64 physical_page, uint64 user_
+ 
+   if (m.page_ppn == 0)
+   {
+-    insert<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti, physical_page, 0, 0, user_access, 1);
++    insert<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti, physical_page, 0, 0, user_access, writeable);
+     return true;
+   }
+ 
+@@ -187,7 +203,8 @@ ArchMemory::~ArchMemory()
                  if (pt[pti].present)
                  {
                    pt[pti].present = 0;
@@ -59,61 +86,40 @@ index 0134550..aa0874e 100644
                  }
                }
                pd[pdi].pt.present = 0;
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..ba3ab3b 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -28,12 +28,22 @@ class Loader
-      */
-     void loadPage(pointer virtual_address);
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..4329d708 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -157,6 +157,12 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
  
 +    /**
 +     * A2-09: a write hit page vpn - if it is the shared zero page, give the process its own
-+     * (zeroed) page instead, writable @return true if that was the case
++     * (zeroed) page instead, writable @return true if the write can be retried
 +     */
 +    bool copyOnWrite(size_t vpn);
 +
-     Stabs2DebugInfo const* getDebugInfos() const;
- 
-     void* getEntryFunction() const;
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-   private:
- 
      /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..bebbd50 100644
+index 51f0de2a..36c5396e 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
- #define sc_createprocess 191
- #define sc_trace 252
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_freepages 1770   // A2-09 (testing)
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
  
-+// A2-09
-+#define sc_freepages 1770
-+
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..520299f 100644
+index e9c4233f..6416d6b0 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
-@@ -9,8 +9,10 @@
- #include "File.h"
- #include "FileDescriptor.h"
- #include "Scheduler.h"
-+#include "ScopeLock.h"
- 
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), fd_(fd), hdr_(0), phdrs_(),
-+    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
- 
-@@ -28,6 +30,7 @@ void Loader::loadPage(pointer virtual_address)
+@@ -29,6 +29,7 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
    const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
    const pointer virt_page_end_addr = virt_page_start_addr + PAGE_SIZE;
    bool found_page_content = false;
@@ -121,7 +127,7 @@ index b4dc379..520299f 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -54,6 +57,7 @@ void Loader::loadPage(pointer virtual_address)
+@@ -55,6 +56,7 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
            Syscall::exit(999);
          }
          found_page_content = true;
@@ -129,10 +135,12 @@ index b4dc379..520299f 100644
        }
        else if((*it).p_vaddr + (*it).p_memsz > virt_page_start_addr)
        {
-@@ -70,8 +74,22 @@ void Loader::loadPage(pointer virtual_address)
+@@ -71,8 +73,17 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
      Syscall::exit(666);
    }
  
+-  bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
+-  if (!page_mapped)
 +  if (!file_content)
 +  {
 +    // A2-09: a pure .bss page - do not spend a physical page on zeros: map the shared zero
@@ -140,27 +148,57 @@ index b4dc379..520299f 100644
 +    PageManager::instance()->freePPN(ppn);
 +    ppn = ArchMemory::shared_zero_ppn_;
 +  }
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
--  if (!page_mapped)
-+  if (page_mapped && !file_content)
-+  {
-+    ArchMemoryMapping m = arch_memory_.resolveMapping(virt_page_start_addr / PAGE_SIZE);
-+    m.pt[m.pti].writeable = 0;                 // same critical section as mapPage
-+  }
-+  arch_memory_lock_.release();
++  // read-only IN mapPage: your team's loadPage runs without the page-table lock, so a
++  // "map, then clear writeable" would leave a moment where the zero page is writable
++  bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true, file_content);
 +  if (!page_mapped && file_content)
    {
      debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
      PageManager::instance()->freePPN(ppn);
-@@ -79,6 +97,22 @@ void Loader::loadPage(pointer virtual_address)
-   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
- }
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..9764950d 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,7 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "PageManager.h"
  
-+bool Loader::copyOnWrite(size_t vpn)
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -88,6 +89,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
++    case sc_freepages:
++      return_value = PageManager::instance()->getNumFreePages();
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f37eb7ef..736064a3 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -10,6 +10,7 @@
+ #include "Scheduler.h"
+ #include "UserThread.h"
+ #include "Mutex.h"
++#include "ScopeLock.h"
+ #include "ArchMemory.h"
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+@@ -550,3 +551,20 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
+ }
++
++// A2-09
++bool UserProcess::copyOnWrite(size_t vpn)
 +{
-+  ScopeLock lock(arch_memory_lock_);
-+  ArchMemoryMapping m = arch_memory_.resolveMapping(vpn);
++  ScopeLock lock(thread_lock_);
++  ArchMemoryMapping m = arch_memory_->resolveMapping(vpn);
 +  if (m.page_size != PAGE_SIZE)
 +    return false;
 +  PageTableEntry& pte = m.pt[m.pti];
@@ -172,59 +210,32 @@ index b4dc379..520299f 100644
 +  ArchMemory::flushTlb();                      // the TLB may still map vpn -> zero page
 +  return true;
 +}
-+
- bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
- {
-   assert(program_binary_lock_.isHeldBy(currentThread));
-diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..a657464 100644
---- a/common/source/kernel/Syscall.cpp
-+++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,7 @@
- #include "ProcessRegistry.h"
- #include "File.h"
- #include "Scheduler.h"
-+#include "PageManager.h"
- 
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +50,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
-       break;
-+    case sc_freepages:
-+      return_value = PageManager::instance()->getNumFreePages();
-+      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
 diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
-index f795707..ea0df3a 100644
+index fd6819b0..eef6d9e1 100644
 --- a/common/source/kernel/main.cpp
 +++ b/common/source/kernel/main.cpp
-@@ -58,6 +58,10 @@ extern "C" void startup()
+@@ -57,6 +57,9 @@ extern "C" void startup()
+   kprintf("Kernel end address is %p\n", &kernel_end_address);
  
    Scheduler::instance();
- 
 +  // A2-09: the shared zero page is a page of the kernel image, not from the PageManager:
 +  // it is never freed, and SWEB's leak check (which counts the PageManager's pages) stays quiet
 +  ArchMemory::initSharedZeroPage();
-+
+ 
    //needs to be done after scheduler and terminal, but prior to enableInterrupts
    kprintf_init();
- 
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 3224b05..867f2fe 100644
+index 2dfb14e4..615554ed 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
-@@ -59,6 +59,15 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+@@ -70,6 +70,15 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
  
    ArchThreads::printThreadRegisters(currentThread, false);
  
 +  // A2-09: a write to a present page may be copy-on-write - from user mode or from the kernel
 +  // (a syscall writing into a user buffer: CR0.WP is set, so the kernel faults too)
-+  if (present && writing && address < USER_BREAK && currentThread->loader_ &&
-+      currentThread->loader_->copyOnWrite(address / PAGE_SIZE))
++  if (present && writing && address < USER_BREAK && currentThread->getProcess() &&
++      currentThread->getProcess()->copyOnWrite(address / PAGE_SIZE))
 +  {
 +    debug(PAGEFAULT, "copy on write of a zero page done\n");
 +    return;
@@ -232,9 +243,9 @@ index 3224b05..867f2fe 100644
 +
    if (checkPageFaultIsValid(address, user, present, switch_to_us))
    {
-     currentThread->loader_->loadPage(address);
+     // UserProcess* current_process = currentThread->getProcess();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..48e5c3f 100644
+index 901640e9..5eb0c4a0 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -245,9 +256,9 @@ index 3f341b5..48e5c3f 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,9 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A2-09: free physical pages in the system
 +extern size_t freepages(void);
@@ -256,18 +267,19 @@ index 3f341b5..48e5c3f 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..9f35b14 100644
+index befb9485..7457d437 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
- 
- extern int main();
- 
+@@ -23,4 +23,10 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A2-09
 +size_t freepages(void)
 +{
 +  return __syscall(sc_freepages, 0x00, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

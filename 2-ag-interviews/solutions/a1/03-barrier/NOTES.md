@@ -1,6 +1,6 @@
 # A1-03 barriers – solution notes
 
-Patches: [`on-top-of-a1-01.patch`](on-top-of-a1-01.patch), [`solution.patch`](solution.patch).
+Patch: [`solution.patch`](solution.patch) – on your team's code.
 
 ## The data
 

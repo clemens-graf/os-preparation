@@ -6,7 +6,7 @@ Test: `ex_block_device.sweb` (4 checks).
 ## The disk
 
 The SWEB image has partitions `idea0` (boot), `idea1` (minixfs, mounted at `/usr`), and
-`idea2` (type 0x82 "Linux swap", ~50 MB, unused in base SWEB – yours for A2).
+`idea2` (type 0x82 "Linux swap", ~50 MB, unused in your team's code so far – yours for A2).
 
 ```cpp
 BDVirtualDevice* device = BDManager::getInstance()->getDeviceByName("idea2");

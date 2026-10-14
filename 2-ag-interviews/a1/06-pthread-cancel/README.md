@@ -16,32 +16,34 @@ Return Value: 0, or -1 if there is no such running thread (unknown, ended, main 
 
 ## Test
 
-`task.sh start a1-06` → `task.sh test`. Done when all 9 checks pass: a yielding thread, a
-thread sleeping in `pthread_join`, and a computing thread that is only cancelled at its next
-syscall.
+`task start a1-06` → `task test`: a yielding thread, a thread sleeping in `pthread_join`, and a
+computing thread that is only cancelled at its next syscall.
 
-## Hints
+## Your team's code: a study task
 
-<details><summary>1 – why not just kill it?</summary>
+Your team already has deferred `pthread_cancel` (your own P2 work, numbers 1502/1503) –
+`task solution a1-06` is `main` plus the course test. On `40140475` the first 2 checks pass,
+then the test **hangs** at "a thread sleeping in pthread_join is cancelled": `pthread_join` is a
+cancellation point in POSIX, but your cancel never wakes a sleeping joiner. The
+[notes](../../solutions/a1/06-pthread-cancel/NOTES.md) explain it and show the fix.
 
-The target might be in the middle of a syscall, holding a lock, halfway through changing the
-page tables. Killing it from outside leaves all of that broken. Only the thread itself knows
-when it is at a safe point: set a flag, let it check.
-</details>
+Where to look:
 
-<details><summary>2 – where are the cancellation points?</summary>
+| What | Your team's code |
+|---|---|
+| syscall | `Syscall::pthreadCancel` → `UserProcess::cancelThread(tid)`: sets `requested_cancel_` under `thread_lock_` |
+| cancellation point | top of `Syscall::syscallException` (every syscall) and `pthread_testcancel` → `isCancelRequested` |
+| ending | the thread calls `exitThread(PTHREAD_CANCELED)` itself – at a safe point, holding no lock |
 
-Top of `Syscall::syscallException` (before any lock is taken) – and in the `pthread_join`
-wait loop. A thread sleeping on a Condition must be woken to notice the flag: broadcast after
-setting it, and make the wait loop return a "cancelled" result. It then dies in the syscall
-layer *after* releasing the lock.
-</details>
+## Why deferred (keep these in mind)
 
-<details><summary>3 – never die holding a lock</summary>
-
-`kill()` inside `joinThread` while holding `threads_lock_` → every other thread of the process
-hangs at the next `pthread_create`. Return out of the locked function first.
-</details>
+- Killing a thread from outside could leave it in the middle of a syscall, holding a lock,
+  halfway through changing the page tables. Only the thread itself knows a safe point: set a
+  flag, let it check.
+- A thread sleeping on a Condition must be **woken** to notice the flag (broadcast after setting
+  it), and the wait loop must give up when the flag is set – then the thread ends in the
+  syscall layer, *after* releasing the lock.
+- Never `kill()` while holding `thread_lock_`: every other thread of the process would hang.
 
 ## Questions a tutor might ask
 

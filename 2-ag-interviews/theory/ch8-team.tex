@@ -1,44 +1,54 @@
-\chapter{Base SWEB vs.\ your team repo}
+\chapter{Your team's code}
 \label{ch:team}
 
-The interview happens in \textbf{your group's repository}, not in base SWEB. Since Phase 0 it
-separates process and thread. The mechanisms are identical; some names and the place for
-per-process state differ. State of \code{osw26e3} \code{main} on 12 Oct 2026 (commit
-\code{947d1418}, \code{team/BASE}) --- check again before the interview, the team keeps changing it.
+The interview happens in \textbf{your group's repository} --- and the whole course runs on it.
+Since Phase 0 it separates process and thread. State of \code{osw26e3} \code{main} on 13 Oct 2026
+(commit \code{40140475}, \code{team/BASE}) --- check again before the interview, the team keeps
+changing it. Every file with its contents: \file{ATLAS.md}.
 
 \begin{center}
 \small
-\begin{tabular}{L{6.4cm}L{8.4cm}}
+\begin{tabular}{L{4.6cm}L{10.2cm}}
 \toprule
-\textbf{Base SWEB / this course} & \textbf{Team repo (osw26e3)} \\
+\textbf{What} & \textbf{Your team's code} \\
 \midrule
-\code{class UserProcess : public Thread} (the process \emph{is} its only thread) &
-\code{class UserProcess} (no thread), \code{class UserThread : public Thread}; \code{create}, \code{createThread}, \code{fork} \\
-\code{currentThread->loader\_} & \code{currentThread->getProcess()->getLoader()} (a \code{Loader\&}) \\
-page tables: \code{loader\_->arch\_memory\_} & \code{process->getAddressSpace()} --- the address space belongs to the \code{UserProcess} \\
-\code{Loader::arch\_memory\_lock\_} (added by this course) & \code{process->getThreadLock()} --- the page fault handler holds it for stack pages; it does \textbf{not} hold it around \code{loadPage} \\
-per-process state in \code{Loader} (\code{heap\_size\_}, segv handler, \ldots) & per-process state in \code{UserProcess} \\
-per-thread state in \code{Thread} (A0-11) & per-user-thread state in \code{UserThread}: \code{(UserThread*) currentThread} \\
-one stack page, ex03 grows it & a stack slot per thread (\code{USERSTACK\_PAGES} + guard page), grown in the page fault handler \\
-\code{UserProcess::createThread} (A0-08, the course) & your team's \code{pthread\_create} / \code{pthread\_join} / \code{fork} --- know their steps \\
-\code{exit} waits for the other threads (A0-08) & \code{exitProcess} kills all threads (POSIX) \\
-\code{sc\_meminfo 1500} & 1000/1001 \code{pthread\_create/exit}, 1500 \code{mkdir}, 1501 \code{pthread\_join}, 2000--2002 \code{fork}\ldots: meminfo uses 1505 \\
+process and thread & \code{class UserProcess} (no thread), \code{class UserThread : public Thread}; \code{create}, \code{createThread}, \code{fork}, \code{exec} \\
+the calling process & \code{currentThread->getProcess()} \\
+page tables & \code{process->getAddressSpace()} --- owned by the \code{UserProcess}, deleted in \code{\textasciitilde UserProcess} \\
+page-table lock & \code{process->getThreadLock()} (\code{thread\_lock\_}) --- the page fault handler holds it for stack pages, \textbf{not} around \code{loadPage} \\
+the loader & \code{process->getLoader()} (a \code{Loader\&}): \code{loadPage(address, getAddressSpace())} \\
+per-process state & members of \code{UserProcess} \\
+per-thread state & members of \code{UserThread}: \code{(UserThread*) currentThread} \\
+a thread by id & \code{findThreadDataByTid(tid)} under \code{thread\_lock\_} $\to$ \code{UserThreadData} \\
+stacks & a slot per thread (\code{USERSTACK\_PAGES} = 4 + guard page), grown in the page fault handler \\
+exit & \code{exitProcess} kills all threads (POSIX) \\
+syscall numbers taken & 1000--1002 \code{pthread\_create/exit/self}, 1500 \code{mkdir}, 1501--1503 \code{pthread\_join/cancel/testcancel}, 1998/1999, 2000--2002 \code{fork}\ldots, 2500 \code{execv} \\
+libc stubs & \code{malloc}/\code{free}, \code{atexit}, \code{sem\_*}, \code{pthread\_mutex\_*}, \code{pthread\_spin\_*}, \code{sleep}, \code{clock}, \code{waitpid}, \code{mmap}, \ldots{} (\file{ATLAS.md}, section 5) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-\section*{Practising on your team's code}
+The tutorials were written for upstream SWEB, where the process \emph{is} its thread: read
+\code{currentThread->loader\_} / \code{(UserProcess*) currentThread} as
+\code{currentThread->getProcess()} --- the cast still compiles in your code, but reads garbage.
 
-The course runs on your team's code by default: \code{task} imports that commit into the training
-copy as branch \code{main} (your team repo is only read), every A0 task and example starts from
-it, and the cards, notes and solutions use your team's classes. \code{task mode base} switches to base
-SWEB; \code{team/README.md} lists all differences.
+\section*{Found in your team's code}
+
+\begin{itemize}
+\item A thread sleeping in \code{pthread\_join} panics the kernel when another thread ends the
+  process (\code{exitProcess} kills it, it stays in the waiters list of \code{thread\_exited\_}).
+\item A thread sleeping in \code{pthread\_join} cannot be cancelled (nobody wakes it, the wait loop
+  never checks the flag).
+\item \code{loadPage} maps without the page-table lock; \code{createThread} has no thread limit;
+  \code{mkdir} starts with \code{-1U}.
+\end{itemize}
 
 \begin{infobox}[title=\textbf{Before the interview: 15 minutes in the team repo}]
 \begin{enumerate}
 \item Where is the page-table lock? Which locks does \code{UserProcess} have, what do they protect?
 \item Where does \code{pthread\_create} map the stack, set the registers, add the thread?
 \item Where are a process's threads listed, and who frees the address space when?
-\item Add a trivial syscall in a scratch branch and run it --- so the six places are fresh.
+\item Which libc functions are stubs, and which of them need the kernel?
+\item \code{task quiz 10} --- then add a trivial syscall in a scratch branch and run it.
 \end{enumerate}
 \end{infobox}

@@ -19,8 +19,8 @@ uint64 cr2;
 asm volatile("mov %%cr2, %0" : "=r"(cr2));
 assert(cr2 == address);                       // nothing could have overwritten it yet
 
-if (currentThread->loader_) {
-  Loader::PageFaultStats& s = currentThread->loader_->pf_stats_;
+if (currentThread->getProcess()) {
+  UserProcess::PageFaultStats& s = currentThread->getProcess()->pf_stats_;
   ArchThreads::atomic_add(s.total, 1);
   ArchThreads::atomic_add((error & FLAG_PF_USER) ? s.user : s.kernel, 1);
   ...

@@ -35,7 +35,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   `getAddressSpace().checkAddressValid` under `getThreadLock()`.
 - Number 1552 is free.
 
-_Base SWEB (`task mode base`): on the course's A0-08 solution._
 
 ## Hints
 

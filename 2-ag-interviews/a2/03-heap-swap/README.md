@@ -14,6 +14,10 @@ Description:  Instead of the swap device, a swapped-out page is saved on the ker
 
 `task.sh start a2-03` → `task.sh test`. Done when 13 checks pass, including "exactly 64 heap slots".
 
+## Your team's code
+
+Builds on A2-01 and only changes `SwapManager` – identical in your team's code.
+
 ## Hints
 
 <details><summary>1 – only one class changes</summary>

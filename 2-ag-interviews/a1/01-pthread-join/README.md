@@ -19,40 +19,27 @@ Notes:        Base: the A0-08 solution (task.sh start a1-01 sets it up).
 
 ## Test
 
-`task.sh start a1-01`, then `task.sh test` (runs `pthread_join_basic.sweb`,
-`pthread_create_basic.sweb`, then `exit` for the leak check). Done when all 9 + 8 checks pass,
-nothing hangs, and no `leaking` warning appears.
+`task start a1-01`, then `task test` (runs `pthread_join_basic.sweb`, `pthread_create_basic.sweb`,
+then `exit` for the leak check).
 
-## Hints
+## Your team's code: a study task
 
-<details><summary>1 – where does the exit value live?</summary>
+Your team already has `pthread_join` (your own P2 work) – `task solution a1-01` is `main` plus the
+course tests, nothing else. **Run them against your code and explain every result.** On
+`40140475` the first 8 checks pass, then the kernel **panics** on the 9th
+("a killed thread can be joined"): see [the notes](../../solutions/a1/01-pthread-join/NOTES.md) –
+that is a real bug in your code, and the notes say how to fix it.
 
-The thread object is deleted by the CleanupThread some time after the thread ended – the
-joiner may come much later. So the value has to be stored somewhere that outlives the
-thread: in the process. The solution gives every stack slot a small record
-(`state` FREE/RUNNING/FINISHED, `id`, `exit_value`) in `UserProcess`.
-</details>
+Where to look:
 
-<details><summary>2 – who changes the state, when?</summary>
-
-`pthread_exit` stores the value in the thread object. The thread's destructor (CleanupThread,
-after the thread can never run again, after its stack is unmapped) copies it into the slot,
-sets FINISHED and wakes the joiners. `pthread_join` sets FREE – only then the slot (and its
-stack area) may be reused.
-</details>
-
-<details><summary>3 – how does join wait?</summary>
-
-Mutex + Condition in the process: `while (slot is RUNNING) cond.wait();` – and broadcast in
-`threadFinished`, because several threads may wait (for different threads, and the main
-thread's `exit` waits for all).
-</details>
-
-<details><summary>4 – the trap: the slot changes while you sleep</summary>
-
-While a joiner sleeps, a second joiner may join the same thread, free the slot, and a new
-thread may get it. After every wake-up, check that the slot still has *your* id.
-</details>
+| What | Your team's code |
+|---|---|
+| syscall | `Syscall::pthreadJoin` (`Syscall.cpp`): checks `value_ptr`, writes it after the join |
+| the join | `UserProcess::joinThread(tid, &value)` under `thread_lock_` |
+| per-thread record that outlives the thread | `UserThreadData` in `threads_`: `tid_`, `exit_value_`, `exited_`, `joined_` |
+| the end of a thread | `UserProcess::exitThread`: frees the stack, stores the value, `exited_ = true`, `thread_exited_.broadcast()` |
+| waiting | `while (!thread_data->exited_) thread_exited_.wait();` |
+| process end | `exitProcess` kills every other thread (`kill()`), deletes their `UserThreadData` |
 
 ## Questions a tutor might ask
 
@@ -61,4 +48,5 @@ thread may get it. After every wake-up, check that the slot still has *your* id.
 - What happens if two threads join the same thread at the same time?
 - Why is the slot freed in join and not when the thread ends?
 - Joining yourself – why must that fail, and how do you detect it?
-- In your team repo: where is this state, which lock protects it?
+- Where is this state in your code, and which lock protects it?
+- What happens to a thread that sleeps in `pthread_join` when another thread calls `exit`?

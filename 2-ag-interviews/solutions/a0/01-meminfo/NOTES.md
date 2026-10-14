@@ -1,7 +1,6 @@
 # A0-01 meminfo – solution notes
 
 Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
-Base SWEB (`task mode base`): [`base-sweb/solution.patch`](base-sweb/solution.patch).
 
 Syscall number **1505** – your team's `mkdir` already has 1500.
 
@@ -57,8 +56,8 @@ size_t Syscall::memInfo(size_t user_info)
 | `PageManager` counters | `PageManager`'s own SpinLock inside the getters | the two numbers are not read atomically together – fine for statistics |
 
 The lock is a **Mutex**, not a SpinLock: the critical sections may be long (walk) and in
-other places allocate memory. Base SWEB has no lock for the page tables at all, because a
-process has only one thread – you add it the moment there can be two (A1).
+other places allocate memory. Upstream SWEB has no lock for the page tables at all (a process has
+only one thread there) – your team uses `thread_lock_` since a process can have several.
 
 ## Pitfalls
 

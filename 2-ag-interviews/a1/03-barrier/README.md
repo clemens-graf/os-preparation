@@ -22,6 +22,10 @@ Notes:        SWEB convention: -1 means error, so PTHREAD_BARRIER_SERIAL_THREAD 
 `task.sh start a1-03` → `task.sh test` (3 runs). Done when all 6 checks pass in every run:
 4 threads, 20 rounds, nobody passes early, exactly one serial thread per round.
 
+## Your team's code
+
+Barriers are per process → `UserProcess`: `Barrier barriers_[16]`, their own `barriers_lock_` (Mutex) and `barrier_opened_` (Condition), initialised in the constructor's initializer list **after** the existing members (the order must match the declaration order). Syscalls 1610–1612 call `getProcess()->barrierInit/Wait/Destroy`.
+
 ## Hints
 
 <details><summary>1 – what does the kernel keep per barrier?</summary>

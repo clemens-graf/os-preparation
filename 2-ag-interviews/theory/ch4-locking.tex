@@ -74,7 +74,7 @@ What the locks \textbf{check} (and assert on) --- know these, the asserts are yo
 \code{Console} / \code{Terminal} locks & Mutex & screen and input buffers \\
 Scheduler (\code{lockScheduling}) & internal & the thread list --- not for you \\
 \midrule
-\textbf{page tables} (\code{ArchMemory}) & base: \textbf{none!} team: see right & base SWEB has one thread per process, the course adds \code{Loader::arch\_memory\_lock\_}. Your team's \code{UserProcess::thread\_lock\_} (\code{getThreadLock()}) is taken by the page fault handler for stack pages --- use it for every page-table change \\
+\textbf{page tables} (\code{ArchMemory}) & Mutex & your team's \code{UserProcess::thread\_lock\_} (\code{getThreadLock()}) is taken by the page fault handler for stack pages --- use it for every page-table change \\
 anything you add & --- & you decide, and you document it next to the declaration \\
 \bottomrule
 \end{tabular}
@@ -109,8 +109,9 @@ anything you add & --- & you decide, and you document it next to the declaration
 \item \textbf{No other lock while waiting} on a Condition (SWEB asserts it).
 \item \textbf{Locks must outlive their users.} Do not delete (or let the CleanupThread delete)
   an object while another thread may still be inside one of its locks. Put the lock where
-  the lifetime is clear (ex06: on the waiter's stack; A0-08: \code{threadFinished()} as the
-  last line of the destructor).
+  the lifetime is clear (ex06: on the waiter's stack; your team: \code{threadExited()} as the
+  last action of \code{\textasciitilde UserThread} --- and A1-01 shows what happens when a killed
+  thread is still in a Condition's waiters list).
 \item \textbf{No locks with interrupts off.} Interrupt handlers, \code{schedule()}, the
   keyboard IRQ: set an atomic flag, do the work later in a thread (ex07).
 \item \textbf{Sleep, don't spin.} \code{while (!done) yield();} burns the CPU and is a classic
@@ -124,14 +125,14 @@ anything you add & --- & you decide, and you document it next to the declaration
 \begin{enumerate}
 \item \textbf{The unprotected counter.}
 \begin{lstlisting}[style=cpp]
-++num_threads_;                          // WRONG: two creators lose one increment
-threads_lock_.acquire(); ++num_threads_; threads_lock_.release();   // right
+++running_threads_;                      // WRONG: two creators lose one increment
+thread_lock_.acquire(); ++running_threads_; thread_lock_.release();   // right
 \end{lstlisting}
 
 \item \textbf{The lock in one path only.}
 \begin{lstlisting}[style=cpp]
-// syscall:          ScopeLock l(loader->arch_memory_lock_); arch_memory_.mapPage(...)
-// Loader::loadPage: arch_memory_.mapPage(...)   // WRONG: the page fault path ignores it
+// syscall:          ScopeLock l(process->getThreadLock()); getAddressSpace().mapPage(...)
+// Loader::loadPage: arch_memory_.mapPage(...)   // no lock: your team's loadPage maps without it
 \end{lstlisting}
 Two threads mapping under the same not-yet-existing page table both allocate one and write
 it into the same page-directory entry: one table, its mapping and its page are lost.

@@ -35,9 +35,8 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 - The lock: **`process->getThreadLock()`** – your team's per-process Mutex. The page fault handler
   already holds it while it maps stack pages, so it is the lock that protects the page tables.
   `ScopeLock lock(process->getThreadLock());` around the walk.
-- Number 1505: 1500 is your `mkdir`, 1501 your `pthread_join`.
+- Number 1505: 1500 is your `mkdir`, 1501–1503 your `pthread_join`/`pthread_cancel`/`pthread_testcancel`.
 
-_Base SWEB (`task mode base`): number 1500, `currentThread->loader_->arch_memory_`, the solution adds `Loader::arch_memory_lock_`._
 
 ## Hints
 

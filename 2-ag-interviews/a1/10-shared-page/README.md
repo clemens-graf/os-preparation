@@ -20,6 +20,10 @@ Return Value: attach: address or NULL; detach: 0 or -1 (not attached)
 second time it exits without detaching). Done when 9 checks pass and the final `exit` reports no
 leak.
 
+## Your team's code
+
+`SharedPages` (new, `common/{include,source}/mm/`, created in `startup()`), `shm_attached_` bit mask + `shmAttach/shmDetach` in `UserProcess` (under `thread_lock_`), cleanup in `~UserProcess` **before** `delete arch_memory_` with `unmapPage(vpn, false)` – a new parameter of `ArchMemory::unmapPage`: do not free the shared frame.
+
 ## Hints
 
 <details><summary>1 – one page, two owners</summary>

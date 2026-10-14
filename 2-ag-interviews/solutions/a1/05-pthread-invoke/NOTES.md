@@ -1,6 +1,6 @@
 # A1-05 pthread_invoke – solution notes
 
-Patches: [`on-top-of-a1-01.patch`](on-top-of-a1-01.patch), [`solution.patch`](solution.patch).
+Patch: [`solution.patch`](solution.patch) – on your team's code.
 
 ## The code
 
@@ -23,7 +23,7 @@ if (it != threads_.end())
 
 ```cpp
 // Syscall::pthreadInvoke
-{ ScopeLock lock(process->getThreadsLock()); target = process->findThread(id); ... }
+{ ScopeLock lock(process->getThreadLock()); target = process->findThreadDataByTid(id)->thread_; ... }
 Scheduler::instance()->yieldTo(target);          // after the release: never yield holding a lock
 ```
 

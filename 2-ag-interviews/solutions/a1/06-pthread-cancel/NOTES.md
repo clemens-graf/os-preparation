@@ -1,55 +1,77 @@
-# A1-06 pthread_cancel – solution notes
+# A1-06 pthread_cancel – study notes (your team's code)
 
-Patches: [`on-top-of-a1-01.patch`](on-top-of-a1-01.patch), [`solution.patch`](solution.patch).
+Patch: [`solution.patch`](solution.patch) is **empty** – your team's `main` already has deferred
+`pthread_cancel` (your own P2 work). `task solution a1-06` = `main` + the course test.
 
-## Design: deferred cancellation
+## How your team's cancel works
 
 ```cpp
-size_t Syscall::pthreadCancel(size_t thread_id)
+size_t UserProcess::cancelThread(size_t tid)          // the canceller
 {
-  ScopeLock lock(process->getThreadsLock());
-  Thread* target = process->findThread(thread_id);
-  if (!target || target == process) return -1;
-  ArchThreads::atomic_set(((UserThread*) target)->cancel_requested_, 1);
-  process->wakeJoiners();                  // broadcast: it may sleep in pthread_join
+  ScopeLock lock(thread_lock_);
+  UserThreadData* thread_data = findThreadDataByTid(tid);
+  if (!thread_data || thread_data->exited_) return -1;
+  thread_data->requested_cancel_ = true;              // only a flag - the target ends itself
   return 0;
 }
 
-void Syscall::cancelIfRequested()          // at cancellation points, NO lock held
-{
-  if (/* user thread, not main */ && self->cancel_requested_) {
-    self->exit_value_ = (size_t) -1;       // PTHREAD_CANCELED
-    currentThread->kill();
-  }
-}
+// the cancellation point: top of Syscall::syscallException, before any lock is taken
+if (process && process->isCancelRequested(currentThread->getTID()))
+  process->exitThread(PTHREAD_CANCELED_VALUE);        // joiners get PTHREAD_CANCELED
 ```
 
-Cancellation points:
-1. top of `syscallException` – before any lock is taken;
-2. the `pthread_join` wait loop – `joinThread` returns `JOIN_CANCELED`, `Syscall::pthreadJoin`
-   calls `cancelIfRequested()` **after** `joinThread`'s ScopeLock released the mutex.
+`pthread_testcancel` is an empty syscall: the check at the top of `syscallException` does the work.
 
-## Why not kill the target directly?
+## What the course test shows: 2 pass, then it hangs
 
-It may be in the middle of a syscall: holding `arch_memory_lock_`, half-way through `mapPage`,
-in the middle of a disk request. Killing it there leaves a lock held forever and data half
-changed. Only the thread knows its safe points.
+Check 3: thread J sleeps in `pthread_join` (in `thread_exited_.wait()`), main cancels J and joins it.
 
-## Locking
+- `cancelThread` sets J's flag – but **nobody wakes J**.
+- And even when J wakes up (another thread exits), its wait loop only checks `exited_`, never
+  the cancel flag.
 
-- The flag: one word, written atomically, read by the target without a lock (it only checks it;
-  a stale read just means it is cancelled at the next point).
-- `findThread` + flag write under `threads_lock_`: the thread object cannot be freed meanwhile.
-- **Never `kill()` while holding a lock** – `~Thread` asserts, and every other thread would block.
+So J sleeps until the thread it waits for ends – in the test never, so main waits for J
+forever. POSIX lists `pthread_join` as a cancellation point: a cancelled joiner must end.
 
-## Test
+**Fix direction:**
 
-A yielding thread, a thread sleeping in `pthread_join` (woken by the broadcast), a computing
-thread that is only cancelled at its next syscall (the code after it never runs), unknown/ended
-threads → -1.
+```cpp
+// cancelThread: after setting the flag, wake every sleeper of this process
+thread_data->requested_cancel_ = true;
+thread_exited_.broadcast();
 
-## For your P2 work
+// joinThread: give up when the CALLER was cancelled (we hold thread_lock_ already -
+// isCancelRequested() would take it again: Mutexes are not recursive -> look it up directly)
+while (!thread_data->exited_)
+{
+  UserThreadData* self = findThreadDataByTid(currentThread->getTID());
+  if (self && self->requested_cancel_)
+  {
+    thread_data->joined_ = false;        // the target can be joined by someone else later
+    return JOIN_CANCELLED;               // a new return value, e.g. (size_t) -2
+  }
+  thread_exited_.wait();
+}
 
-`pthread_setcancelstate`/`setcanceltype` (electives): state = "ignore requests for now" (check it
-at the points), type asynchronous = kill at the next *timer interrupt* in user mode – only safe if
-the thread is in user mode (not in a syscall).
+// Syscall::pthreadJoin: the lock is released now - end at this safe point
+if (result == JOIN_CANCELLED)
+  process->exitThread(PTHREAD_CANCELED_VALUE);
+```
+
+The order matters: the thread must not end *inside* `joinThread` – it holds `thread_lock_` there.
+Return first, then `exitThread` in the syscall layer.
+
+## Why deferred
+
+- Killing a thread from outside could catch it in the middle of a syscall: holding
+  `thread_lock_`, halfway through `mapPage`. Everything it was doing stays broken.
+- Only the thread itself knows a safe point – so: set a flag, the thread checks it.
+- The flag is written under `thread_lock_` and read under it (`isCancelRequested`) – no race.
+
+## Questions a tutor might ask
+
+- Why deferred? What could break with asynchronous cancellation?
+- A cancelled thread sleeps in `pthread_join`. Walk me through how it ends (now: why it does not).
+- A thread computes without syscalls – when does it end after `pthread_cancel`?
+- What would `pthread_setcancelstate(PTHREAD_CANCEL_DISABLE)` need? (a second flag in
+  `UserThreadData`, checked at the same places)

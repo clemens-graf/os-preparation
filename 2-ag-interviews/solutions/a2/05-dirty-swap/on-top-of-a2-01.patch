@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index e05ce60..edabd58 100644
+index 5b4fdd56..e76c644c 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -80,7 +80,8 @@ class ArchMemory
@@ -13,10 +13,10 @@ index e05ce60..edabd58 100644
      void forEachSwappedPage(void (*callback)(size_t slot));
  
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 616dfa4..1c0f57a 100644
+index 297a1aab..4188e5ad 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -182,6 +182,8 @@ void ArchMemory::forEachSwappedPage(void (*callback)(size_t slot))
+@@ -229,6 +229,8 @@ void ArchMemory::forEachSwappedPage(void (*callback)(size_t slot))
          {
            if (!pt[pti].present && pt[pti].ignored_2 == PTE_SWAPPED)
              callback(pt[pti].page_ppn);
@@ -26,17 +26,19 @@ index 616dfa4..1c0f57a 100644
        }
      }
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 86d73ea..ec71949 100644
+index b0396edf..1dcd9d23 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -20,4 +20,5 @@
- // A2 tasks use 1720-1799
- #define sc_swapout 1720
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_swapwrites 1750   // A2-05 (testing)
+ #define sc_swapout 1720   // A2-01 (A2 tasks use 1720-1799)
  #define sc_swapinfo 1721
-+#define sc_swapwrites 1750
- 
+ #define sc_thread_count 1998
 diff --git a/common/include/mm/SwapManager.h b/common/include/mm/SwapManager.h
-index 801f850..7a64348 100644
+index 801f850a..7a643489 100644
 --- a/common/include/mm/SwapManager.h
 +++ b/common/include/mm/SwapManager.h
 @@ -23,6 +23,11 @@ class SwapManager
@@ -57,13 +59,27 @@ index 801f850..7a64348 100644
      Mutex* lock_;            // protects slots_ and serialises our disk requests
 +    size_t writes_;          // A2-05: protected by lock_
  };
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index f96df95..1df8e61 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -101,12 +101,28 @@ size_t Loader::swapOut(size_t vpn)
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index be6e68e9..27a21850 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -95,6 +95,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_swapinfo:
+       return_value = SwapManager::instance()->usedSlots();
+       break;
++    case sc_swapwrites:
++      return_value = SwapManager::instance()->writes();
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index 42479e1c..6d5f8bc8 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -570,12 +570,26 @@ size_t UserProcess::swapOut(size_t vpn)
    ArchMemory::flushTlb();
-   // 2. copy it to disk. We keep holding arch_memory_lock_: a thread that touches the page now
+   // 2. copy it to disk. We keep holding thread_lock_: a thread that touches the page now
    //    page-faults and waits for the lock in swapIn
 -  size_t slot = SwapManager::instance()->writeOut(ppn);
 -  if (slot == (size_t) -1)
@@ -71,16 +87,14 @@ index f96df95..1df8e61 100644
 +  //    The dirty bit is read AFTER present = 0 + TLB flush: no write can set it any more.
 +  size_t slot;
 +  if (pte.ignored_1 && !pte.dirty)
++    slot = pte.ignored_1 - 1;                 // clean: the disk copy is still correct
++  else if (pte.ignored_1)
    {
 -    pte.present = 1;                          // device full: undo
 -    return (size_t) -1;
-+    slot = pte.ignored_1 - 1;                 // clean: the disk copy is still correct
-   }
-+  else if (pte.ignored_1)
-+  {
 +    slot = pte.ignored_1 - 1;                 // dirty: overwrite its old slot, no new one
 +    SwapManager::instance()->writeSlot(slot, ppn);
-+  }
+   }
 +  else
 +  {
 +    slot = SwapManager::instance()->writeOut(ppn);
@@ -94,9 +108,9 @@ index f96df95..1df8e61 100644
    // 3. the entry now says "swapped, at slot" - present stays 0
    pte.page_ppn = slot;
    pte.ignored_2 = PTE_SWAPPED;
-@@ -126,7 +142,9 @@ bool Loader::swapIn(size_t vpn)
+@@ -595,7 +609,9 @@ bool UserProcess::swapIn(size_t vpn)
    size_t slot = pte.page_ppn;
-   size_t ppn = PageManager::instance()->allocPPN();   // lock order: arch_memory_lock_ -> PageManager
+   size_t ppn = PageManager::instance()->allocPPN();   // lock order: thread_lock_ -> PageManager
    SwapManager::instance()->readIn(slot, ppn);         // -> SwapManager: always this order
 -  SwapManager::instance()->freeSlot(slot);
 +  // A2-05: keep the slot - its content equals the page until the page is written
@@ -105,22 +119,8 @@ index f96df95..1df8e61 100644
    pte.ignored_2 = 0;
    pte.page_ppn = ppn;
    pte.present = 1;                            // last: only now may the process use it again
-diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 3f1baac..48ed963 100644
---- a/common/source/kernel/Syscall.cpp
-+++ b/common/source/kernel/Syscall.cpp
-@@ -57,6 +57,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_swapinfo:
-       return_value = SwapManager::instance()->usedSlots();
-       break;
-+    case sc_swapwrites:
-+      return_value = SwapManager::instance()->writes();
-+      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
 diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
-index f96581e..ba6badb 100644
+index f96581e0..ba6badb9 100644
 --- a/common/source/mm/SwapManager.cpp
 +++ b/common/source/mm/SwapManager.cpp
 @@ -22,10 +22,12 @@ SwapManager* SwapManager::instance()
@@ -165,10 +165,10 @@ index f96581e..ba6badb 100644
 +  return writes_;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 6729610..fbb0fc3 100644
+index daa5486d..ae3e3e52 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
-@@ -23,6 +23,9 @@ extern int createprocess(const char* path, int sleep);
+@@ -33,6 +33,9 @@ extern int getProcessCount(void);
  extern int swapout(void* address);
  extern size_t swapinfo(void);
  
@@ -179,18 +179,16 @@ index 6729610..fbb0fc3 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index f28f131..5a07043 100644
+index 66a22578..53510f7c 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -20,6 +20,11 @@ size_t swapinfo(void)
+@@ -35,3 +35,9 @@ size_t swapinfo(void)
+ {
    return __syscall(sc_swapinfo, 0x00, 0x00, 0x00, 0x00, 0x00);
  }
- 
++
++// A2-05
 +size_t swapwrites(void)
 +{
 +  return __syscall(sc_swapwrites, 0x00, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

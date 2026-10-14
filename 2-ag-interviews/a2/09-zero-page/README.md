@@ -18,6 +18,10 @@ Description:  Pages that would be all zero (pure .bss pages) are not given their
 writing 32 of them costs about 32 pages, a syscall writing into a zero page works, the zero page
 stays zero, and the shutdown leak check is clean.
 
+## Your team's code
+
+Your team's `loadPage` runs **without** the page-table lock – "map, then clear `writeable`" would leave a moment where every process could write into the shared zero page. The team solution gives `ArchMemory::mapPage` a `writeable` parameter (like A0-05) and maps read-only in one step. `copyOnWrite(vpn)` in `UserProcess` (under `thread_lock_`), called first in the page fault handler for present + writing faults.
+
 ## Hints
 
 <details><summary>1 – which pages are 'zero'?</summary>

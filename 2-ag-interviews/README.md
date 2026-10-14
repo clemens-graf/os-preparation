@@ -9,32 +9,34 @@ will ask yourself every time: **which file do I have to touch for this?**
 | | |
 |---|---|
 | [`GETTING-STARTED.md`](GETTING-STARTED.md) | **start here:** every command you type, with examples – setup, the daily loop, tests, debugging, git, reading the output, problems |
-| [`guide.pdf`](guide.pdf) | The theory: what happens where in SWEB, recipes for every kind of change, **locking** (the biggest source of deductions), the A0/A1/A2 task families, base SWEB vs. your team repo |
-| [`examples/`](examples/) | 11 worked reference changes on **your team's code** (`example.patch`; base SWEB in `base-sweb/`) with walkthroughs: syscalls, mapping pages, page faults, PTE flags, registers, kernel threads, F-keys, disk, loader, and the two A0 tutorials (ex11, ex12) exactly as the tutors wrote them |
-| [`a0/`](a0/) | 11 tasks for the A0 interview (13–17 Oct), incl. both tutorials done right (A0-11, A0-12) |
-| [`a1/`](a1/) | 14 tasks for the A1 interview |
-| [`a2/`](a2/) | 12 tasks for the A2 interview |
-| [`solutions/`](solutions/) | a tested solution for every task: `solution.patch` (A0: for **your team's code**, the base-SWEB one in `base-sweb/`; A1/A2: base SWEB) + `NOTES.md` (files, steps, locking, pitfalls, answers) |
-| [`team/`](team/) | which commit of your team's code the course runs on (`BASE`) and what differs from base SWEB – [`team/README.md`](team/README.md) |
-| [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug), `run_test.sh`, `sweb_run.py`, `tasks.txt` |
+| [`TRIAGE.md`](TRIAGE.md) | **an unknown task in 5 minutes:** the five task types (user space only, syscall, kernel event, assembly, kernel calls user code), where each one goes, every course task classified |
+| [`ATLAS.md`](ATLAS.md) | **your team's code, file by file:** what is in every file, the call chains (program start/end, syscall, page fault, timer, key, pthread_create, fork), "I want to … → go to", the POSIX stubs of your libc |
+| [`guide.pdf`](guide.pdf) | The theory: what happens where in SWEB, recipes for every kind of change, **locking** (the biggest source of deductions), the A0/A1/A2 task families, your team's code |
+| [`examples/`](examples/) | 11 worked reference changes on **your team's code** with walkthroughs: syscalls, mapping pages, page faults, PTE flags, registers, kernel threads, F-keys, disk, loader, and the two A0 tutorials (ex11, ex12) as the tutors wrote them |
+| [`a0/`](a0/) | 11 tasks for the A0 interview, incl. both tutorials done right (A0-11, A0-12), and the [cheat sheet](a0/cheatsheet.pdf) |
+| [`a1/`](a1/) | 17 tasks for the A1 interview – threads, scheduling, and 4 pure-libc tasks (atexit, malloc, locks, semaphores) |
+| [`a2/`](a2/) | 12 tasks for the A2 interview – swapping, page-table bits, kernel threads, F-keys |
+| [`solutions/`](solutions/) | a tested solution for every task on **your team's code**: `solution.patch` + `NOTES.md` (files, steps, locking, pitfalls, answers) |
+| [`team/`](team/) | which commit of your team's code the course runs on (`BASE`), your team's names, every task's place in your code, bugs found – [`team/README.md`](team/README.md) |
+| [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug / **quiz**), `run_test.sh`, `sweb_run.py`, `tasks.txt`, `quiz.txt` |
 | [`theory/`](theory/) | LaTeX sources of the guide (`cd theory && make`) |
 
-Every task and example was implemented and run: all 48 pass their tests with the reference
-solution (checked end to end through `task.sh`), and the tests fail without it. The team versions
-of the 11 A0 tasks and 11 examples were checked the same way on your team's code.
+Every task and example was implemented and run on your team's code: all of them pass their tests
+with the reference solution (checked end to end through `task.sh`) – except the study tasks A1-01
+and A1-06, whose tests show two bugs in your team's `pthread_join`/`pthread_cancel` (see their notes).
 
 ## Where you work: the training copy `repos/sweb-ag`
 
-A separate clone of upstream SWEB (`f6fcb2ab`, the same as your practice repo's `main`) at
-`~/Documents/University/2026-fall/os/repos/sweb-ag`. Your practice repo `repos/sweb` and the
-team repo are never touched. It is a normal SWEB checkout: CMake, `make qemu`, `make kvm`,
+A separate repository at `~/Documents/University/2026-fall/os/repos/sweb-ag`, filled with your
+team's code (read from `repos/osw26e3`, never changed there; no remote – nothing can be pushed
+from it). It is a normal SWEB checkout: CMake, `make qemu`, `make kvm`,
 `make debug` + gdb, CLion – everything works exactly as in your other SWEB repos. Build folder:
 `/tmp/sweb-ag`.
 
 The tasks run on **your team's code**: `task.sh` imports your team's `main` (the commit in
 [`team/BASE`](team/BASE), read from `repos/osw26e3`) as branch `main`, and every A0 task and
-example starts from there – the code you have in the interview. A1/A2 have no team version yet and
-use base SWEB (`base-sweb/main`) automatically. Every task lives on its **own branch**, created by `task.sh`:
+example starts from there – the code you have in the interview. Every task lives on its **own
+branch**, created by `task.sh`:
 
 | Branch | What |
 |---|---|
@@ -42,9 +44,8 @@ use base SWEB (`base-sweb/main`) automatically. Every task lives on its **own br
 | `task/a0-01-meminfo` | your work on a task (created with the test programs already in `userspace/tests/`) |
 | `solution/a0-01-meminfo` | the reference solution, to build, run and compare |
 | `example/ex02-map-page` | an example applied |
-| `base/a0-08` | for tasks that build on another task's solution (A0-09) – created automatically |
+| `base/a0-08` | for tasks that build on another task's solution (A0-09, A1-16 …) – created automatically |
 | `backup/a0-01-meminfo-<date>` | your attempt, kept whenever you reset |
-| `base-sweb/main`, `base-sweb/task/…`, … | the same for base SWEB (A1/A2, or `task mode base`) |
 
 ## Quick start
 
@@ -90,6 +91,7 @@ end). Done when it reports only `[PASS]` lines, `0 failed` and status 0.
 | `task diff a0-01` | your attempt vs. the solution (kernel + libc) |
 | `task example ex02` | an example applied on its own branch |
 | `task status` | where you are, uncommitted changes, number of backups |
+| `task quiz` / `task quiz 20` | random "where is …?" questions about your team's code, answer after Enter ([`ATLAS.md`](ATLAS.md) has them all) |
 
 A typical round: `task start a0-03` → try → stuck? hints on the card → still stuck?
 `task solution a0-03`, read `solutions/a0/03-heaplimit/NOTES.md` → `task reset a0-03` → write it
@@ -100,6 +102,9 @@ again from scratch without looking.
 What counts is **finding the right place fast, writing a minimal correct version, and
 explaining it – especially the locking.**
 
+0. **Every task, first five minutes: classify it** ([`TRIAGE.md`](TRIAGE.md)) – user space only,
+   syscall, kernel event, assembly, or kernel calls user code? Then find the starting point
+   ([`ATLAS.md`](ATLAS.md)) and say both out loud. `task quiz` trains the finding.
 1. **First pass – learn.** Guide chapters 1–4. Then the examples: `task example ex01`, read its
    `README.md` and the diff (`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show`),
    `task test`. Ask yourself for every line *why here?*
@@ -118,21 +123,18 @@ register manipulation, "call a user function on segfault", the loader, the mecha
 `pthread_create`, `pthread_multi` – plus what the tutors themselves practised in the two A0
 tutorials: a user string, a debug flag and per-thread data (tutorial 1: ex11, A0-11), the
 physical page of a variable and a second mapping of it (tutorial 2: ex12, A0-12). The eleven A0
-tasks cover exactly these.
+tasks cover exactly these. **But in the A0 of 14 Oct 2026 the task was `atexit` – pure libc, no
+syscall at all** (now A1-14; A1-15 … A1-17 are more of that kind): classify every task first.
 **Short on time:** guide chapters 2–4, examples ex01, ex11, ex02, ex12, ex03, ex05, then tasks
 01, 11, 02, 12, 03, 06, 08.
 
 ## Interview vs. training repo
 
-In the interview you work in **your team repo**, not in base SWEB. The mechanisms are the same; a
-few names differ because the team split process and thread (`currentThread->loader_->arch_memory_`
-is `currentThread->getProcess()->getAddressSpace()` there, the lock is `getThreadLock()`,
-per-process state belongs into `UserProcess`, not into the `Loader`). The guide's last chapter has the translation table – read it, and spend 15 minutes in
-the team repo before the interview.
-
-**This course already works on your team's code** (see above): the cards, hints, notes and
-solutions of A0 and the examples use your team's names (`getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`, state in
-`UserProcess`); all differences to base SWEB are in [`team/README.md`](team/README.md).
+In the interview you work in **your team repo** – and so does this course: every card, hint, note
+and solution uses your team's names (`getProcess()`, `getAddressSpace()`, `getThreadLock()`,
+`UserThread`, state in `UserProcess`). The tutorials (ex11, ex12) were written for upstream SWEB;
+[`team/README.md`](team/README.md) shows how to read them. Spend 15 minutes in the team repo
+itself before the interview – [`ATLAS.md`](ATLAS.md) is the map, `task quiz` trains finding things.
 
 ## Without task.sh
 

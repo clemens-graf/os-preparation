@@ -19,6 +19,10 @@ Return Value: snapshot: 0 / 1 (revived) / -1 (stack too big); revive: -1 if no s
 
 `task.sh start a1-08` → `task.sh test`. Done when all 5 checks pass.
 
+## Your team's code
+
+Per thread → `UserThread.h`: `ThreadSnapshot* snapshot_ = nullptr;` (deleted in `~UserThread`). The stack top is **this thread's** stack slot: `((UserThread*) currentThread)->getUserStackTop()`, not `USER_BREAK`. `SNAPSHOT_MAX_STACK` = 4 pages = `USERSTACK_PAGES`.
+
 ## Hints
 
 <details><summary>1 – why registers alone are not enough</summary>

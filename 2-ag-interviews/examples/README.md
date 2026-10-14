@@ -1,6 +1,6 @@
 # Examples – worked reference changes
 
-Small, complete changes to base SWEB, each one showing **one mechanism** you need in the
+Small, complete changes to your team's code, each one showing **one mechanism** you need in the
 interview. They are references: read them, apply them, run them, change them. The tasks in
 `a0/`–`a2/` are similar but not the same – the examples show the *how*, the tasks make you
 find the *where* yourself.
@@ -30,8 +30,7 @@ task reset ex01           # back to the unchanged example
 ```
 
 Each example applies on its own to a clean `main` (they do not depend on each other).
-`example.patch` is the version for your team's code; the base-SWEB version is in `base-sweb/`
-(ex03 has only a base-SWEB version: your team's stack already grows).
+`example.patch` is the change on your team's code (the commit in `team/BASE`).
 Syscall numbers 1400–1499 (except ex11 and ex12: the tutorials' 142/143, and 1580 for tutorial 1 –
 its original 1000 is your team's `pthread_create`). There is no ex10: the tutorial examples carry the number of their task (11, 12). `example.patch` is plain `git diff` output – reading it is the
 fastest way to see *which line goes where*. ex07 has no test program: `task test` presses F8 and

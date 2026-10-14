@@ -19,6 +19,10 @@ Return Value: 0 or -1
 `task.sh start a1-11` → `task.sh test`. Done when 6 checks pass, including a fault the
 *kernel* causes when the syscall writes into a not-yet-loaded user page.
 
+## Your team's code
+
+The counters are per process → `UserProcess::PageFaultStats pf_stats_` (public), updated in `pageFaultHandler` (`InterruptUtils.cpp`) with `ArchThreads::atomic_add` – interrupts are off there, no lock possible. `currentThread->getProcess()` is `nullptr` for kernel threads: check it.
+
 ## Hints
 
 <details><summary>1 – the path of interrupt 14</summary>

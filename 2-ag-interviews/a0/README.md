@@ -1,5 +1,8 @@
 # A0 – interview tasks
 
+**Cheat sheet:** [cheatsheet.pdf](cheatsheet.pdf) – the API of your team's code on two pages
+(source: `cheatsheet.tex`, build with `pdflatex cheatsheet.tex`).
+
 ## What students reported
 
 1. "mapping some memory using a syscall, something to do with pagefaults or register manipulation"
@@ -20,6 +23,10 @@
    - **tutorial 2** (7 Oct): `get_physical_address` and `map_address` – the physical page behind
      a variable, and the same page mapped at a second address. Reproduced in
      [ex12](../examples/ex12-tutorial2/); A0-12 is the same task done right.
+8. **A0, 14 Oct 2026 (our own interview): implement `atexit`** – no syscall at all: the stub in
+   `userspace/libc/src/stdlib.c` and `exit()` in `exec.c`. Not every task is "add a syscall":
+   classify it first ([TRIAGE.md](../TRIAGE.md)). Practise it with [A1-14](../a1/14-atexit/), and
+   the other libc stubs with A1-15 … A1-17.
 
 ## The tasks
 
@@ -75,7 +82,6 @@ The solution is in [`../solutions/a0/`](../solutions/a0/) – `NOTES.md` explain
   examples 1400–1499.
 - Your team's names: `currentThread->getProcess()`, its `getAddressSpace()` and `getThreadLock()`, per-process state in
   `UserProcess`, per-thread state in `UserThread` – the full list: [`../team/README.md`](../team/README.md).
-  Base SWEB (`task mode base`) uses `currentThread->loader_` instead.
 - Return `-1` on error as `(size_t) -1` in the kernel – **not** `-1U` (that is
   `0xFFFFFFFF`, which user space does not see as `-1`).
 - The libc wrappers go into `userspace/libc/src/nonstd.c` and

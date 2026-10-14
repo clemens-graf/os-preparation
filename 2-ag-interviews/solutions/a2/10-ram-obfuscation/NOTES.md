@@ -6,15 +6,15 @@ Patch: [`solution.patch`](solution.patch).
 
 | Piece | Where |
 |---|---|
-| all loaders in an intrusive list: `static Loader* all_loaders_`, `static Mutex* all_loaders_lock_` (created in `startup()`), `next_loader_` | `Loader.h/.cpp` (ctor registers, dtor unregisters FIRST) |
-| `Loader::relocatePage(index)`, `Loader::isMapped(vpn)` | `Loader.cpp` |
+| all processes in an intrusive list: `static UserProcess* all_processes_`, `static Mutex* all_processes_lock_` (created in `startup()`), `next_process_` | `UserProcess.h/.cpp` (ctor registers, dtor unregisters FIRST) |
+| `UserProcess::relocatePage(index)`, `UserProcess::isMapped(vpn)` | `UserProcess.cpp` |
 | `ObfuscationThread` (kernel thread, every 2 ticks: random loader, random present page) | new `ObfuscationThread.*`, started in `startup()` |
 | page fault: `if (!isMapped(vpn)) loadPage(address)` | `PageFaultHandler.cpp` |
 
 ## relocatePage
 
 ```cpp
-ScopeLock lock(arch_memory_lock_);
+ScopeLock lock(thread_lock_);
 /* pick a present page */
 pte.present = 0;                 // 1. a write to the old page during the copy would be lost
 ArchMemory::flushTlb();
@@ -33,9 +33,9 @@ is done, sees the page present, returns – the instruction is repeated and work
 
 ## Locking and lifetime
 
-- Lock order: `all_loaders_lock_` → one loader's `arch_memory_lock_`. The page fault path takes only
+- Lock order: `all_processes_lock_` → one process' `thread_lock_`. The page fault path takes only
   the latter; the loader's destructor takes only the former. No cycle.
-- The thread holds `all_loaders_lock_` while using a loader, and the destructor unregisters under that
+- The thread holds `all_processes_lock_` while using a loader, and the destructor unregisters under that
   lock *first* – so a loader can never be destroyed while the thread works on it.
 - TLB of the target process: on one CPU it is not running while the kernel thread runs, and its TLB
   entries are flushed when its `cr3` is loaded again. On several CPUs you would need a TLB shootdown

@@ -1,11 +1,11 @@
 diff --git a/arch/x86/64/source/InterruptUtils.cpp b/arch/x86/64/source/InterruptUtils.cpp
-index 1e37e5a..63040db 100644
+index 65609d67..939ca6f2 100644
 --- a/arch/x86/64/source/InterruptUtils.cpp
 +++ b/arch/x86/64/source/InterruptUtils.cpp
-@@ -196,6 +196,26 @@ extern "C" void pageFaultHandler(uint64 address, uint64 error)
- 
-   assert((regs.rflags&(1ULL<<9)) && "PF with interrupts disabled. PF handler will enable interrupts soon. Better panic now");
- 
+@@ -187,6 +187,27 @@ extern "C" void errorHandler(size_t num, size_t eip, size_t cs, size_t spurious)
+ extern "C" void arch_pageFaultHandler();
+ extern "C" void pageFaultHandler(uint64 address, uint64 error)
+ {
 +  // A1-11: the asm stub (arch_interrupts.S: arch_pageFaultHandler) read cr2 and passed it as
 +  // 'address'. Interrupts are still off here, no other page fault can have changed cr2 yet:
 +  uint64 cr2;
@@ -14,9 +14,10 @@ index 1e37e5a..63040db 100644
 +
 +  // statistics: interrupts are OFF here - a Mutex would assert ("Lock ... with IF=0"),
 +  // so the counters are updated with atomic instructions only
-+  if (currentThread->loader_)
++  UserProcess* process = currentThread->getProcess();   // nullptr for kernel threads
++  if (process)
 +  {
-+    Loader::PageFaultStats& stats = currentThread->loader_->pf_stats_;
++    UserProcess::PageFaultStats& stats = process->pf_stats_;
 +    ArchThreads::atomic_add(stats.total, 1);
 +    ArchThreads::atomic_add((error & FLAG_PF_USER) ? stats.user : stats.kernel, 1);
 +    if (error & FLAG_PF_INSTR_FETCH)
@@ -26,102 +27,81 @@ index 1e37e5a..63040db 100644
 +    ArchThreads::atomic_set(stats.last_address, address);
 +  }
 +
-   PageFaultHandler::enterPageFault(address, error & FLAG_PF_USER,
-                                    error & FLAG_PF_PRESENT,
-                                    error & FLAG_PF_RDWR,
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..bebd5b2 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,13 @@ class Loader
+   auto &regs = *(currentThread->switch_to_userspace_ ? currentThread->user_registers_ : currentThread->kernel_registers_);
  
-     ArchMemory arch_memory_;
+   if (address >= USER_BREAK && address < KERNEL_START) { // dirty hack due to qemu invoking the pf handler when accessing non canonical addresses
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index a996aca5..affccbe7 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -32,6 +32,7 @@ class Syscall
+ 
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
++    static size_t pfStats(size_t user_stats);   // A1-11
+ 
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..55576072 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -157,6 +157,13 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
  
 +    // A1-11: page fault statistics of this process. Updated in the interrupt entry with
 +    // interrupts disabled - no lock can be taken there, so only atomic increments.
 +    struct PageFaultStats
 +    {
 +      uint64 total, user, kernel, writes, reads, fetches, last_address;
-+    } pf_stats_;
++    } pf_stats_ = {};
 +
-   private:
- 
      /**
-diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 8088db1..d084bc3 100644
---- a/common/include/kernel/Syscall.h
-+++ b/common/include/kernel/Syscall.h
-@@ -18,5 +18,8 @@ class Syscall
- 
-     static size_t createprocess(size_t path, size_t sleep);
-     static void trace();
-+
-+    // A1-11
-+    static size_t pfStats(size_t user_stats);
- };
- 
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..0005a6a 100644
+index 51f0de2a..ef3d2c76 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
- #define sc_createprocess 191
- #define sc_trace 252
- 
-+// A1-11
-+#define sc_pfstats 1690
-+
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..5f73295 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -10,7 +10,7 @@
- #include "FileDescriptor.h"
- #include "Scheduler.h"
- 
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : pf_stats_(), fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
- }
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_pfstats 1690   // A1-11
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..eed179d 100644
+index 86cf85a2..aacec151 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,7 @@
- #include "ProcessRegistry.h"
- #include "File.h"
- #include "Scheduler.h"
-+#include "Loader.h"
- 
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +50,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+@@ -88,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_pfstats:
 +      return_value = pfStats(arg1);
 +      break;
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
-@@ -181,3 +185,13 @@ void Syscall::trace()
-   currentThread->printBacktrace();
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+@@ -448,3 +451,13 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
  }
- 
 +
 +// A1-11: copy the page fault statistics of the calling process
 +size_t Syscall::pfStats(size_t user_stats)
 +{
-+  if (user_stats == 0 || user_stats >= USER_BREAK - sizeof(Loader::PageFaultStats))
++  if (user_stats == 0 || user_stats > USER_BREAK - sizeof(UserProcess::PageFaultStats))
 +    return (size_t) -1;
-+  Loader::PageFaultStats copy = currentThread->loader_->pf_stats_;   // snapshot first ...
-+  *(Loader::PageFaultStats*) user_stats = copy;                      // ... this write may fault itself
++  UserProcess::PageFaultStats copy = currentThread->getProcess()->pf_stats_;   // snapshot first ...
++  *(UserProcess::PageFaultStats*) user_stats = copy;                           // ... this write may fault itself
 +  return 0;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..9ad581f 100644
+index 901640e9..cf115b0b 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -132,11 +112,11 @@ index 3f341b5..9ad581f 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,19 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,19 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
-+// A1-11: page faults of the calling process (same layout as Loader::PageFaultStats)
++// A1-11: page faults of the calling process (same layout as UserProcess::PageFaultStats)
 +struct pfstats
 +{
 +  size_t total;          // all page faults
@@ -153,18 +133,19 @@ index 3f341b5..9ad581f 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..9c3333a 100644
+index befb9485..1402dbf7 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
- 
- extern int main();
- 
+@@ -23,4 +23,10 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A1-11
 +int pfstats(struct pfstats* stats)
 +{
 +  return __syscall(sc_pfstats, (size_t) stats, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

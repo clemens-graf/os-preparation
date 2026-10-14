@@ -1,0 +1,333 @@
+% A0 cheat sheet – your team's SWEB code (osw26e3 main, team/BASE)
+% build: pdflatex cheatsheet.tex  (twice not needed)
+\documentclass[10pt,a4paper,landscape]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[landscape,margin=1cm,top=0.9cm,bottom=1cm]{geometry}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{multicol}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage[hidelinks]{hyperref}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\columnsep}{0.6cm}
+\setlist{nosep,leftmargin=1.1em,itemsep=1pt}
+\renewcommand{\arraystretch}{1.15}
+
+% ---------- colours ----------
+\definecolor{cBlue}{HTML}{2563EB}
+\definecolor{cGreen}{HTML}{16A34A}
+\definecolor{cOrange}{HTML}{EA580C}
+\definecolor{cPurple}{HTML}{7C3AED}
+\definecolor{cTeal}{HTML}{0D9488}
+\definecolor{cPink}{HTML}{DB2777}
+\definecolor{cRed}{HTML}{DC2626}
+\definecolor{cSlate}{HTML}{475569}
+\definecolor{cAmber}{HTML}{B45309}
+\definecolor{codeBg}{HTML}{F8FAFC}
+\definecolor{kw}{HTML}{1D4ED8}
+\definecolor{cmt}{HTML}{6B7280}
+\definecolor{str}{HTML}{B45309}
+
+% ---------- code ----------
+\lstdefinestyle{sweb}{
+  language=C++, basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  keywordstyle=\color{kw}, commentstyle=\color{cmt}\itshape, stringstyle=\color{str},
+  morekeywords={size_t,uint64,nodiscard,ScopeLock,Mutex,UserProcess,UserThread,ArchMemory,
+    ArchMemoryMapping,PageManager,Loader},
+  backgroundcolor=\color{codeBg}, frame=none, xleftmargin=2pt, aboveskip=2pt, belowskip=2pt,
+  showstringspaces=false, literate={~}{{\textasciitilde}}1
+}
+\lstdefinestyle{shell}{
+  basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  backgroundcolor=\color{codeBg}, commentstyle=\color{cmt}\itshape, morecomment=[l]{\#},
+  aboveskip=2pt, belowskip=2pt, showstringspaces=false
+}
+\lstset{style=sweb}
+\newcommand{\cc}[1]{\texttt{#1}}   % inline code
+\newcommand{\ok}{\textcolor{cGreen}{\checkmark}}
+\newcommand{\no}{\textcolor{cRed}{\ensuremath{\times}}}
+
+% ---------- boxes ----------
+\newtcolorbox{csec}[2]{enhanced, breakable, colback=#1!5, colframe=#1, coltitle=white,
+  fonttitle=\bfseries\small, title={#2}, boxrule=0.6pt, arc=2.5mm,
+  left=4pt, right=4pt, top=3pt, bottom=3pt, toptitle=1.5pt, bottomtitle=1.5pt,
+  before skip=4pt, after skip=5pt, fontupper=\small\raggedright}
+\newtcolorbox{tip}[1][cAmber]{enhanced, colback=#1!10, colframe=#1!70, boxrule=0.4pt,
+  arc=1.5mm, left=3pt, right=3pt, top=1pt, bottom=1pt, before skip=3pt, after skip=3pt,
+  fontupper=\footnotesize}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newenvironment{tab}[1]{\footnotesize\tabularx{\linewidth}{#1}}{\endtabularx}
+
+\begin{document}
+
+% ================= header =================
+\begin{tcolorbox}[enhanced, colback=cBlue, colframe=cBlue, arc=3mm, boxrule=0pt,
+  interior style={left color=cBlue, right color=cPurple}, left=8pt, top=5pt, bottom=5pt]
+  \color{white}{\LARGE\bfseries A0 Cheat Sheet}\hfill{\small team osw26e3 \textbullet{} SWEB x86-64}\\[2pt]
+  {\small Your team's code (\texttt{main} of 13 Oct, \texttt{40140475}) \textbullet{} the API you need for the
+  interview \textbullet{} read it once, keep it next to CLion}
+\end{tcolorbox}
+
+\begin{multicols}{2}
+
+% ================= 1 access =================
+\begin{csec}{cBlue}{1 \quad How to get to everything}
+\begin{lstlisting}
+UserProcess* process = currentThread->getProcess();
+ArchMemory& mem   = process->getAddressSpace(); // page tables
+Mutex& lock       = process->getThreadLock();   // per-process lock
+Loader& loader    = process->getLoader();       // ELF loader
+UserThread* ut    = (UserThread*) currentThread; // UserThread fields
+\end{lstlisting}
+\begin{itemize}
+  \item \cc{currentThread} = the thread running right now (global \cc{Thread*}).
+  \item Pointer $\to$ \cc{->}, reference $\to$ \cc{.}:\\
+        \cc{process->getAddressSpace().mapPage(...)}
+\end{itemize}
+\begin{tip}[cRed]
+  \no{} \cc{currentThread->loader\_}, \cc{(UserProcess*) currentThread} = the tutorials' (upstream) style - \textbf{not} your team's code.
+\end{tip}
+\end{csec}
+
+% ================= 2 constants & formulas =================
+\begin{csec}{cGreen}{2 \quad Pages: constants \& formulas}
+\begin{tab}{@{}l l Y@{}}
+\cc{PAGE\_SIZE}      & 4096 & one page = one frame \\
+\cc{USER\_BREAK}     & \cc{0x800000000000ULL} & below = user, above = kernel \\
+\cc{USER\_BREAK\_VPN} & \cc{USER\_BREAK/PAGE\_SIZE} & same, as page number \\
+\end{tab}
+\begin{lstlisting}
+size_t vpn    = address / PAGE_SIZE;   // address -> page number
+size_t addr   = vpn * PAGE_SIZE;       // page number -> address
+size_t offset = address % PAGE_SIZE;   // position inside the page
+bool aligned  = (address % PAGE_SIZE == 0);
+// next page: vpn + 1   (NOT vpn + PAGE_SIZE!)
+\end{lstlisting}
+\begin{tip}[cGreen]
+  \textbf{vpn} = virtual page (what the program sees) \quad
+  \textbf{ppn} = physical frame (real RAM)\\
+  Tree: PML4 $\to$ PDPT $\to$ PD $\to$ PT, 512 entries each. TLB = cache of translations.
+\end{tip}
+\end{csec}
+
+% ================= 3 ArchMemory =================
+\begin{csec}{cTeal}{3 \quad ArchMemory \quad\normalfont(= \cc{process->getAddressSpace()})}
+\begin{tab}{@{}>{\raggedright}p{0.43\linewidth} Y@{}}
+\cc{mapPage(vpn, ppn, 1)} & vpn $\to$ ppn, user access. \textbf{false} if already mapped. \cc{[[nodiscard]]}! \\
+\cc{unmapPage(vpn)} & removes mapping, \textbf{frees the ppn itself}, no TLB flush \\
+\cc{resolveMapping(vpn)} & $\to$ \cc{ArchMemoryMapping} (what is mapped?) \\
+\cc{checkAddressValid(addr)} & $\neq 0$ if mapped \\
+\cc{ArchMemory::flushTlb()} & \textit{static} -- after every \cc{unmapPage} \\
+\cc{ArchMemory::getIdent\-AddressOfPPN(ppn)} & \textit{static} -- kernel pointer into a frame \\
+\end{tab}
+
+\medskip
+\textbf{ArchMemoryMapping} -- \textit{fields, no} \cc{()}
+\begin{tab}{@{}l Y@{}}
+\cc{.page\_size} & \textbf{0 = not mapped}, else 4096 \\
+\cc{.page\_ppn}  & the frame it points to \\
+\cc{.pt\_ppn .pd\_ppn .pdpt\_ppn .pml4\_ppn} & page-table pages on the way \\
+\end{tab}
+\begin{lstlisting}
+ArchMemoryMapping m = process->getAddressSpace().resolveMapping(vpn);
+if (m.page_size == 0) { /* free slot */ }
+\end{lstlisting}
+\end{csec}
+
+% ================= 4 PageManager =================
+\begin{csec}{cGreen}{4 \quad PageManager \quad\normalfont(physical frames)}
+\begin{lstlisting}
+size_t ppn = PageManager::instance()->allocPPN(); // free + ZEROED
+PageManager::instance()->freePPN(ppn);    // only if NOT mapped
+PageManager::instance()->getNumFreePages();
+PageManager::instance()->getTotalNumPages();
+\end{lstlisting}
+\begin{tip}[cGreen]
+  \cc{allocPPN} = get a frame, \cc{mapPage} = connect it. You need \textbf{both}, in this order.
+  \cc{allocPPN()} takes \textbf{no} vpn (its parameter is a page \emph{size}).
+\end{tip}
+\end{csec}
+
+% ================= 5 locks =================
+\begin{csec}{cOrange}{5 \quad Locks}
+\begin{lstlisting}
+{
+  ScopeLock lock(process->getThreadLock()); // acquire ...
+  // check + change in ONE critical section
+}                                           // ... released at }
+\end{lstlisting}
+\begin{itemize}
+  \item \cc{ScopeLock} releases on \textbf{every} \cc{return} automatically.
+  \item By hand: \cc{acquire()} / \cc{release()} -- then release before \textbf{every} \cc{return}.
+  \item \cc{Condition}: \cc{wait()}, \cc{signal()}, \cc{broadcast()} -- mutex must be held.
+  \item \cc{allocPPN} \emph{before} the lock = shorter critical section
+        (give back with \cc{freePPN} on failure).
+  \item Never allocate while holding a \cc{SpinLock}.
+\end{itemize}
+\begin{tip}[cOrange]
+  \cc{thread\_lock\_} protects threads, stack slots \& page tables. The page fault handler
+  holds it for stack pages but calls \cc{loadPage} \textbf{without} it.
+\end{tip}
+\end{csec}
+
+% ================= 6 threads =================
+\begin{csec}{cPurple}{6 \quad Threads \& registers}
+\begin{tab}{@{}>{\raggedright}p{0.5\linewidth} Y@{}}
+\cc{currentThread->getTID()} & thread ID \\
+\cc{process->getPID()}, \cc{getPPID()} & process IDs \\
+\cc{currentThread->user\_registers\_->rip} & where user code continues \\
+\cc{->rsp} & user stack pointer \\
+\cc{->rdi}, \cc{->rsi}, \cc{->rdx} & 1st, 2nd, 3rd argument \\
+\cc{->rax} & return value \\
+\cc{process->createThread(entry,false,0,0)} & new \cc{UserThread} \\
+\cc{process->findThreadDataByTid(tid)} & \cc{UserThreadData*} \\
+\cc{process->exitProcess()} & kills \textbf{all} threads (POSIX) \\
+\end{tab}
+
+\smallskip
+\cc{UserThreadData}: \cc{thread\_}, \cc{exit\_value\_}, \cc{tid\_}, \cc{exited\_}, \cc{joined\_}, \cc{requested\_cancel\_}\\
+\cc{UserThread}: \cc{user\_stack\_top\_}, \cc{lowest\_mapped\_stack\_vpn\_}
+\end{csec}
+
+% ================= 7 loader / PFH =================
+\begin{csec}{cTeal}{7 \quad Loader \& page faults}
+\begin{itemize}
+  \item \cc{common/source/mm/PageFaultHandler.cpp}: valid branch $\to$ stack growth
+        (\cc{isUserStackFault}, under the lock) $\to$\\
+        \cc{getLoader().loadPage(address, getAddressSpace())} (no lock).
+  \item New special regions (heap, magic page) go \textbf{first} in the valid branch, then \cc{return}.
+  \item \textbf{ELF}: sections (\cc{.text .rodata .data .bss}) live in LOAD segments;
+        \cc{.bss} = MemSiz $>$ FileSiz (zeroed).
+\end{itemize}
+\begin{tab}{@{}l Y@{}}
+exit \textbf{666}  & no ELF segment for the address (\cc{loadPage}) \\
+exit \textbf{9999} & invalid fault (null pointer, kernel address) \\
+\end{tab}
+\end{csec}
+
+% ================= 8 six places =================
+\begin{csec}{cPink}{8 \quad New syscall: the six places}
+\begin{tab}{@{}c >{\raggedright}p{0.36\linewidth} Y@{}}
+1 & \cc{syscall-definitions.h} & \cc{\#define sc\_foo 1505} \\
+2 & \cc{Syscall.h} & \cc{static size\_t foo(size\_t arg);} \\
+3 & \cc{Syscall.cpp} switch & \cc{case sc\_foo: return\_value = foo(arg1); \textbf{break};} \\
+4 & \cc{Syscall.cpp} & \cc{size\_t Syscall::foo(size\_t arg)\{...\}} \\
+5 & \cc{userspace/libc/include/nonstd.h} & \cc{int foo(void* p);} \\
+6 & \cc{userspace/libc/src/nonstd.c} & \cc{\_\_syscall(sc\_foo, (size\_t)p, 0,0,0,0)} \\
+\end{tab}
+\begin{tip}[cPink]
+  Kernel headers: \cc{common/include/kernel/}. Your block: \textbf{1500--1999}
+  (taken: 1500 mkdir, 1501 join, 1502 cancel, 1503 testcancel, 1998/1999).
+  Also taken: 1000--1002 pthread\_create/exit/self, 2000--2002 fork/getpid/getppid, 2500 execv.
+  Free: 1505, 1510/1511, \dots{} Then a test \cc{userspace/tests/foo\_basic.c}.
+\end{tip}
+\end{csec}
+
+% ================= 9 user pointers =================
+\begin{csec}{cRed}{9 \quad User pointers \& return values}
+\begin{lstlisting}
+// ALWAYS before the kernel touches user memory (no overflow!):
+if (buffer == 0 || size > USER_BREAK || buffer > USER_BREAK - size)
+  return (size_t) -1;
+Syscall::copyUserString(user_ptr, kernel_buf, buf_size); // strings
+\end{lstlisting}
+\begin{tab}{@{}l l Y@{}}
+error & \cc{return (size\_t) -1;} & \no{} \cc{-1U} = only \cc{0xFFFFFFFF} \\
+NULL  & \cc{return 0;} & \no{} \cc{NULL} / \cc{-1} in a \cc{size\_t} function \\
+types & \cc{size\_t} & for addresses \& sizes, never \cc{int} \\
+\end{tab}
+\end{csec}
+
+% ================= 10 debug =================
+\begin{csec}{cSlate}{10 \quad Debug output}
+\begin{lstlisting}
+debug(SYSCALL, "vpn %zx ppn %zx\n", vpn, ppn); // %zx hex, %zd dec
+currentThread->printBacktrace();               // who called whom
+// own flag in common/include/console/debug.h:
+const size_t NOTE = Ansi_Cyan | OUTPUT_ENABLED;
+\end{lstlisting}
+Flags: \cc{SYSCALL PAGEFAULT LOADER USERPROCESS USERTHREAD}
+\end{csec}
+
+% ================= 11 shell =================
+\begin{csec}{cSlate}{11 \quad Shell}
+\begin{lstlisting}[style=shell]
+task start a0-02   # new task branch (training copy)
+task test          # build + run the test
+task run           # just run SWEB
+task debug         # QEMU waits; CLion: 127.0.0.1:1234,
+                   #   symbols /tmp/sweb-ag/kernel64.x
+task diff a0-02    # compare with the solution
+# interview = team repo, plain SWEB:
+mkdir -p /tmp/sweb && cd /tmp/sweb
+cmake ~/Documents/University/2026-fall/os/repos/osw26e3
+make && make qemu
+\end{lstlisting}
+\end{csec}
+
+% ================= 12 pattern =================
+\begin{csec}{cBlue}{12 \quad Pattern: find a free slot + map it (A0-02)}
+\begin{lstlisting}
+size_t Syscall::allocPage()
+{
+  UserProcess* process = currentThread->getProcess();
+  ScopeLock lock(process->getThreadLock());
+  for (size_t i = 0; i < ALLOC_REGION_PAGES; i++)
+  {
+    size_t vpn = ALLOC_REGION_START / PAGE_SIZE + i;
+    if (process->getAddressSpace().resolveMapping(vpn).page_size == 0)
+    {
+      size_t ppn = PageManager::instance()->allocPPN();
+      bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
+      assert(mapped);
+      return vpn * PAGE_SIZE;            // the ADDRESS, not the ppn
+    }
+  }
+  return 0;                              // full -> NULL
+}
+// freePage: check aligned + in region + mapped (else -1),
+//   unmapPage(vpn); ArchMemory::flushTlb(); return 0;   no freePPN!
+\end{lstlisting}
+\end{csec}
+
+% ================= 13 traps =================
+\begin{csec}{cRed}{13 \quad Classic traps}
+\begin{enumerate}[label=\textbf{\arabic*}, leftmargin=1.3em]
+  \item \cc{case} without \cc{break}
+  \item \cc{mapPage} result ignored (\cc{[[nodiscard]]})
+  \item \cc{freePPN} after \cc{unmapPage} $\to$ double free
+  \item no \cc{flushTlb()} after \cc{unmapPage}
+  \item check and map in two lock sections $\to$ race
+  \item lock still held at a \cc{return} (manual acquire)
+  \item \cc{vpn + i * PAGE\_SIZE} instead of \cc{vpn + i}
+  \item \cc{-1} / \cc{-1U} / \cc{NULL} instead of \cc{(size\_t)-1} / \cc{0}
+  \item \cc{m.page\_size()} -- it's a field: \cc{m.page\_size}
+  \item \cc{int} for addresses or sizes
+  \item \cc{allocPPN} before checking the slot $\to$ leak
+\end{enumerate}
+\end{csec}
+
+% ================= 14 tutor =================
+\begin{csec}{cPurple}{14 \quad Tutor questions -- say it out loud}
+\begin{itemize}
+  \item What does your lock protect? Show the critical section.
+  \item Who frees the frame / the page-table pages? (\cc{unmapPage})
+  \item Why flush the TLB? Would the test notice?
+  \item What if \cc{mapPage} returns false?
+  \item What happens to pages never freed at exit? (\cc{\textasciitilde UserProcess} deletes the address space)
+  \item Why \cc{size\_t} and \cc{(size\_t)-1}? Why the overflow-safe pointer check?
+\end{itemize}
+\end{csec}
+
+\end{multicols}
+\end{document}

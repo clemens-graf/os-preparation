@@ -4,11 +4,11 @@ Patch: [`solution.patch`](solution.patch).
 
 ```cpp
 // top of syscallException
-if (currentThread->loader_ && currentThread->loader_->isBlacklisted(syscall_number))
+if (currentThread->getProcess()->isBlacklisted(syscall_number))
   return (size_t) -1;
 
-bool Loader::isBlacklisted(size_t n)  { ScopeLock lock(blacklist_lock_); /* search */ }
-size_t Loader::addToBlacklist(size_t n)
+bool UserProcess::isBlacklisted(size_t n)  { ScopeLock lock(blacklist_lock_); /* search */ }
+size_t UserProcess::addToBlacklist(size_t n)
 {
   if (n == sc_exit) return -1;          // the process could never end
   ScopeLock lock(blacklist_lock_); /* add if not there, max 16 */

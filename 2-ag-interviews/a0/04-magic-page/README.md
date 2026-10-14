@@ -30,7 +30,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   (`ScopeLock lock(thread_lock_)`, `arch_memory_->mapPage(...)`, then clear `writeable`).
 - `currentThread->getName()` is the program's file name.
 
-_Base SWEB (`task mode base`): the helper is `Loader::mapReadOnlyPage` under `Loader::arch_memory_lock_`._
 
 ## Hints
 

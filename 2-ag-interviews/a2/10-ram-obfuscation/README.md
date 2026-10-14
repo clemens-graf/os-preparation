@@ -18,6 +18,10 @@ Notes:        Take special care with pagefaults occurring during the remap proce
 `task.sh start a2-10` → `task.sh test` (2 runs). Done when pages of the test process were moved
 and none of its data (16 pages + a deep stack) was lost or corrupted.
 
+## Your team's code
+
+The list of address spaces is a list of **processes**: `static UserProcess* all_processes_`, `all_processes_lock_` (created in `startup()`), `next_process_`; the constructor registers (also for `fork`), `~UserProcess` unregisters first. `relocatePage` / `isMapped` in `UserProcess` under `thread_lock_`; `isMapped` goes first in the page fault handler's valid branch.
+
 ## Hints
 
 <details><summary>1 – finding the processes</summary>

@@ -17,6 +17,10 @@ Description:  Pages are written to the swap device XOR-encrypted with a 128-bit 
 `task.sh start a2-04` → `task.sh test`. Done when the raw slot does not contain the plain text and
 the page comes back intact (plus all A2-01 checks).
 
+## Your team's code
+
+Builds on A2-01: the encryption is inside `SwapManager`; `peekSwapped` (testing) in `UserProcess`.
+
 ## Hints
 
 <details><summary>1 – encrypt a copy</summary>

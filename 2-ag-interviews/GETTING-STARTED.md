@@ -8,14 +8,14 @@ All commands work **from any directory**.
 | What | Where | You … |
 |---|---|---|
 | Course: task cards, examples, solutions, `guide.pdf` | `~/Documents/University/2026-fall/os/preparation/2-ag-interviews/` | **read** here |
-| Training copy of SWEB (a local git repo, upstream `f6fcb2ab`) | `~/Documents/University/2026-fall/os/repos/sweb-ag/` | **write code** here |
+| Training copy of SWEB (a local git repo with your team's code) | `~/Documents/University/2026-fall/os/repos/sweb-ag/` | **write code** here |
 | Build folder of the training copy | `/tmp/sweb-ag/` | never touch (logs are here) |
 | The tool | `preparation/2-ag-interviews/tools/task.sh` | call it as `task` |
 
-`repos/sweb-ag` is purely local. Its only remote is the official SWEB on GitHub (no push
-rights), and `task` never pushes. The only fetch is `task team setup`, which copies one commit
-*from* your local team repo into the training copy. Your practice repo `repos/sweb` and the team
-repo `osw26e3` are never changed.
+`repos/sweb-ag` is purely local, and `task` never pushes (a copy created by `task setup` has no
+remote at all). The only fetch is `task team setup`, which copies one commit *from* your local
+team repo into the training copy. Your practice repo `repos/sweb` and the team repo `osw26e3`
+are never changed.
 
 ## 1. One-time setup
 
@@ -183,22 +183,19 @@ task reset a0                           # every started A0 task (also a1, a2, ex
 Nothing is lost: the old attempt (including uncommitted changes) is kept as
 `backup/a0-01-meminfo-<date>-<time>`.
 
-### Your team's code – the default
+### Your team's code
 
-Every A0 task and example starts from **your team's code**: the commit in `team/BASE` of your
+Every task and example starts from **your team's code**: the commit in `team/BASE` of your
 team repo `osw26e3`, imported into the training copy as branch `main` (`task` does that by
 itself the first time; it only *reads* `repos/osw26e3`). That is the code you have in the
-interview: `currentThread->getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`. A1/A2 tasks have no version
-for your team's code yet – they use base SWEB automatically and say so.
+interview: `currentThread->getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`.
 
 ```bash
 task team setup                         # import the team code again (e.g. after team/BASE changed)
-task mode base                          # only if you want base SWEB for everything (branches under base-sweb/)
-task mode team                          # back to the default
-task mode                               # which mode am I in?
+task quiz                               # 5 random "where is …?" questions about that code
 ```
-On your team's code GRUB starts SWEB right away (no Enter needed). What is different from base
-SWEB: [`team/README.md`](team/README.md).
+On your team's code GRUB starts SWEB right away (no Enter needed). Your team's names and every
+task's place in your code: [`team/README.md`](team/README.md); every file: [`ATLAS.md`](ATLAS.md).
 
 ## 4. Git in the training repo
 
@@ -313,6 +310,6 @@ task gdb gdb                 # ... attach from a 2nd terminal; task nodebug afte
 task solution a0-01          # the reference solution
 task diff a0-01              # my attempt vs. the solution
 task reset a0-01             # start over (backup kept)
-task mode                    # team (your team's code, default) or base
+task quiz                    # 5 "where is …?" questions (task quiz 20: more)
 cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "wip"   # save
 ```

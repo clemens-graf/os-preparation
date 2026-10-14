@@ -17,6 +17,10 @@ Description:  When a page is swapped in, its copy on disk stays valid (the slot 
 `task.sh start a2-05` → `task.sh test`. Done when 7 checks pass: first swap-out writes, a clean one
 does not, a dirty one does and reuses its slot, slots freed at exit.
 
+## Your team's code
+
+Builds on A2-01: the changes are in `UserProcess::swapOut/swapIn` (team) and `SwapManager`.
+
 ## Hints
 
 <details><summary>1 – how do you know it was written?</summary>

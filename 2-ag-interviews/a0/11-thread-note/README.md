@@ -45,7 +45,6 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   it after 15 characters. A tutor may ask why you did not reuse it.
 - 1570/1571 are free.
 
-_Base SWEB (`task mode base`): the note is a member of `Thread`._
 
 ## Hints
 

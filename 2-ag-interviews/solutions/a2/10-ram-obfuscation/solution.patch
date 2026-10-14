@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index b44b007..3364296 100644
+index 19431844..0128994e 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -74,6 +74,12 @@ class ArchMemory
@@ -16,10 +16,10 @@ index b44b007..3364296 100644
       * Fills out an ArchMemoryMapping object by translating the given
       * virtual page and collecting infos from the page tables along the way.
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 0134550..93f7956 100644
+index 6aff17ae..0777692d 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -158,6 +158,37 @@ ArchMemory::~ArchMemory()
+@@ -205,6 +205,37 @@ ArchMemory::~ArchMemory()
    PageManager::instance()->freePPN(page_map_level_4_);
  }
  
@@ -57,37 +57,9 @@ index 0134550..93f7956 100644
  pointer ArchMemory::checkAddressValid(uint64 vaddress_to_check)
  {
    if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
-diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index c32e5e1..13a369f 100644
---- a/common/include/kernel/Loader.h
-+++ b/common/include/kernel/Loader.h
-@@ -34,6 +34,23 @@ class Loader
- 
-     ArchMemory arch_memory_;
- 
-+    // protects arch_memory_ (the page tables of this process):
-+    // every mapPage/unmapPage/PTE change for this process happens while holding it
-+    Mutex arch_memory_lock_;
-+
-+    // A2-10: all loaders (= all address spaces) in an intrusive list. A plain static pointer
-+    // needs no constructor (SWEB runs none for globals); the lock is created in startup().
-+    static Loader* all_loaders_;
-+    static Mutex* all_loaders_lock_;   // protects all_loaders_ and next_loader_, taken BEFORE arch_memory_lock_
-+    Loader* next_loader_;
-+    size_t relocations_;              // A2-10: pages moved so far (protected by arch_memory_lock_)
-+
-+    /** A2-10: moves the index-th present page to a new physical page @return true if done */
-+    bool relocatePage(size_t index);
-+
-+    /** A2-10: is vpn mapped right now? (waits for a relocation in progress) */
-+    bool isMapped(size_t vpn);
-+
-   private:
- 
-     /**
 diff --git a/common/include/kernel/ObfuscationThread.h b/common/include/kernel/ObfuscationThread.h
 new file mode 100644
-index 0000000..d95672f
+index 00000000..d95672f7
 --- /dev/null
 +++ b/common/include/kernel/ObfuscationThread.h
 @@ -0,0 +1,18 @@
@@ -109,113 +81,50 @@ index 0000000..d95672f
 +    size_t random_;
 +    size_t nextRandom();
 +};
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..e1740ef6 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -157,6 +157,19 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    // A2-10: all processes (= all address spaces) in an intrusive list. A plain static pointer
++    // needs no constructor (SWEB runs none for globals); the lock is created in startup().
++    static UserProcess* all_processes_;
++    static Mutex* all_processes_lock_;   // protects all_processes_ and next_process_, taken BEFORE thread_lock_
++    UserProcess* next_process_ = nullptr;
++    size_t relocations_ = 0;             // A2-10: pages moved so far (thread_lock_)
++
++    /** A2-10: moves the index-th present page to a new physical page @return true if done */
++    bool relocatePage(size_t index);
++
++    /** A2-10: is vpn mapped right now? (waits for a relocation in progress) */
++    bool isMapped(size_t vpn);
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index dd99d19..d40994d 100644
+index 51f0de2a..02bd295b 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -17,3 +17,6 @@
- #define sc_createprocess 191
- #define sc_trace 252
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_relocations 1780   // A2-10 (testing)
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
  
-+// A2-10
-+#define sc_relocations 1780
-+
-diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index b4dc379..8cf0293 100644
---- a/common/source/kernel/Loader.cpp
-+++ b/common/source/kernel/Loader.cpp
-@@ -9,13 +9,31 @@
- #include "File.h"
- #include "FileDescriptor.h"
- #include "Scheduler.h"
-+#include "ScopeLock.h"
-+#include "kstring.h"
- 
--Loader::Loader(ssize_t fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
-+Loader::Loader(ssize_t fd) : arch_memory_lock_("Loader::arch_memory_lock_"), next_loader_(0), relocations_(0), fd_(fd), hdr_(0), phdrs_(),
-+    program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
- {
-+  ScopeLock lock(*all_loaders_lock_);          // A2-10: register
-+  next_loader_ = all_loaders_;
-+  all_loaders_ = this;
- }
- 
-+Loader* Loader::all_loaders_ = nullptr;
-+Mutex* Loader::all_loaders_lock_ = nullptr;
-+
- Loader::~Loader()
- {
-+  {
-+    // A2-10: unregister FIRST. If the obfuscation thread is working on us right now, it holds
-+    // all_loaders_lock_ - we wait here until it is done, so it never touches a dead loader.
-+    ScopeLock lock(*all_loaders_lock_);
-+    Loader** link = &all_loaders_;
-+    while (*link != this)
-+      link = &(*link)->next_loader_;
-+    *link = next_loader_;
-+  }
-   delete userspace_debug_info_;
-   delete hdr_;
-   userspace_debug_info_ = nullptr;
-@@ -70,7 +88,9 @@ void Loader::loadPage(pointer virtual_address)
-     Syscall::exit(666);
-   }
- 
-+  arch_memory_lock_.acquire();
-   bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);
-+  arch_memory_lock_.release();
-   if (!page_mapped)
-   {
-     debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
-@@ -79,6 +99,40 @@ void Loader::loadPage(pointer virtual_address)
-   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
- }
- 
-+bool Loader::relocatePage(size_t index)
-+{
-+  const size_t MAX = 256;
-+  size_t vpns[MAX];
-+  ScopeLock lock(arch_memory_lock_);
-+  size_t count = arch_memory_.collectPresentPages(vpns, MAX);
-+  if (count == 0)
-+    return false;
-+  ArchMemoryMapping m = arch_memory_.resolveMapping(vpns[index % count]);
-+  PageTableEntry& pte = m.pt[m.pti];
-+  size_t old_ppn = pte.page_ppn;
-+
-+  // 1. the process must not use the page while it is copied: a write to the OLD page during
-+  //    the copy would be lost. Take it away first - an access now page-faults, and the page
-+  //    fault handler waits for arch_memory_lock_ (see isMapped).
-+  pte.present = 0;
-+  ArchMemory::flushTlb();
-+  // 2. copy through the ident mapping
-+  size_t new_ppn = PageManager::instance()->allocPPN();
-+  memcpy((void*) ArchMemory::getIdentAddressOfPPN(new_ppn), (void*) ArchMemory::getIdentAddressOfPPN(old_ppn), PAGE_SIZE);
-+  // 3. point the entry to the new page and give it back
-+  pte.page_ppn = new_ppn;
-+  pte.present = 1;
-+  PageManager::instance()->freePPN(old_ppn);
-+  ++relocations_;
-+  return true;
-+}
-+
-+bool Loader::isMapped(size_t vpn)
-+{
-+  ScopeLock lock(arch_memory_lock_);
-+  return arch_memory_.resolveMapping(vpn).page_size == PAGE_SIZE;
-+}
-+
- bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
- {
-   assert(program_binary_lock_.isHeldBy(currentThread));
 diff --git a/common/source/kernel/ObfuscationThread.cpp b/common/source/kernel/ObfuscationThread.cpp
 new file mode 100644
-index 0000000..c44fb9e
+index 00000000..87fdcfae
 --- /dev/null
 +++ b/common/source/kernel/ObfuscationThread.cpp
 @@ -0,0 +1,39 @@
 +#include "ObfuscationThread.h"
-+#include "Loader.h"
++#include "UserProcess.h"
 +#include "Scheduler.h"
 +#include "Mutex.h"
 +#include "ScopeLock.h"
@@ -239,97 +148,179 @@ index 0000000..c44fb9e
 +    while (Scheduler::instance()->getTicks() < until)
 +      Scheduler::instance()->yield();
 +
-+    // lock order: all_loaders_lock_ -> one loader's arch_memory_lock_ (taken in relocatePage)
-+    ScopeLock lock(*Loader::all_loaders_lock_);
++    // lock order: all_processes_lock_ -> one process' thread_lock_ (taken in relocatePage)
++    ScopeLock lock(*UserProcess::all_processes_lock_);
 +    size_t count = 0;
-+    for (Loader* l = Loader::all_loaders_; l; l = l->next_loader_)
++    for (UserProcess* p = UserProcess::all_processes_; p; p = p->next_process_)
 +      ++count;
 +    if (count == 0)
 +      continue;
 +    size_t pick = nextRandom() % count;
-+    Loader* loader = Loader::all_loaders_;
++    UserProcess* process = UserProcess::all_processes_;
 +    while (pick--)
-+      loader = loader->next_loader_;
-+    loader->relocatePage(nextRandom());
++      process = process->next_process_;
++    process->relocatePage(nextRandom());
 +  }
 +}
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 964cd5b..421666d 100644
+index 86cf85a2..5783e30d 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -7,6 +7,8 @@
- #include "ProcessRegistry.h"
- #include "File.h"
+@@ -9,6 +9,7 @@
  #include "Scheduler.h"
-+#include "Loader.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
 +#include "ScopeLock.h"
  
- size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
- {
-@@ -49,6 +51,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pseudols:
-       pseudols((const char*) arg1, (char*) arg2, arg3);
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -88,6 +89,13 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_relocations:
 +    {
-+      ScopeLock lock(currentThread->loader_->arch_memory_lock_);
-+      return_value = currentThread->loader_->relocations_;
++      UserProcess* process = currentThread->getProcess();
++      ScopeLock lock(process->getThreadLock());
++      return_value = process->relocations_;
 +      break;
 +    }
-     default:
-       return_value = -1;
-       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f37eb7ef..a5fed960 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -10,13 +10,23 @@
+ #include "Scheduler.h"
+ #include "UserThread.h"
+ #include "Mutex.h"
++#include "ScopeLock.h"
+ #include "ArchMemory.h"
++#include "kstring.h"
++
++UserProcess* UserProcess::all_processes_ = nullptr;   // A2-10
++Mutex* UserProcess::all_processes_lock_ = nullptr;
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+   filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
+   fd_(fd), ppid_(ppid), arch_memory_(arch_memory ? arch_memory : new ArchMemory()), pid_(ProcessRegistry::instance()->registerPID()),
+   thread_lock_("UserProcess::thread_lock"), thread_exited_(&thread_lock_, "UserProcess::thread_exited_"), next_stack_slot_lock_("UserProcess::next_stack_slot_lock"), running_threads_(0), next_stack_slot_(0)
+ {
++  {
++    ScopeLock lock(*all_processes_lock_);          // A2-10: register
++    next_process_ = all_processes_;
++    all_processes_ = this;
++  }
+   debug(USERPROCESS, "created process with ppid: %zu, pid: %zu, filename: %s, terminal_number: %d, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), terminal_number_, fd_);
+ }
+ 
+@@ -24,6 +34,15 @@ UserProcess::~UserProcess()
+ {
+   debug(USERPROCESS, "deleting process with ppid: %zu, pid: %zu, filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
+   assert(Scheduler::instance()->isCurrentlyCleaningUp());
++  {
++    // A2-10: unregister FIRST. If the obfuscation thread is working on us right now, it holds
++    // all_processes_lock_ - we wait here until it is done, so it never touches a dead process.
++    ScopeLock lock(*all_processes_lock_);
++    UserProcess** link = &all_processes_;
++    while (*link != this)
++      link = &(*link)->next_process_;
++    *link = next_process_;
++  }
+ 
+   if (fd_ >= 0)
+     VfsSyscall::close(fd_);
+@@ -550,3 +569,38 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
+ }
++
++// A2-10
++bool UserProcess::relocatePage(size_t index)
++{
++  const size_t MAX = 256;
++  size_t vpns[MAX];
++  ScopeLock lock(thread_lock_);
++  size_t count = arch_memory_->collectPresentPages(vpns, MAX);
++  if (count == 0)
++    return false;
++  ArchMemoryMapping m = arch_memory_->resolveMapping(vpns[index % count]);
++  PageTableEntry& pte = m.pt[m.pti];
++  size_t old_ppn = pte.page_ppn;
++
++  // 1. the process must not use the page while it is copied: a write to the OLD page during
++  //    the copy would be lost. Take it away first - an access now page-faults, and the page
++  //    fault handler waits for thread_lock_ (see isMapped).
++  pte.present = 0;
++  ArchMemory::flushTlb();
++  // 2. copy through the ident mapping
++  size_t new_ppn = PageManager::instance()->allocPPN();
++  memcpy((void*) ArchMemory::getIdentAddressOfPPN(new_ppn), (void*) ArchMemory::getIdentAddressOfPPN(old_ppn), PAGE_SIZE);
++  // 3. point the entry to the new page and give it back
++  pte.page_ppn = new_ppn;
++  pte.present = 1;
++  PageManager::instance()->freePPN(old_ppn);
++  ++relocations_;
++  return true;
++}
++
++bool UserProcess::isMapped(size_t vpn)
++{
++  ScopeLock lock(thread_lock_);
++  return arch_memory_->resolveMapping(vpn).page_size == PAGE_SIZE;
++}
 diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
-index f795707..d662f20 100644
+index fd6819b0..03e6e21a 100644
 --- a/common/source/kernel/main.cpp
 +++ b/common/source/kernel/main.cpp
-@@ -25,6 +25,9 @@
- #include "Terminal.h"
- #include "outerrstream.h"
- #include "user_progs.h"
-+#include "Loader.h"
+@@ -6,6 +6,9 @@
+ #include "ArchInterrupts.h"
+ #include "ArchThreads.h"
+ #include "kprintf.h"
++#include "UserProcess.h"
 +#include "ObfuscationThread.h"
 +#include "Mutex.h"
- 
- extern void* kernel_end_address;
- 
-@@ -58,6 +61,9 @@ extern "C" void startup()
+ #include "Scheduler.h"
+ #include "ArchCommon.h"
+ #include "debug_bochs.h"
+@@ -57,6 +60,8 @@ extern "C" void startup()
+   kprintf("Kernel end address is %p\n", &kernel_end_address);
  
    Scheduler::instance();
++  // A2-10: global lock before any process exists
++  UserProcess::all_processes_lock_ = new Mutex("UserProcess::all_processes_lock_");
  
-+  // A2-10: global lock before any loader exists
-+  Loader::all_loaders_lock_ = new Mutex("Loader::all_loaders_lock_");
-+
    //needs to be done after scheduler and terminal, but prior to enableInterrupts
    kprintf_init();
- 
-@@ -113,6 +119,7 @@ extern "C" void startup()
- 
+@@ -114,6 +119,7 @@ extern "C" void startup()
    debug(MAIN, "Adding Kernel threads\n");
    Scheduler::instance()->addNewThread(main_console);
-+  Scheduler::instance()->addNewThread(new ObfuscationThread());   // A2-10
    Scheduler::instance()->addNewThread(new ProcessRegistry(new FileSystemInfo(*default_working_dir), user_progs /*see user_progs.h*/));
++  Scheduler::instance()->addNewThread(new ObfuscationThread());   // A2-10
    Scheduler::instance()->printThreadList();
  
+   kprintf("Now enabling Interrupts...\n");
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 3224b05..71b8df9 100644
+index 2dfb14e4..dc6c94e8 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
-@@ -61,7 +61,11 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+@@ -72,6 +72,12 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
  
    if (checkPageFaultIsValid(address, user, present, switch_to_us))
    {
--    currentThread->loader_->loadPage(address);
 +    // A2-10: the obfuscation thread may be moving this page right now (present = 0 for a moment).
 +    // isMapped() waits for its lock - if the page is back, just return and repeat the access.
 +    // Without this, a stack page would end up in loadPage -> "no section" -> killed.
-+    if (!currentThread->loader_->isMapped(address / PAGE_SIZE))
-+      currentThread->loader_->loadPage(address);
-   }
-   else
-   {
++    if (currentThread->getProcess()->isMapped(address / PAGE_SIZE))
++      return;
++
+     // UserProcess* current_process = currentThread->getProcess();
+     // assert(current_process && "Thread has no process");
+     // current_process->getLoader().loadPage(address, current_process->getAddressSpace());
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 3f341b5..ec6e4e0 100644
+index 901640e9..9b3dbc5a 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -340,9 +331,9 @@ index 3f341b5..ec6e4e0 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -16,6 +18,9 @@ extern "C" {
-  */ 
- extern int createprocess(const char* path, int sleep);
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
  
 +// A2-10: how many of this process' pages the obfuscation thread has moved so far
 +extern size_t relocations(void);
@@ -351,18 +342,19 @@ index 3f341b5..ec6e4e0 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index b9ec3d1..0b2557f 100644
+index befb9485..7ae148f3 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
- 
- extern int main();
- 
+@@ -23,4 +23,10 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A2-10
 +size_t relocations(void)
 +{
 +  return __syscall(sc_relocations, 0x00, 0x00, 0x00, 0x00, 0x00);
 +}
-+
- void _start()
- {
-   exit(main());

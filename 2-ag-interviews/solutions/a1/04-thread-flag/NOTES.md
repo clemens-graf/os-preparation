@@ -1,8 +1,8 @@
 # A1-04 thread flagging – solution notes
 
-Patches: [`on-top-of-a1-01.patch`](on-top-of-a1-01.patch), [`solution.patch`](solution.patch).
-Also contains the small helper used by A1-04..07: slots remember their `UserThread*`,
-`UserProcess::findThread(id)` (caller holds `threads_lock_`).
+Patch: [`solution.patch`](solution.patch) – on your team's code. Finding a thread by id (also
+A1-05, A1-07): `process->findThreadDataByTid(id)->thread_` while holding `getThreadLock()` –
+`exitThread` sets `thread_` to `nullptr` under that lock, so the pointer stays valid while you hold it.
 
 ## The scheduler change
 
@@ -29,7 +29,7 @@ So:
 - `double_slice_`: one word, written by the syscall with `ArchThreads::atomic_set`, read by the
   scheduler – it sees either the old or the new value, both fine.
 - `extra_slice_used_`: written only by the scheduler itself.
-- The syscall looks the thread up under `threads_lock_` and keeps holding it while writing the flag
+- The syscall looks the thread up under `thread_lock_` and keeps holding it while writing the flag
   (the object cannot be freed meanwhile).
 
 ## Variants

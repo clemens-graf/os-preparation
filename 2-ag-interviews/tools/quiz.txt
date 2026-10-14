@@ -1,0 +1,24 @@
+Where does every user program start (the function that calls main)?|_start: exit(main())|userspace/libc/src/nonstd.c
+Where would atexit handlers have to run?|in exit(), before the exit syscall (not in _exit)|userspace/libc/src/exec.c
+Where is the big switch over all syscall numbers?|Syscall::syscallException|common/source/kernel/Syscall.cpp
+Where are the syscall numbers defined (for kernel AND libc)?|syscall-definitions.h|common/include/kernel/syscall-definitions.h
+Which registers carry the syscall number and arguments?|rax = number, rbx rcx rdx rsi rdi = args, result in rax|arch/x86/64/userspace/syscalls.c
+Where does a page fault end up in C, and where is it decided what to do?|pageFaultHandler (InterruptUtils.cpp) -> PageFaultHandler::handlePageFault|common/source/mm/PageFaultHandler.cpp
+Which lock protects the page tables of a process in your team's code?|thread_lock_: process->getThreadLock()|common/include/kernel/UserProcess.h
+Where are stack pages of a thread added on demand?|handlePageFault: isUserStackFault -> mapStackPage|common/source/mm/PageFaultHandler.cpp
+Where is a page loaded from the ELF binary (exit 666 if no segment)?|Loader::loadPage(address, arch_memory)|common/source/kernel/Loader.cpp
+Where are F9-F12 handled, and where would you add F3?|Console::handleKey|common/source/console/Console.cpp
+Where is the next thread chosen?|Scheduler::schedule (round robin over threads_)|common/source/kernel/Scheduler.cpp
+What runs on every timer tick?|irqHandler_0 -> Scheduler::incTicks + schedule|arch/x86/64/source/InterruptUtils.cpp
+Where do you create a new kernel thread at boot?|startup(): Scheduler::instance()->addNewThread(new X)|common/source/kernel/main.cpp
+Where is a process deleted, and what frees its pages?|~UserProcess (last thread gone) -> delete arch_memory_ -> ~ArchMemory|common/source/kernel/UserProcess.cpp
+Where does pthread_join wait, and who wakes it?|joinThread: thread_exited_.wait(); exitThread broadcasts|common/source/kernel/UserProcess.cpp
+How do you get a thread of your process by id?|process->findThreadDataByTid(tid)->thread_ (hold thread_lock_)|common/source/kernel/UserProcess.cpp
+Where are malloc, free, calloc, realloc - and what do they do now?|stdlib.c - stubs, they return 0|userspace/libc/src/stdlib.c
+Which pthread functions are stubs?|mutex_*, cond_*, spin_*, detach, setcancelstate/type|userspace/libc/src/pthread.c
+Where is the "check pointer + copy string from user space" helper?|Syscall::copyUserString|common/source/kernel/Syscall.cpp
+Where are the bits of a page-table entry (present, writeable, NX, free bits)?|PageTableEntry|arch/x86/64/include/paging-definitions.h
+How do you read a physical page from the kernel?|(char*) ArchMemory::getIdentAddressOfPPN(ppn)|arch/x86/64/include/ArchMemory.h
+Where are the swap partition and the other disks found?|BDManager::getInstance()->getDeviceByName("idea2")|common/source/fs/BDManager.cpp
+Where is USER_BREAK defined, and what is it?|offsets.h: 0x800000000000, end of user space|arch/x86/64/include/offsets.h
+Where do you add your own debug flag?|const size_t NAME = Ansi_Cyan | OUTPUT_ENABLED;|common/include/console/debug.h

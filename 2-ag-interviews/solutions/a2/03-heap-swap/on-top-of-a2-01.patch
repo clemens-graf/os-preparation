@@ -1,5 +1,5 @@
 diff --git a/common/include/mm/SwapManager.h b/common/include/mm/SwapManager.h
-index 801f850..4204397 100644
+index 801f850a..42043972 100644
 --- a/common/include/mm/SwapManager.h
 +++ b/common/include/mm/SwapManager.h
 @@ -3,20 +3,21 @@
@@ -42,20 +42,20 @@ index 801f850..4204397 100644
 +    Mutex* lock_;                      // protects buffers_
  };
 diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
-index ad83cf3..9cf7f24 100644
+index 093e5a28..591c36f3 100644
 --- a/common/source/kernel/main.cpp
 +++ b/common/source/kernel/main.cpp
-@@ -85,7 +85,7 @@ extern "C" void startup()
+@@ -84,7 +84,7 @@ extern "C" void startup()
+ 
    debug(MAIN, "Block Device creation\n");
    BDManager::getInstance()->doDeviceDetection();
-   debug(MAIN, "Block Device done\n");
 -  SwapManager::init();   // A2-01: needs the block devices
 +  SwapManager::init();   // A2-01/A2-03
+   debug(MAIN, "Block Device done\n");
  
    for (BDVirtualDevice* bdvd : BDManager::getInstance()->device_list_)
-   {
 diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
-index f96581e..a22552e 100644
+index f96581e0..a22552e2 100644
 --- a/common/source/mm/SwapManager.cpp
 +++ b/common/source/mm/SwapManager.cpp
 @@ -1,10 +1,8 @@

@@ -2,16 +2,17 @@
 
 One folder per task:
 
-- `solution.patch` – the complete change against upstream SWEB `f6fcb2ab` (your practice
-  repo's `main`), **without** the test programs (those are in the task folders).
+- `solution.patch` – the complete change against your team's code (the commit in
+  `../team/BASE`), **without** the test programs (those are in the task folders).
   Some tasks build on a base – then there is also an `on-top-of-<base>.patch` with only the
-  task's own part.
+  task's own part. An **empty** `solution.patch` = a study task: your team's code already has it
+  (A0-08, A1-01, A1-06) – the tests run against your code.
 - `NOTES.md` – the walkthrough: files touched, the key code, **locking** (which lock
   protects what and why), pitfalls (several of them are bugs I made myself while writing
   the solutions – the tests caught them), and answers to the questions on the task card.
 
-Every solution was built and run: all checks of its test pass, and the test fails on
-plain upstream SWEB.
+Every solution was built and run on your team's code: all checks of its test pass (the study
+tasks A1-01 and A1-06 show two bugs in your team's join/cancel – see their notes).
 
 ## Using a solution
 

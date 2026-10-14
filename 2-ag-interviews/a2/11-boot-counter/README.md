@@ -17,6 +17,10 @@ Description:  At every boot the kernel reads a record from the first block of id
 Done when boot 1 sees no message and boot 2 sees "left by boot 1". (`run_test.sh` normally boots
 with a throw-away disk – `--keep-disk` keeps one copy for all runs.)
 
+## Your team's code
+
+Nothing team-specific: `BootRecord` (new), `init()` from `ProcessRegistry::Run()` (needs a thread for disk I/O), three syscalls.
+
 ## Hints
 
 <details><summary>1 – when to read the disk</summary>
