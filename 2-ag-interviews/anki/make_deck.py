@@ -380,6 +380,133 @@ DECKS["8 Basics"] = [
     ("Timer frequency in SWEB?", "18.2 Hz – a time slice is about 55 ms.", "basics"),
 ]
 
+# --------------------------------------------------------------------------------------------
+# Every file of your team's code you could be sent to (x86-64; arch/x86/32 and arch/arm are not
+# built). (path, what is in it, reverse question or None)
+FILES = [
+    # ---- kernel core: common/source/kernel + common/include/kernel
+    ("common/source/kernel/Syscall.cpp", "the syscall switch " + c("syscallException") + " and every syscall: exit, write, read, open, close, createprocess, pthreadCreate/Exit/Join/Cancel/Self, fork, execv, getpid, mkdir, getThreadCount; helper " + c("copyUserString"), "Which file has every syscall implementation?"),
+    ("common/include/kernel/Syscall.h", "the declarations " + c("static size_t x(…)") + " of all syscalls", None),
+    ("common/include/kernel/syscall-definitions.h", "the " + c("sc_…") + " numbers – shared by kernel and libc", None),
+    ("common/source/kernel/UserProcess.cpp", "the process: " + c("create, startProcess, fork, exec, createThread, registerThread, threadExited") + ", stacks (" + c("allocateNewStack, mapStackPage, isGuardPage") + "), " + c("exitThread, joinThread, cancelThread, exitProcess") + ", " + c("getAddressSpace, getLoader, getThreadLock") + ", destructor", "Which file creates processes and threads and ends them?"),
+    ("common/include/kernel/UserProcess.h", c("UserThreadData") + " struct, members " + c("arch_memory_, loader_, thread_lock_, thread_exited_, threads_") + ", " + c("USERSTACK_PAGES, GUARD_PAGE") + " – per-process state goes here", "Where do you add per-process state?"),
+    ("common/source/kernel/UserThread.cpp", "a user thread: the two constructors (new thread: user registers, stack top, address space; forked thread: copy of the parent's registers, rax = 0), " + c("Run, resetForExec") + ", stack vpns", None),
+    ("common/include/kernel/UserThread.h", c("class UserThread : public Thread") + " – " + c("user_stack_top_, lowest_mapped_stack_vpn_") + "; per-thread state goes here", "Where do you add per-thread state of user threads?"),
+    ("common/source/kernel/Thread.cpp", "base class of every thread: kernel stack (+ canary), " + c("kill()") + ", state, name, TID, terminal, " + c("printBacktrace") + ", " + c("threadStartHack") + " (start of kernel threads)", None),
+    ("common/include/kernel/Thread.h", c("kernel_registers_, user_registers_, switch_to_userspace_, getProcess(), state_") + "; " + c("ThreadState") + " Running/Sleeping/ToBeDestroyed", None),
+    ("common/source/kernel/Scheduler.cpp", c("schedule") + " (round robin), " + c("addNewThread, yield, sleep, wake, cleanupDeadThreads, printThreadList (F12), incTicks/getTicks, getNextTid, lockScheduling"), "Which file decides which thread runs next?"),
+    ("common/source/kernel/Loader.cpp", "the ELF binary of a process: " + c("readHeaders, prepareHeaders, getEntryFunction, loadPage") + " (lazy loading, exit 666), debug info for backtraces", "Which file loads a program's pages from its file?"),
+    ("common/source/kernel/ProcessRegistry.cpp", "kernel thread: mounts /usr, starts the programs of " + c("user_progs.h") + " (the shell); " + c("createProcess, registerPID") + ", counts processes (" + c("processStart/Exit/Count") + "), waits for all at shutdown", "Which kernel thread starts the shell and counts processes?"),
+    ("common/include/kernel/user_progs.h", "the list of programs started at boot – only " + c("/usr/shell.sweb") + " (don't rename the variable: automated tests)", None),
+    ("common/source/kernel/Mutex.cpp", "the sleeping lock: " + c("acquire, release, acquireNonBlocking, isFree") + " – waiters sleep in the scheduler", None),
+    ("common/source/kernel/SpinLock.cpp", "the spinning lock (" + c("ArchThreads::testSetLock") + " + yield) – very short sections, no new/delete inside", None),
+    ("common/source/kernel/Condition.cpp", c("wait, waitAndRelease, signal, broadcast") + " – always used with its Mutex", None),
+    ("common/source/kernel/Lock.cpp", "base class of Mutex/SpinLock/Condition: waiters list, holding list, deadlock and misuse checks (asserts with a backtrace)", "Which file detects deadlocks and wrong lock releases?"),
+    ("common/include/kernel/ScopeLock.h", c("ScopeLock lock(mutex);") + " – acquire in the constructor, release in the destructor", None),
+    ("common/source/kernel/CleanupThread.cpp", "kernel thread that deletes dead threads: " + c("Scheduler::cleanupDeadThreads") + " → " + c("delete thread"), "Which thread deletes threads that called kill()?"),
+    ("common/source/kernel/IdleThread.cpp", "runs when nothing else can: " + c("ArchCommon::idle()") + " (hlt until the next interrupt)", None),
+    ("common/source/kernel/main.cpp", c("startup()") + ": boot order – page manager, console, scheduler, interrupts, timer, file systems, block devices, keyboard, kernel threads (Console, ProcessRegistry); create kernel-wide objects here", None),
+    # ---- memory: common/source/mm + arch/x86/64
+    ("common/source/mm/PageFaultHandler.cpp", c("checkPageFaultIsValid, isUserStackFault, handlePageFault, enterPageFault") + " – stack growth, guard page, " + c("loadPage") + "; new cases (heap, swap-in, COW) go first in the valid branch", None),
+    ("common/source/mm/PageManager.cpp", "physical pages: bitmap of all frames, " + c("allocPPN") + " (zeroed), " + c("freePPN") + ", counts, " + c("printBitmap") + " (F9)", "Which file hands out physical pages?"),
+    ("common/source/mm/KernelMemoryManager.cpp", "the kernel heap behind " + c("new/delete/kmalloc") + ": segments, " + c("ksbrk") + ", leak tracing (" + c("startTracing") + ")", "Which file is the kernel heap (new/delete)?"),
+    ("common/source/mm/new.cpp + kmalloc.cpp", c("operator new/delete") + " and " + c("kmalloc/kfree/krealloc") + " → KernelMemoryManager", None),
+    ("arch/x86/64/source/ArchMemory.cpp", "page tables: " + c("mapPage, unmapPage, resolveMapping, checkAddressValid, flushTlb, getIdentAddressOfPPN") + ", kernel mappings, copy constructor (fork), destructor (frees all user pages)", "Which file changes page tables?"),
+    ("arch/x86/64/include/ArchMemory.h", c("ArchMemoryMapping") + " (" + c("page_size, page_ppn, pt, pti, …") + "), the class – new methods in " + c("public:"), None),
+    ("arch/x86/64/include/paging-definitions.h", c("PAGE_SIZE") + ", the entry bit fields (" + c("present, writeable, user_access, accessed, dirty, ignored_1/2/3, execution_disabled, page_ppn") + "), entries per table", "Where are the bits of a page-table entry defined?"),
+    ("arch/x86/64/include/offsets.h", c("USER_BREAK") + " (0x800000000000), " + c("KERNEL_START") + ", " + c("IDENT_MAPPING_START"), None),
+    ("arch/x86/64/source/init_boottime_pagetables.cpp", c("initialisePaging") + " (the page tables used while booting), " + c("removeBootTimeIdentMapping"), None),
+    ("arch/x86/64/utils/kernel-ld-script.ld", "the linker script of the kernel: entry point, where the sections go (virtual + physical address), alignment", "Where is defined where the kernel's sections are placed in memory?"),
+    # ---- interrupts, threads, CPU: arch/x86/64 + arch/x86/common + arch/common
+    ("arch/x86/64/source/InterruptUtils.cpp", "the C side of every interrupt: " + c("syscallHandler, pageFaultHandler, irqHandler_0") + " (timer), " + c("irqHandler_1") + " (keyboard), IDE IRQs 14/15, " + c("errorHandler") + "; IDT setup; " + c("countPageFault"), "Which file contains the C entry of every interrupt?"),
+    ("arch/x86/64/source/arch_interrupts.S", "assembly stubs: save all registers into " + c("currentThreadRegisters") + ", call the C handler, " + c("arch_contextSwitch") + " (load registers, iretq)", "Where are registers saved when an interrupt arrives?"),
+    ("arch/x86/64/source/ArchThreads.cpp", c("createUserRegisters, createKernelRegisters, setThreadArguments") + " (rdi/rsi), " + c("changeInstructionPointer, setAddressSpace") + " (cr3), " + c("yield") + ", atomics " + c("testSetLock, atomic_add, atomic_set") + ", " + c("printThreadRegisters"), "Which file creates a thread's registers?"),
+    ("arch/x86/64/include/ArchThreads.h", c("struct ArchThreadRegisters") + ": rip, cs, rflags, rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi, r8–r15, segments, rsp0, cr3, fpu", "Where is the struct with a thread's saved registers?"),
+    ("arch/x86/64/source/ArchInterrupts.cpp", "enable/disable interrupts, " + c("testIFSet") + ", timer on/off + " + c("setTimerFrequency") + ", keyboard on/off, " + c("EndOfInterrupt"), None),
+    ("arch/x86/64/source/ArchCommon.cpp", "multiboot info: usable memory regions, modules, VESA/text console creation; " + c("idle") + " (hlt), " + c("drawStat") + " (status line), " + c("drawHeartBeat"), None),
+    ("arch/x86/64/source/arch_backtrace.cpp", c("backtrace") + " / " + c("backtrace_user") + ": walks the frame pointers of a thread", None),
+    ("arch/x86/64/userspace/syscalls.c", c("__syscall") + ": " + c("int $0x80") + ", number in rax, args in rbx rcx rdx rsi rdi, result from rax", "Which file contains the instruction that enters the kernel from user space?"),
+    ("arch/x86/64/include/types.h + ElfFormat.h", "the kernel's integer types (" + c("uint64, size_t, pointer") + "); the ELF64 structures (" + c("Elf::Ehdr, Elf::Phdr") + ") for the loader", None),
+    ("arch/x86/common/source/8259.cpp", "the interrupt controller (PIC): " + c("initialise8259s, enableIRQ, disableIRQ, sendEOI"), None),
+    ("arch/x86/common/source/KeyboardManager.cpp + atkbd.cpp", "keyboard IRQ: read scancodes, convert them to keys (" + c("convertScancode") + "), modifier state, LEDs; keys go to the Console thread", "Which file turns keyboard scancodes into keys?"),
+    ("arch/common/include/KeyboardManager.h", c("KEY_F1 … KEY_F12") + " and the other key codes", "Where are the F-key codes defined?"),
+    ("arch/x86/common/source/ATADriver.cpp + IDEDriver.cpp", "the disk drivers: IDE detection, partitions from the MBR (" + c("processMBR") + " → idea0/idea1/idea2), ATA sector read/write, IRQ handling", "Which files are the disk drivers?"),
+    ("arch/x86/common/source/SerialManager.cpp + SerialPort.cpp", "serial ports (UART): detection, write, IRQ", None),
+    ("arch/x86/common/source/assert.cpp", c("sweb_assert") + ": prints the failed condition + backtrace and halts – the KERNEL PANIC you see", None),
+    ("arch/x86/common/source/debug_bochs.cpp", c("writeLine2Bochs") + ": early debug output on port 0xE9 (before the console exists)", None),
+    ("arch/x86/common/include/ErrorHandlers.h", "the names of the 32 CPU exceptions (division by zero, GP fault, …) and their handler stubs", "Where are the CPU exception names (e.g. General Protection Fault)?"),
+    ("arch/x86/common/include/ports.h", c("inportb/outportb") + " … – I/O port access", None),
+    ("arch/x86/common/include/multiboot.h", "the multiboot structures GRUB passes to the kernel", None),
+    # ---- console, debug output
+    ("common/source/console/Console.cpp", c("handleKey") + " (F9–F12 debug output, Shift+Fn terminal switch – add your F-key here), " + c("Run") + " (the Console kernel thread), terminals", None),
+    ("common/source/console/Terminal.cpp", "one terminal: input buffer (" + c("read, readLine") + "), output (" + c("write, writeString") + "), scrolling, colors", "Which file reads a line the user typed in the shell?"),
+    ("common/source/console/TextConsole.cpp + FrameBufferConsole.cpp", "the two screen backends: VGA text mode and a VESA framebuffer (with " + c("font_sun8x16.c") + ")", None),
+    ("common/source/console/kprintf.cpp", c("kprintf") + " (screen + debug) and " + c("kprintfd") + " (debug output only)", None),
+    ("common/source/console/panic.cpp", c("kpanict") + ": print a message and stop", None),
+    ("common/include/console/debug.h", "the debug flags (" + c("SYSCALL, PAGEFAULT, LOADER, USERPROCESS, …") + "), colors, " + c("debug(FLAG, …)") + " macro – add your own flag here", None),
+    # ---- block devices and file systems
+    ("common/source/fs/BDManager.cpp", "all block devices: detection, " + c("getDeviceByName / getDeviceByNumber") + ", IRQ dispatch", "Which file finds a disk by its name (idea2)?"),
+    ("common/source/fs/BDVirtualDevice.cpp", "one disk/partition: " + c("readData(offset, size, buf), writeData") + ", block size, partition type", None),
+    ("common/source/fs/VfsSyscall.cpp", "the file syscalls inside the kernel: " + c("open, close, read, write, lseek, mkdir, readdir, chdir, rm, rmdir, mount") + " – " + c("Syscall::open") + " etc. call these", "Which file implements open/read/write/mkdir for the syscalls?"),
+    ("common/source/fs/VirtualFileSystem.cpp", "the VFS: registered file system types, " + c("rootMount, mount, umount"), None),
+    ("common/source/fs/PathWalker.cpp + Path.cpp", "resolves a path string to dentries (" + c("pathWalk") + "): ., .., mount points, absolute/relative", None),
+    ("common/source/fs/Inode.cpp, Dentry.cpp, Superblock.cpp, File.cpp, VfsMount.cpp", "the VFS objects: inode (a file/dir, link counts, mkdir/mkfile), dentry (a name in a directory), superblock (one mounted file system), File (an open file), mount", None),
+    ("common/source/fs/FileDescriptor.cpp", c("FileDescriptorList") + ": the global fd table – " + c("add, remove, getFileDescriptor"), "Where are file descriptors kept?"),
+    ("common/source/fs/minixfs/", "the Minix file system on idea1 (/usr: the user programs): superblock, inodes, zones, storage manager", None),
+    ("common/source/fs/ramfs/ + devicefs/", "ramfs: the root file system in memory; devicefs: /dev (block and character devices as files)", None),
+    # ---- util
+    ("common/source/util/Bitmap.cpp", c("setBit, unsetBit, getBit, getNumBitsSet, getNumFreeBits") + " – used by the PageManager (and a swap manager)", "Which helper class tracks used/free slots with one bit each?"),
+    ("common/source/util/kstring.cpp", "the kernel's string functions: " + c("memcpy, memset, memcmp, strlen, strcpy, strcmp, …") + " – user programs cannot use them", None),
+    ("common/include/util/FiFo.h + RingBuffer.h", "templates for queues (keyboard input, terminal buffers)", None),
+    ("common/source/util/Stabs2DebugInfo.cpp + SWEBDebugInfo.cpp", "debug symbols: function name + line for an address – what makes backtraces readable", None),
+    ("common/source/util/qsort.cpp + libgcc.cpp", c("qsort") + " (heapsort) for the kernel; 64-bit division helpers the compiler calls", None),
+    # ---- user space
+    ("userspace/libc/src/nonstd.c + include/nonstd.h", c("_start") + " (" + c("exit(main())") + "), " + c("createprocess, getThreadCount, getProcessCount") + " – your own syscall wrappers go here", None),
+    ("userspace/libc/src/stdlib.c", c("malloc, free, calloc, realloc, atexit") + " – all stubs", None),
+    ("userspace/libc/src/exec.c", c("exit") + " (atexit handlers go here), " + c("_exit, fork, execv"), None),
+    ("userspace/libc/src/pthread.c", c("pthread_create") + " (+ the trampoline " + c("pthread_start") + "), " + c("exit, join, cancel, testcancel, self") + "; stubs: " + c("mutex_*, cond_*, spin_*, detach, setcancelstate/type"), None),
+    ("userspace/libc/src/semaphore.c", c("sem_init/wait/trywait/post/destroy") + " – all stubs", None),
+    ("userspace/libc/src/unistd.c", c("getpid, getppid") + "; stubs " + c("brk, sbrk, sleep, ftruncate"), None),
+    ("userspace/libc/src/time.c + wait.c + mman.c", c("clock") + ", " + c("waitpid") + ", " + c("mmap, munmap, shm_open, shm_unlink, mprotect") + " – all stubs", None),
+    ("userspace/libc/src/string.c", c("memcmp, memcpy, memset, strlen, strcmp, strstr") + " – no strcpy/strncpy/strcat", None),
+    ("userspace/libc/src/printf.c + scanf.c", c("printf, putchar, puts") + " (format in user space, then one " + c("write") + "); " + c("scanf, sscanf, getchar, gets, fgets, strtoul"), None),
+    ("userspace/libc/src/read.c, write.c, file_alloc.c", "thin syscall wrappers: " + c("read, lseek, write, open, close, mkdir, link, unlink, pipe, dup, dup2, rename"), None),
+    ("userspace/libc/src/sched.c + atoi.c + ctype.c", c("sched_yield") + " (syscall 158); " + c("atoi, atol") + "; " + c("isdigit, isalpha, …"), None),
+    ("userspace/libc/include/types.h", c("size_t, ssize_t, pid_t, off_t, …") + " for user programs – include it where you use size_t", None),
+    ("userspace/libc/include/sys/syscall.h", "the declaration of " + c("__syscall(number, a1, …, a5)"), None),
+    ("userspace/tests/", "one program per .c file (→ /usr/name.sweb, built automatically): " + c("shell.c") + " (the shell), " + c("mult.c, memtest.c, helloworld.c") + ", your team's tests (" + c("pthread_*, fork_basic, exec_basic, mkdir_basic") + ")", None),
+    ("userspace/tests/shell.c", "the shell: reads a line, runs " + c("name.sweb") + " with " + c("createprocess") + ", built-in commands " + c("ls/l, help/h, exit/q, cls/clear"), "Which program reads the commands you type after boot?"),
+    # ---- small headers (rarely the target of a task, but you may land in them)
+    ("arch/common/include/BDDriver.h + BDRequest.h", "the interface every disk driver implements (" + c("readSector, writeSector, addRequest") + ") and a request (" + c("BD_READ, BD_WRITE") + ", sector, buffer, status) – what " + c("BDVirtualDevice::readData") + " creates", None),
+    ("arch/common/include/Elf64Format.h + Elf32Format.h", "the ELF structures (header, program header: " + c("p_type, p_flags (PF_X/PF_W/PF_R), p_vaddr, p_filesz, p_memsz") + ") – the loader reads them", "Where are the ELF program-header flags PF_X / PF_W defined?"),
+    ("arch/common/include/ArchSerialInfo.h + arch/x86/common/source/arch_serial_constants.cpp", "port addresses and constants of the serial ports", None),
+    ("common/include/fs/FileSystemInfo.h (+ .cpp)", "a thread's root and current directory (" + c("root_, pwd_") + ") – " + c("Thread::getWorkingDirInfo()") + ", copied by fork", "Where is a thread's current working directory stored?"),
+    ("common/include/fs/FileSystemType.h (+ .cpp)", "one kind of file system (minixfs, ramfs, devicefs): name, flags, " + c("readSuper / createSuper"), None),
+    ("common/include/fs/Dirent.h", "one directory entry as " + c("readdir") + " returns it (name, type)", None),
+    ("common/include/util/chardev.h", c("CharacterDevice") + ": base of byte-stream devices (terminals, serial ports) – appears in /dev", None),
+    ("common/include/util/stdarg.h + userspace/libc/include/stdarg.h", c("va_list, va_start, va_arg, va_end") + " – variadic functions like " + c("kprintf") + " / " + c("printf"), None),
+    ("userspace/libc/include/fcntl.h", c("O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_APPEND") + " … – the flags for " + c("open"), "Where are the open() flags O_RDONLY / O_CREAT defined?"),
+    ("userspace/libc/include/stdio.h", "the declarations of " + c("printf, putchar, puts, scanf, getchar, gets, fgets"), None),
+    ("userspace/libc/include/sys/stat.h", "file mode bits for " + c("mkdir / creat"), None),
+    ("userspace/libc/include/pthread.h", "types (" + c("pthread_t") + " = size_t; mutex/cond/spinlock = unsigned int), " + c("PTHREAD_CANCELED") + ", the declarations – " + c("pthread_spin_*") + " are NOT declared (add them)", "Where are pthread_t and pthread_mutex_t defined?"),
+    ("userspace/libc/include/stdlib.h + unistd.h", c("malloc, free, calloc, realloc, atexit, exit, atoi") + " / " + c("getpid, getppid, fork, _exit, brk, sbrk, sleep, read, write, close") + " declarations", None),
+    ("userspace/libc/include/wait.h + time.h + sched.h", c("waitpid") + " (" + c("WEXITED") + ") / " + c("clock, clock_t, CLOCKS_PER_SEC") + " (1000000) / " + c("sched_yield"), None),
+    ("userspace/libc/include/sys/mman.h", c("PROT_NONE/READ/WRITE/EXEC, MAP_PRIVATE/SHARED/ANONYMOUS") + " and " + c("mmap, munmap, shm_open, shm_unlink, mprotect"), "Where are PROT_* and MAP_* defined?"),
+    ("userspace/libc/include/semaphore.h + ctype.h", c("sem_t") + " (unsigned int) and the " + c("sem_*") + " declarations / " + c("isdigit, isalpha, toupper") + " …", None),
+    ("the header of a .cpp file", c("common/source/X/Name.cpp") + " ↔ " + c("common/include/X/Name.h") + "; " + c("arch/x86/64/source/Name.cpp") + " ↔ " + c("arch/x86/64/include/") + " (64-bit only), " + c("arch/x86/common/include/") + " or " + c("arch/common/include/") + " (shared by all architectures) – CLion: Ctrl+Alt+Home switches between them", "Where is the header of a .cpp file?"),
+    # ---- build and tools
+    ("CMakeLists.txt (top) + arch/x86/64/CMakeLists.include", "the build: the disk image, " + c("make debug, make runcgdb, make rungdb, make mrproper") + " (top); " + c("make qemu, make kvm, make qemugdb") + " (x86-64 file)", "Where are the make targets qemu / kvm / qemugdb defined?"),
+    ("utils/exe2minixfs/", "the tool that copies the built " + c(".sweb") + " programs onto the disk image (asserts when the image is full)", None),
+    ("utils/images/menu.lst", "the GRUB menu (your team: " + c("timeout 0") + " – boots at once)", None),
+    ("utils/gdbinit", "gdb settings for " + c("make runcgdb / rungdb") + " (connects to QEMU's gdb port)", None),
+]
+
+for path, what, reverse in FILES:
+    DECKS.setdefault("2b Every file", [])
+    DECKS["2b Every file"].append(("What is in " + c(path) + "?", what, "file"))
+    if reverse:
+        DECKS["2b Every file"].append((reverse, c(path) + " – " + what, "file reverse"))
+
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
