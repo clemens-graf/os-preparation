@@ -1,0 +1,132 @@
+#separator:tab
+#html:true
+#notetype:Basic
+#deck column:3
+#tags column:4
+The five task types (TRIAGE.md)?	<b>U</b> user space only (libc) · <b>S</b> syscall + kernel · <b>E</b> kernel event (page fault, timer, scheduler, key, boot, exit) · <b>A</b> assembly / registers · <b>K</b> the kernel calls a user function	OS AG::1 Triage	ag::triage
+The one question that decides U vs. S?	Does it need anything <i>only the kernel</i> has or may do? (page tables, physical pages, other threads/processes, devices, the scheduler, the time) – no → libc only.	OS AG::1 Triage	ag::triage
+The first five minutes of an unknown task?	1. read the box twice · 2. type (U/S/E/A/K) · 3. one search for the starting point · 4. where does the state live? · 5. who touches it at the same time (lock)? · 6. write the 3–6 files down, then plumbing → build → logic → test. Say it out loud.	OS AG::1 Triage	ag::triage
+Task: "implement atexit" – type, first file?	U – <code>userspace/libc/src/stdlib.c</code> (the stub), hook in <code>exit()</code> in <code>exec.c</code>. No syscall. (A0-13 – the real A0 task of 14 Oct 2026)	OS AG::1 Triage	ag::triage ag::U
+Task: "malloc/free should work" – type, first file?	U – <code>stdlib.c</code>: a static pool + block headers (A1-14).	OS AG::1 Triage	ag::triage ag::U
+Task: "add strncpy to the libc" – type, first step?	U – declare it in <code>userspace/libc/include/string.h</code> (missing!), implement in <code>string.c</code> (A0-14).	OS AG::1 Triage	ag::triage ag::U
+Task: "pthread_mutex_lock must really lock" – type?	U – <code>pthread.c</code>: <code>while (__sync_lock_test_and_set(lock, 1)) sched_yield();</code> (A1-15).	OS AG::1 Triage	ag::triage ag::U
+Task: "sleep(seconds) should work" – type?	S + E – user space has no clock: a syscall that yields until <code>Scheduler::instance()-&gt;getTicks()</code> reached the target (A1-18).	OS AG::1 Triage	ag::triage ag::S ag::E
+Task: "waitpid returns the child's exit code" – type, where does the code live?	S – the exit code must outlive the process: a table in the <code>ProcessRegistry</code>, filled from <code>~UserProcess</code> (A1-19).	OS AG::1 Triage	ag::triage ag::S
+Task: "heap pages are mapped on first access" – type, where?	S + E – limit in <code>UserProcess</code>, a new case <b>first</b> in the valid branch of <code>PageFaultHandler::handlePageFault</code> (A0-03).	OS AG::1 Triage	ag::triage ag::E
+Task: "code pages must be read-only" – type, where?	E (loader) – <code>Loader::loadPage</code>: <code>mapPage(…, writeable = false)</code> for segments without PF_W (A0-05).	OS AG::1 Triage	ag::triage ag::E
+Task: "when F3 is pressed, do X with the process" – type, where?	E (key) – <code>Console::handleKey</code> only sets a flag; the top of <code>Syscall::syscallException</code> does the work in the process' own context (ex07, A2-06).	OS AG::1 Triage	ag::triage ag::E
+Task: "a flagged thread runs twice as long" – where?	E – <code>Scheduler::schedule()</code> keeps <code>currentThread</code> for one more slice (A1-04).	OS AG::1 Triage	ag::triage ag::E
+Task: "count page faults per process" – type, where?	A + E – <code>pageFaultHandler</code> in <code>arch/x86/64/source/InterruptUtils.cpp</code>; interrupts are off there → atomics, no lock (A1-11).	OS AG::1 Triage	ag::triage ag::A
+Task: "call a user function when the process segfaults" – type?	K + E – the page fault handler sets <code>user_registers_-&gt;rip / rsp / rdi</code> so the thread continues in the handler (A0-06).	OS AG::1 Triage	ag::triage ag::K
+Task: "a syscall with 15 arguments" – type, how?	A – 4 values in registers, the other 11 in an array on the user stack, its address as the 5th argument; the kernel copies it in (A1-13).	OS AG::1 Triage	ag::triage ag::A
+Task: "a kernel thread that does X every few ticks" – where?	E – a class derived from <code>Thread</code> with <code>Run()</code>; <code>Scheduler::instance()-&gt;addNewThread(new X)</code> in <code>startup()</code> (main.cpp) (ex06, A2-10).	OS AG::1 Triage	ag::triage ag::E
+Task: "never execute data or stack" – where?	E – <code>execution_disabled</code> bit: in <code>Loader::loadPage</code> (no PF_X) and <code>UserProcess::mapStackPage</code> (A2-08).	OS AG::1 Triage	ag::triage ag::E
+Task: "mmap(MAP_ANONYMOUS)" – type, where?	S + E – regions in <code>UserProcess</code>, the syscall only reserves, the page fault handler maps on first access (A2-13).	OS AG::1 Triage	ag::triage ag::S ag::E
+Task: "store something on the disk that survives a reboot" – where?	E (boot) + S – <code>BDManager::getInstance()-&gt;getDeviceByName(&quot;idea2&quot;)</code>, <code>readData/writeData</code>; read it at boot (A2-11).	OS AG::1 Triage	ag::triage ag::E
+Where does every user program start?	<code>_start</code> in <code>userspace/libc/src/nonstd.c</code>: <code>exit(main());</code>	OS AG::2 Where is what	ag::where ag::libc
+Where is exit() for user programs – and where would atexit handlers run?	<code>userspace/libc/src/exec.c</code>: <code>exit()</code> – before <code>__syscall(sc_exit, …)</code>. <code>_exit()</code> must not run them.	OS AG::2 Where is what	ag::where ag::libc
+Where are syscall numbers defined?	<code>common/include/kernel/syscall-definitions.h</code> – included by kernel <b>and</b> libc.	OS AG::2 Where is what	ag::where ag::syscall
+Where is the big syscall switch?	<code>Syscall::syscallException</code> in <code>common/source/kernel/Syscall.cpp</code>	OS AG::2 Where is what	ag::where ag::syscall
+The six places of a new syscall?	1 <code>syscall-definitions.h</code> · 2 <code>Syscall.h</code> · 3 <code>Syscall.cpp</code> case (+ break) · 4 <code>Syscall.cpp</code> implementation · 5 <code>nonstd.h</code> · 6 <code>nonstd.c</code> (<code>__syscall</code>) – then a test in <code>userspace/tests/</code>	OS AG::2 Where is what	ag::where ag::syscall
+Which registers carry a syscall?	number in <code>rax</code>, arguments in <code>rbx rcx rdx rsi rdi</code>, result back in <code>rax</code> (<code>arch/x86/64/userspace/syscalls.c</code>, <code>int $0x80</code>).	OS AG::2 Where is what	ag::where ag::syscall ag::registers
+Path of a syscall from int $0x80 to your function?	<code>arch_syscallHandler</code> (asm) → <code>syscallHandler</code> (InterruptUtils.cpp, interrupts on) → <code>Syscall::syscallException(rax, rbx, …)</code> → your case → return value into <code>user_registers_-&gt;rax</code>	OS AG::2 Where is what	ag::where ag::syscall
+Path of a page fault?	<code>arch_pageFaultHandler</code> → <code>pageFaultHandler</code> (InterruptUtils.cpp) → <code>PageFaultHandler::enterPageFault</code> → <code>handlePageFault</code> → <code>checkPageFaultIsValid</code> → stack growth / guard page / <code>loadPage</code>	OS AG::2 Where is what	ag::where ag::pf
+What does checkPageFaultIsValid reject?	null page (&lt; 4096), kernel addresses, and faults on <b>present</b> pages (protection: write to read-only, NX) → exit 9999.	OS AG::2 Where is what	ag::where ag::pf
+Where are a thread's stack pages added on demand?	<code>handlePageFault</code>: <code>isUserStackFault</code> → <code>allocateStackPage</code> + <code>mapStackPage</code> down to the fault (under <code>thread_lock_</code>).	OS AG::2 Where is what	ag::where ag::pf ag::stack
+Where is a page loaded from the ELF binary? What if no segment covers it?	<code>Loader::loadPage(address, arch_memory)</code> (common/source/kernel/Loader.cpp) – no segment → <code>Syscall::exit(666)</code>	OS AG::2 Where is what	ag::where ag::loader
+Where are the F-keys handled? Which are free?	<code>Console::handleKey</code> (common/source/console/Console.cpp). F9–F12 are debug output, Shift+Fn switches terminals – F2–F8 are free.	OS AG::2 Where is what	ag::where ag::key
+Where is the next thread chosen?	<code>Scheduler::schedule()</code> – round robin over <code>threads_</code>, the first <code>schedulable()</code> one, then rotate.	OS AG::2 Where is what	ag::where ag::scheduler
+What runs on every timer tick?	<code>irqHandler_0</code> (InterruptUtils.cpp) → <code>Scheduler::incTicks()</code> → <code>Scheduler::schedule()</code> → <code>arch_contextSwitch</code>	OS AG::2 Where is what	ag::where ag::timer
+Where is the kernel booted, where do you create kernel-wide objects?	<code>startup()</code> in <code>common/source/kernel/main.cpp</code>	OS AG::2 Where is what	ag::where ag::boot
+Who starts the shell?	the <code>ProcessRegistry</code> kernel thread: <code>Run()</code> mounts /usr and calls <code>createProcess</code> for <code>user_progs.h</code>	OS AG::2 Where is what	ag::where ag::boot
+Where are the PTE bits (present, writeable, NX, free bits)?	<code>PageTableEntry</code> in <code>arch/x86/64/include/paging-definitions.h</code> – <code>ignored_1/2/3</code> are free for you.	OS AG::2 Where is what	ag::where ag::memory
+Where is USER_BREAK and what is it?	<code>arch/x86/64/include/offsets.h</code>: <code>0x800000000000</code> – everything below is user space.	OS AG::2 Where is what	ag::where ag::memory
+Where do you add your own debug flag?	<code>common/include/console/debug.h</code>: <code>const size_t NAME = Ansi_Cyan | OUTPUT_ENABLED;</code> then <code>debug(NAME, &quot;…&quot;)</code>	OS AG::2 Where is what	ag::where ag::debug
+Where is the safe user-string copy helper?	<code>Syscall::copyUserString(user_ptr, buffer, size)</code> – checks every byte against <code>USER_BREAK</code>.	OS AG::2 Where is what	ag::where ag::syscall
+Where is a new user test program put? Does CMake need a change?	<code>userspace/tests/name.c</code> → <code>/usr/name.sweb</code>; no – every .c there is built.	OS AG::2 Where is what	ag::where ag::test
+Where are the swap partition and the other disks?	<code>BDManager::getInstance()-&gt;getDeviceByName(&quot;idea2&quot;)</code> → <code>readData/writeData(offset, size, buf)</code> (idea1 = /usr, idea2 = unused swap partition).	OS AG::2 Where is what	ag::where ag::disk
+Which libc functions are only stubs in your team's code?	<code>malloc/free/calloc/realloc</code>, <code>atexit</code>, <code>sem_*</code>, <code>pthread_mutex_* / cond_* / spin_*</code>, <code>pthread_detach</code>, <code>sleep</code>, <code>clock</code>, <code>brk/sbrk</code>, <code>waitpid</code>, <code>mmap/munmap/shm_*/mprotect</code> – and <code>strcpy/strncpy/strcat</code> are missing completely (ATLAS.md §5).	OS AG::2 Where is what	ag::where ag::libc
+The calling process (team code)?	<code>currentThread-&gt;getProcess()</code> – a <code>UserProcess*</code>. Never <code>(UserProcess*) currentThread</code> (compiles, reads garbage).	OS AG::3 Team API	ag::api
+The page tables of the calling process?	<code>currentThread-&gt;getProcess()-&gt;getAddressSpace()</code> – an <code>ArchMemory&amp;</code>, owned by the UserProcess.	OS AG::3 Team API	ag::api
+The page-table lock in your team's code?	<code>process-&gt;getThreadLock()</code> – the Mutex <code>thread_lock_</code>; also protects <code>threads_</code> and the stack slots.	OS AG::3 Team API	ag::api ag::lock
+Does your team's loadPage hold the page-table lock?	<b>No</b> – the page fault handler releases <code>thread_lock_</code> before <code>loadPage</code>. Read-only/zero pages: map them with <code>mapPage(…, writeable)</code> in one step.	OS AG::3 Team API	ag::api ag::lock ag::loader
+Per-process state goes where? Per-thread state?	per process → member of <code>UserProcess</code>; per user thread → member of <code>UserThread</code> (<code>(UserThread*) currentThread</code>).	OS AG::3 Team API	ag::api
+ArchMemory::mapPage – signature and return?	<code>[[nodiscard]] bool mapPage(vpn, ppn, user_access)</code> – false if the vpn is already mapped (then free your ppn!).	OS AG::3 Team API	ag::api ag::memory
+What does unmapPage do – and not do?	removes the entry, <b>frees the physical page</b> and empty page tables – does <b>not</b> flush the TLB (<code>ArchMemory::flushTlb()</code>).	OS AG::3 Team API	ag::api ag::memory
+How do you find out whether a vpn is mapped?	<code>getAddressSpace().resolveMapping(vpn)</code> → <code>.page_size</code> (0 = not mapped), <code>.page_ppn</code>, <code>.pt[.pti]</code> = the PTE.	OS AG::3 Team API	ag::api ag::memory
+How does the kernel read/write a physical page?	<code>(char*) ArchMemory::getIdentAddressOfPPN(ppn)</code> – the ident mapping, works without any user mapping.	OS AG::3 Team API	ag::api ag::memory
+Get / give back a physical page?	<code>PageManager::instance()-&gt;allocPPN()</code> (zeroed) / <code>freePPN(ppn)</code> – never after <code>unmapPage</code> (double free).	OS AG::3 Team API	ag::api ag::memory
+Find a thread of your process by id?	<code>process-&gt;findThreadDataByTid(tid)</code> under <code>thread_lock_</code> → <code>UserThreadData</code>; <code>-&gt;thread_</code> is nullptr once it exited.	OS AG::3 Team API	ag::api ag::threads
+Fields of UserThreadData?	<code>thread_</code>, <code>exit_value_</code>, <code>tid_</code>, <code>exited_</code>, <code>joined_</code>, <code>requested_cancel_</code>	OS AG::3 Team API	ag::api ag::threads
+How does pthread_join wait in your team's code?	<code>while (!thread_data-&gt;exited_) thread_exited_.wait();</code> – <code>exitThread</code> broadcasts <code>thread_exited_</code>.	OS AG::3 Team API	ag::api ag::threads
+What does exitProcess do?	kills every other thread of the process (<code>kill()</code>) and deletes their UserThreadData – POSIX: exit ends the whole process.	OS AG::3 Team API	ag::api ag::threads
+Where does a new thread start executing?	in libc's <code>pthread_start(start_routine, arg)</code> (rip), <code>rdi = start_routine</code>, <code>rsi = arg</code> (<code>setThreadArguments</code>), then <code>pthread_exit(start_routine(arg))</code>	OS AG::3 Team API	ag::api ag::threads ag::registers
+Stack layout of your team's threads?	a slot per thread: <code>USERSTACK_PAGES</code> = 4 pages + 1 guard page, counted down from USER_BREAK; one page mapped at start, more on page faults.	OS AG::3 Team API	ag::api ag::stack
+When is a UserProcess deleted?	when its last thread is gone: CleanupThread → <code>~UserThread</code> → <code>threadExited()</code> → <code>delete this</code> → <code>~UserProcess</code> (deletes loader + address space).	OS AG::3 Team API	ag::api ag::process
+Saved user registers of the current thread?	<code>currentThread-&gt;user_registers_</code> → <code>rip, rsp, rax, rbx, rcx, rdx, rsi, rdi, r8–r15, rflags, cr3</code> (ArchThreads.h)	OS AG::3 Team API	ag::api ag::registers
+Timer ticks since boot? How fast?	<code>Scheduler::instance()-&gt;getTicks()</code> – 18.2 per second (1193180 / 65536), one tick ≈ 55 ms.	OS AG::3 Team API	ag::api ag::timer
+Syscall numbers your team uses?	1000–1002 pthread_create/exit/self · 1500 mkdir · 1501–1503 join/cancel/testcancel · 1998/1999 counts · 2000–2002 fork/getpid/getppid · 2500 execv	OS AG::3 Team API	ag::api ag::syscall
+Check-then-act rule?	the check and the change must be <b>one</b> critical section – otherwise another thread changes the state in between (e.g. two threads find the same free slot).	OS AG::4 Locking	ag::lock
+Why allocPPN before taking the lock?	keeps the critical section short; give the page back with <code>freePPN</code> if you did not use it.	OS AG::4 Locking	ag::lock
+Never call Syscall::exit while …?	holding a lock – the thread dies, the lock is never released.	OS AG::4 Locking	ag::lock
+Why write user memory only after releasing the lock?	writing user memory can page-fault; the page fault handler takes <code>thread_lock_</code> → deadlock if you hold it.	OS AG::4 Locking	ag::lock
+Mutex or SpinLock for your code?	Mutex (sleeps) – SpinLock only for very short sections, never allocate (<code>new</code>) while holding one.	OS AG::4 Locking	ag::lock
+Locks with interrupts off (interrupt handler, schedule())?	impossible – set an atomic flag, do the work later in a thread (ex07: F-key flag handled at syscall entry).	OS AG::4 Locking	ag::lock
+Why broadcast, not signal, on thread_exited_?	several waiters wait for <b>different</b> things (join of thread 3, join of thread 5) – signal could wake the wrong one.	OS AG::4 Locking	ag::lock ag::condition
+Why always wait in a while loop on a Condition?	after waking up the state may have changed again (another thread was faster) – and wake-ups may be spurious.	OS AG::4 Locking	ag::lock ag::condition
+ScopeLock?	<code>ScopeLock lock(mutex);</code> – acquired in the constructor, released at the end of the scope (every return).	OS AG::4 Locking	ag::lock
+Two locks – what rule?	always the same order everywhere (e.g. <code>thread_lock_</code> → PageManager), or never hold both.	OS AG::4 Locking	ag::lock
+Removing rights (unmap, read-only, swap-out) – what else?	<code>ArchMemory::flushTlb()</code> – inside the critical section, before anyone relies on the change.	OS AG::4 Locking	ag::lock ag::tlb
+Why does a user-space lock need an atomic instruction?	between reading 0 and writing 1 the timer can switch threads – both see 0 and both enter. <code>__sync_lock_test_and_set</code> (xchg) does read+write in one step.	OS AG::4 Locking	ag::lock ag::libc
+Why may the atexit counter be plain, but a lock not?	registering from two threads at the same moment is rare (mention it); a lock is used by many threads at once by definition.	OS AG::4 Locking	ag::lock ag::libc
+case in the syscall switch – most common bug?	missing <code>break;</code> → falls through into the next syscall.	OS AG::5 Traps	ag::trap
+Returning -1 from a size_t syscall?	<code>return (size_t) -1;</code> – not <code>-1U</code> (that is 0xFFFFFFFF).	OS AG::5 Traps	ag::trap
+NULL from a size_t function?	<code>return 0;</code>	OS AG::5 Traps	ag::trap
+Next page in a loop over vpns?	<code>vpn + 1</code> – not <code>vpn + PAGE_SIZE</code>.	OS AG::5 Traps	ag::trap
+address ↔ vpn?	<code>vpn = address / PAGE_SIZE</code>, <code>address = vpn * PAGE_SIZE</code>, offset = <code>address % PAGE_SIZE</code>	OS AG::5 Traps	ag::trap ag::memory
+Overflow-safe user pointer check?	<code>ptr != 0 &amp;&amp; size &lt;= USER_BREAK &amp;&amp; ptr &lt;= USER_BREAK - size</code> – not <code>ptr + size &lt;= USER_BREAK</code> (can overflow).	OS AG::5 Traps	ag::trap
+page_size – field or function?	field: <code>m.page_size</code> (no parentheses).	OS AG::5 Traps	ag::trap
+User pointer: check first or write first?	<b>check first</b> – writing to NULL in the kernel page-faults and kills the process (exit 9999).	OS AG::5 Traps	ag::trap
+New method in a header – compiler says 'private within this context'?	it was added after <code>private:</code> – move it into the <code>public:</code> part.	OS AG::5 Traps	ag::trap
+Declaration in nonstd.h and definition in nonstd.c differ?	'conflicting types' – return type and parameters must be identical.	OS AG::5 Traps	ag::trap
+Test: 'makes pointer from integer without a cast'?	the libc wrapper returns <code>size_t</code> where the test expects a pointer – return <code>void*</code> and cast: <code>(void*) __syscall(…)</code>	OS AG::5 Traps	ag::trap
+New Mutex member: compile error -Werror=reorder?	the initializer list must follow the declaration order – or use a default member initializer <code>Mutex m_{&quot;name&quot;};</code>	OS AG::5 Traps	ag::trap
+Exit codes 666 vs 9999?	666: <code>loadPage</code> found no segment for the address · 9999: invalid page fault (null pointer, kernel address, protection).	OS AG::5 Traps	ag::trap ag::pf
+strncpy with a source of n or more characters?	writes exactly n bytes and <b>no</b> terminating NUL.	OS AG::5 Traps	ag::trap ag::libc
+Same page fault 10 times in a row?	your handler returned without fixing the cause – <code>InterruptUtils::countPageFault</code> halts after 10.	OS AG::5 Traps	ag::trap ag::pf
+Kernel heap allocation that lives until shutdown (e.g. a growing list)?	SWEB's leak check reports it at <code>exit</code> – use a fixed array, or free it when the owner ends.	OS AG::5 Traps	ag::trap
+A0-01 meminfo – key steps?	check the user pointer (struct crosses USER_BREAK?), <code>getTotalNumPages/getNumFreePages</code>, <code>countUserPages()</code> (a copy of <code>~ArchMemory</code>'s walk, count present PTEs) under <code>getThreadLock()</code>, write after unlock.	OS AG::6 Tasks	ag::task ag::a0
+A0-02 allocpage – the race?	search + map must be one critical section, else two threads find the same free slot. freepage: aligned? in region? mapped? → <code>unmapPage</code> + <code>flushTlb</code>, no <code>freePPN</code>.	OS AG::6 Tasks	ag::task ag::a0
+A0-03 heaplimit – where is the heap mapped?	in the page fault handler, <b>first</b> in the valid branch: <code>mapHeapPage(vpn)</code> checks the limit and maps under <code>thread_lock_</code>; shrinking unmaps + flushTlb.	OS AG::6 Tasks	ag::task ag::a0
+A0-12 alias page – why a kernel panic at exit?	one frame mapped twice is freed twice by <code>~ArchMemory</code> ('Double free PPN') – unmap the alias with <code>unmapPage(vpn, false)</code> in <code>~UserProcess</code> first.	OS AG::6 Tasks	ag::task ag::a0
+A0-13 atexit – order and nested exit?	reverse order of registration; pop each handler <b>before</b> calling it, so a handler that calls <code>exit()</code> continues with the rest; <code>_exit</code> runs none.	OS AG::6 Tasks	ag::task ag::a0 ag::U
+A0-07 upcall – how does the kernel call a user function?	push the old <code>rip</code> onto the user stack (via <code>checkAddressValid</code>), <code>rip = function</code>, <code>rdi = argument</code> – the function's <code>ret</code> returns behind the syscall.	OS AG::6 Tasks	ag::task ag::a0 ag::K
+A1-02 pthread_multiple – all or nothing?	create all thread objects first (not scheduled), on failure delete them (<code>discardThread</code>), only then <code>addNewThread</code> for all.	OS AG::6 Tasks	ag::task ag::a1
+A1-03 barrier – why a generation counter?	a woken thread checks 'did my round open?', not 'waiting == 0' – the next round may already be filling up.	OS AG::6 Tasks	ag::task ag::a1
+A1-14 malloc – how does free know the size?	a header right before the block: <code>(struct BlockHeader*) ptr - 1</code>	OS AG::6 Tasks	ag::task ag::a1 ag::U
+A1-17 condition variable – the lost wake-up?	read the generation <b>before</b> releasing the mutex; a signal between unlock and check then still changes the number.	OS AG::6 Tasks	ag::task ag::a1 ag::U
+A1-19 waitpid – where does the exit code live?	in the <code>ProcessRegistry</code> (fixed table) – <code>~UserProcess</code> runs long after exit; <code>Syscall::exit</code> stores <code>exit_code_</code> first.	OS AG::6 Tasks	ag::task ag::a1
+A1-20 pthread_detach – what is freed when?	the UserThreadData: at once if the thread already ended, else in <code>exitThread</code>; join of a detached thread → -1.	OS AG::6 Tasks	ag::task ag::a1
+A2-01 swap – how does a PTE say 'swapped out'?	<code>present = 0</code>, <code>ignored_2 = PTE_SWAPPED</code>, <code>page_ppn = slot</code> – the CPU ignores non-present entries.	OS AG::6 Tasks	ag::task ag::a2
+A2-01 swap-out order?	1. present = 0 + flushTlb (nobody writes meanwhile) · 2. write to disk · 3. mark swapped + free the frame – all under the page-table lock.	OS AG::6 Tasks	ag::task ag::a2
+A2-09 copy-on-write of the zero page?	map the shared zero page read-only; a write faults (present + writing) → new frame, writeable, flushTlb.	OS AG::6 Tasks	ag::task ag::a2
+exit vs _exit?	<code>exit</code> runs the atexit handlers (and flushes stdio), <code>_exit</code> ends at once.	OS AG::7 POSIX	ag::posix
+atexit – limits and return?	at least 32 handlers, 0 on success, non-zero (−1 here) on error.	OS AG::7 POSIX	ag::posix
+pthread_join on yourself / a joined thread?	error (−1 in SWEB) – EDEADLK / EINVAL in POSIX.	OS AG::7 POSIX	ag::posix
+Is pthread_join a cancellation point?	yes – a cancelled thread sleeping in join must end (your team's code: not yet, see A1-06).	OS AG::7 POSIX	ag::posix
+Deferred cancellation?	the target only ends at a cancellation point (syscalls, <code>pthread_testcancel</code>, join) – never in the middle of a critical section.	OS AG::7 POSIX	ag::posix
+What does pthread_detach mean?	nobody will join the thread: its resources are freed when it ends; joining it is an error.	OS AG::7 POSIX	ag::posix
+waitpid(pid, &status, 0)?	waits for child pid, returns its pid, status = how it ended; −1 if pid is not a child.	OS AG::7 POSIX	ag::posix
+A zombie?	a process that has ended, but its parent has not waited for it yet – only its exit status is kept.	OS AG::7 POSIX	ag::posix
+strcpy vs strncpy?	<code>strcpy</code> copies up to and including the NUL; <code>strncpy</code> exactly n bytes – pads with 0, or leaves the result unterminated.	OS AG::7 POSIX	ag::posix
+pthread_cond_wait(cond, mutex)?	atomically: release mutex + wait; on return it holds the mutex again. Call it in a while loop.	OS AG::7 POSIX	ag::posix
+sem_wait / sem_post?	<code>sem_wait</code>: wait until value &gt; 0, then decrement; <code>sem_post</code>: increment (wakes a waiter).	OS AG::7 POSIX	ag::posix
+mmap(NULL, len, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)?	len bytes of new, zeroed memory; failure: MAP_FAILED = (void*) −1.	OS AG::7 POSIX	ag::posix
+Page vs frame?	page = virtual (vpn), frame = physical (ppn); both 4096 bytes. The page table maps vpn → ppn.	OS AG::8 Basics	ag::basics
+x86-64 page-table tree?	PML4 → PDPT → PD → PT, 512 entries each, 9 bits of the address per level; the lower half of the PML4 = user space.	OS AG::8 Basics	ag::basics
+TLB?	the CPU's cache of translations – stale after a change that removes rights → flush.	OS AG::8 Basics	ag::basics
+Lazy loading?	a page of the program is loaded only on its first access (page fault → <code>loadPage</code>).	OS AG::8 Basics	ag::basics
+ELF: sections vs segments?	sections (.text .rodata .data .bss) are the linker's view; LOAD segments are what the loader maps. .bss = MemSiz &gt; FileSiz (zeroed).	OS AG::8 Basics	ag::basics
+Red zone?	128 bytes below rsp that a function may use without moving rsp – skip it before pushing something onto a user stack from the kernel.	OS AG::8 Basics	ag::basics ag::registers
+Why must the kernel check user pointers?	a user program can pass any address – also a kernel address or one that crosses USER_BREAK; the kernel would read/write it with full rights.	OS AG::8 Basics	ag::basics
+Timer frequency in SWEB?	18.2 Hz – a time slice is about 55 ms.	OS AG::8 Basics	ag::basics

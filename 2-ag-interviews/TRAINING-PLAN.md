@@ -12,6 +12,7 @@ the first file ([ATLAS.md](ATLAS.md)). Say both out loud. Then start the timer.
 
 - [ ] [TRIAGE.md](TRIAGE.md) and [ATLAS.md](ATLAS.md) sections 1–2 read
 - [ ] `task quiz 20` – twice, on different days (44 questions: places in the code + "which type?")
+- [ ] the Anki deck imported ([anki/](anki/README.md)) – then a few minutes every day until the interview
 - [ ] guide chapters 2–4 (map, recipes, locking)
 - [ ] examples ex01 (syscall), ex02 (map a page), ex03 (your stack growth), ex07 (F-key), ex11, ex12 (tutorials)
 
@@ -89,6 +90,6 @@ on top of A2-01), A2-07 mprotect (S + E). With these, every one of the 46 tasks 
 
 - [ ] three tasks you have not touched for a week: `task reset <id>`, timer, talk out loud
 - [ ] one task of every type U, S, E, A/K – in the time box
-- [ ] `task quiz 20`
+- [ ] `task quiz 20`, the Anki deck due cards
 - [ ] the cheat sheet ([a0/cheatsheet.pdf](a0/cheatsheet.pdf)) once more
 - [ ] 15 minutes in the team repo itself: `git pull`, what changed since `team/BASE`?

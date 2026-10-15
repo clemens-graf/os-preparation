@@ -10,6 +10,7 @@ will ask yourself every time: **which file do I have to touch for this?**
 |---|---|
 | [`GETTING-STARTED.md`](GETTING-STARTED.md) | **start here:** every command you type, with examples – setup, the daily loop, tests, debugging, git, reading the output, problems |
 | [`TRAINING-PLAN.md`](TRAINING-PLAN.md) | **the checklist:** every task, grouped by type – work through it and you have practised every kind of task (not only syscalls) |
+| [`anki/`](anki/) | an **Anki deck** (127 cards): task types, where is what, your team's API, locking, traps, POSIX – import `anki/ag-interviews.txt` |
 | [`TRIAGE.md`](TRIAGE.md) | **an unknown task in 5 minutes:** the five task types (user space only, syscall, kernel event, assembly, kernel calls user code), where each one goes, every course task classified |
 | [`ATLAS.md`](ATLAS.md) | **your team's code, file by file:** what is in every file, the call chains (program start/end, syscall, page fault, timer, key, pthread_create, fork), "I want to … → go to", the POSIX stubs of your libc |
 | [`guide.pdf`](guide.pdf) | The theory: what happens where in SWEB, recipes for every kind of change, **locking** (the biggest source of deductions), the A0/A1/A2 task families, your team's code |
