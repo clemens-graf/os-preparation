@@ -1,4 +1,4 @@
-# A1-16 · pthread spinlock + mutex in user space
+# A1-15 · pthread spinlock + mutex in user space
 
 **Time box 25 min · ★★☆ · type U (user space only) · builds on A1-01 (pthread_join)**
 
@@ -14,7 +14,7 @@ Return Value: 0, or -1 (NULL; trylock: the lock is held)
 
 ## Test
 
-`task start a1-16` → `task test` (`spinlock_basic.sweb`: 4 threads × 20000 increments under
+`task start a1-15` → `task test` (`spinlock_basic.sweb`: 4 threads × 20000 increments under
 each lock). Done when 7 checks pass.
 
 ## Your team's code
@@ -56,7 +56,7 @@ not whether the test passed. Know the answer from hint 1.
 
 ## Questions a tutor might ask
 
-- Why does a lock need an atomic instruction, while A1-14's `atexit` counter does not?
+- Why does a lock need an atomic instruction, while A0-13's `atexit` counter does not?
 - What is the difference between a spinlock and a mutex? When is spinning OK?
 - Why `sched_yield` in the loop? What happens on one CPU without it?
 - What happens if a thread unlocks a lock it does not hold? If it locks twice?

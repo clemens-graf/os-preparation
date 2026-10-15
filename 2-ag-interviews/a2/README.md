@@ -27,6 +27,7 @@ Classify first: [TRIAGE.md](../TRIAGE.md).
 | 10 | [RAM obfuscation thread](10-ram-obfuscation/) | E (kernel thread) | official task 28 | – | 60 min | ★★★ |
 | 11 | [boot counter / message of the day](11-boot-counter/) | E (boot) + S | 12)/13) boot counter, motd | – | 40 min | ★★☆ |
 | 12 | [syscall blacklist](12-syscall-blacklist/) | E (syscall entry) + S | 11) blacklist syscall | – | 20 min | ★☆☆ |
+| 13 | [anonymous mmap / munmap](13-mmap/) | S + E | `mmap` (libc stub) | – | 45 min | ★★★ |
 
 Not here (sketches in `../guide.pdf`, chapter A2): disk defragmentation (needs your swap bitmap),
 deduplication of arbitrary pages (hash + COW like 09), mmap of a file (09's page fault + the

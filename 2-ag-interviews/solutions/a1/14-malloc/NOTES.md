@@ -1,4 +1,4 @@
-# A1-15 malloc / free / calloc / realloc – solution notes
+# A1-14 malloc / free / calloc / realloc – solution notes
 
 Patch: [`solution.patch`](solution.patch) – only `userspace/libc/src/stdlib.c`. Type U.
 
@@ -37,5 +37,5 @@ void free(void* ptr) { if (ptr) ((struct BlockHeader*) ptr - 1)->used = 0; }
   until it is used.
 
 Tutor topics: fragmentation (a freed 1 KiB block is never split or merged here – merging free
-neighbours would help), thread safety (none – a lock from A1-16 around malloc/free), and when a
+neighbours would help), thread safety (none – a lock from A1-15 around malloc/free), and when a
 real malloc needs the kernel (a pool that grows: `sbrk` A1-12, or `mmap`).

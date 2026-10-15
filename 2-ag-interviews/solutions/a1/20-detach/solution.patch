@@ -1,0 +1,116 @@
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..8a895e9c 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -24,6 +24,7 @@ struct UserThreadData
+   bool exited_ = false;
+   bool joined_ = false;
+   bool requested_cancel_ = false;
++  bool detached_ = false;          // A1-20: nobody will join it - the record goes when it ends
+ };
+ 
+ class UserProcess
+@@ -157,6 +158,9 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    /** A1-20: @return 0, or -1 (unknown, already detached, or someone joins it) */
++    size_t detachThread(size_t tid);
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 51f0de2a..a1e354bc 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_pthread_detach 1718   // A1-20
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..fc80d412 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -88,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
++    case sc_pthread_detach:
++      return_value = currentThread->getProcess()->detachThread(arg1);
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f37eb7ef..c272b168 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -10,6 +10,7 @@
+ #include "Scheduler.h"
+ #include "UserThread.h"
+ #include "Mutex.h"
++#include "ScopeLock.h"
+ #include "ArchMemory.h"
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+@@ -413,6 +414,11 @@ void UserProcess::exitThread(void* exit_value)
+   thread_data->thread_ = nullptr;
+   thread_data->exited_ = true;
+   thread_exited_.broadcast();
++  if (thread_data->detached_)              // A1-20: nobody will join it - free the record now
++  {
++    removeThreadDataFromList(thread_data);
++    delete thread_data;
++  }
+ 
+   thread_lock_.release();
+ 
+@@ -438,6 +444,9 @@ size_t UserProcess::joinThread(size_t tid, void** exit_value)
+     return -1;
+   }
+ 
++  if (thread_data->detached_)              // A1-20: a detached thread cannot be joined
++    return -1;
++
+   if (thread_data->joined_)
+   {
+     debug(PTHREAD_JOIN, "Thread id %zu is already being joined\n", tid);
+@@ -550,3 +559,20 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
+ }
++
++// A1-20
++size_t UserProcess::detachThread(size_t tid)
++{
++  ScopeLock lock(thread_lock_);
++  UserThreadData* thread_data = findThreadDataByTid(tid);
++  if (!thread_data || thread_data->detached_ || thread_data->joined_)
++    return (size_t) -1;
++  if (thread_data->exited_)
++  {
++    removeThreadDataFromList(thread_data);   // already ended: its record is all that is left
++    delete thread_data;
++    return 0;
++  }
++  thread_data->detached_ = true;             // exitThread frees the record
++  return 0;
++}
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 7e3369e6..1ca5dc14 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -84,7 +84,7 @@ int pthread_join(pthread_t thread, void **value_ptr)
+  */
+ int pthread_detach(pthread_t thread)
+ {
+-  return -1;
++  return __syscall(sc_pthread_detach, thread, 0x00, 0x00, 0x00, 0x00);   // A1-20
+ }
+ 
+ /**

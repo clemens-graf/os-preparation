@@ -1,7 +1,7 @@
-# A1-17 semaphores in user space – solution notes
+# A1-16 semaphores in user space – solution notes
 
-Patches: [`on-top-of-a1-16.patch`](on-top-of-a1-16.patch) (read this – only `semaphore.c`),
-[`solution.patch`](solution.patch) (with the A1-16 spinlock). Type U.
+Patches: [`on-top-of-a1-15.patch`](on-top-of-a1-15.patch) (read this – only `semaphore.c`),
+[`solution.patch`](solution.patch) (with the A1-15 spinlock). Type U.
 
 ```c
 static pthread_spinlock_t sem_lock = 0;      // ONE lock for all semaphores: sem_t is only a counter

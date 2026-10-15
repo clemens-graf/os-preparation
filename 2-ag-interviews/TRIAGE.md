@@ -71,7 +71,7 @@ int atexit(void (*function)(void))
 - State is `static` in the `.c` file: every process has its own copy (own address space).
 - Test: a program in `userspace/tests/` that calls it and prints `[PASS]`/`[FAIL]`.
 - Threads: is it called by several threads at once? Counters for registration (atexit) are
-  fine without; **locks themselves** need one atomic instruction (A1-16).
+  fine without; **locks themselves** need one atomic instruction (A1-15).
 
 ### S – the six places
 `syscall-definitions.h` → `Syscall.h` → `Syscall.cpp` (case + function) → `nonstd.h` →
@@ -120,6 +120,8 @@ through `checkAddressValid` (it returns the kernel address of that byte), not th
 | A0-09 pthread_multi | S + K | thread runs a list of functions |
 | A0-11 thread note | S | user string, per-thread data, debug flag |
 | A0-12 alias page | S | resolveMapping, two mappings, cleanup |
+| A0-13 atexit | **U** | libc only: exit() calls the handlers |
+| A0-14 string functions | **U** | libc only: missing functions, pure C |
 | A1-01 pthread_join | S | blocking with a Condition |
 | A1-02 pthread_multiple | S | many threads, join_any |
 | A1-03 barrier | S | blocking for N threads |
@@ -133,10 +135,13 @@ through `checkAddressValid` (it returns the kernel address of that byte), not th
 | A1-11 pagefault stats | A + E | the assembly entry, count per process |
 | A1-12 sbrk | S + E (page fault) | per-process break, on demand |
 | A1-13 sum15 | A | 15 arguments through registers + stack |
-| A1-14 atexit | **U** | libc only: exit() calls the handlers |
-| A1-15 malloc | **U** | libc only: a heap on a static pool |
-| A1-16 spinlock + mutex | **U** | libc only: the one atomic you need |
-| A1-17 semaphore | **U** | libc only: built on A1-16 |
+| A1-14 malloc | **U** | libc only: a heap on a static pool |
+| A1-15 spinlock + mutex | **U** | libc only: the one atomic you need |
+| A1-16 semaphore | **U** | libc only: built on A1-15 |
+| A1-17 condition variables | **U** | libc only: wait / signal on top of A1-15 |
+| A1-18 sleep + uptime | S + E (timer) | the ticks of the timer interrupt |
+| A1-19 waitpid | S | processes: exit codes that outlive the process |
+| A1-20 pthread_detach | S | threads: free the record at the end |
 | A2-01 swap | S + E (page fault) | block device, swap-out/in |
 | A2-02 page backup | S | copy a page to the disk and back |
 | A2-03 heap swap | E (page fault) | swap to the kernel heap |
@@ -149,3 +154,4 @@ through `checkAddressValid` (it returns the kernel address of that byte), not th
 | A2-10 RAM obfuscation | E (kernel thread) | a kernel thread moving pages |
 | A2-11 boot counter | E (boot) + S | block device at boot |
 | A2-12 syscall blacklist | E (syscall entry) + S | per-process state checked on every syscall |
+| A2-13 anonymous mmap | S + E (page fault) | regions in the process, mapped on demand |

@@ -4,10 +4,11 @@ The A1 interview is about **threads, scheduling, processes and syscalls** – an
 list from earlier years (`AG - Potential Tasks.md`) says which kinds of tasks come up. Every task
 runs on **your team's code** (the commit in `team/BASE`) – the code you have in the interview.
 A1-01 and A1-06 are your team's own `pthread_join` / `pthread_cancel` (your P2 work): study tasks
-– the course tests run against your code (and find two bugs, see their notes).
+– the course tests run against your code (and find two bugs, see their notes). A1-14 … A1-20 cover every POSIX stub of your libc that
+an A1 task can ask for.
 
 **Not every task is a syscall:** A1-14 … A1-17 are pure libc (type U) – like the `atexit` task in
-A0 of 2026. Before you start a task, classify it: [TRIAGE.md](../TRIAGE.md).
+A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, classify it: [TRIAGE.md](../TRIAGE.md).
 
 ## The tasks
 
@@ -26,10 +27,13 @@ A0 of 2026. Before you start a task, classify it: [TRIAGE.md](../TRIAGE.md).
 | 11 | [page fault statistics + cr2](11-pagefault-stats/) | A + E | *x86 asm pagefault* | – | 30 min | ★★☆ |
 | 12 | [sbrk](12-sbrk/) | S + E | *simple sbrk* | – | 30 min | ★★☆ |
 | 13 | [a 15-argument syscall](13-sum15/) | A | *15 arg syscall* | – | 15 min | ★☆☆ |
-| 14 | [atexit](14-atexit/) | **U** | `atexit` | – | 20 min | ★☆☆ |
-| 15 | [malloc / free / calloc / realloc](15-malloc/) | **U** | libc stub | – | 30 min | ★★☆ |
-| 16 | [spinlock + mutex in user space](16-spinlock/) | **U** | libc stub | 01 | 25 min | ★★☆ |
-| 17 | [semaphores in user space](17-semaphore/) | **U** | libc stub | 16 | 25 min | ★★☆ |
+| 14 | [malloc / free / calloc / realloc](14-malloc/) | **U** | libc stub | – | 30 min | ★★☆ |
+| 15 | [spinlock + mutex in user space](15-spinlock/) | **U** | libc stub | 01 | 25 min | ★★☆ |
+| 16 | [semaphores in user space](16-semaphore/) | **U** | libc stub | 15 | 25 min | ★★☆ |
+| 17 | [condition variables in user space](17-cond/) | **U** | libc stub | 15 | 25 min | ★★☆ |
+| 18 | [sleep + uptime](18-sleep/) | S + E | libc stub | – | 25 min | ★★☆ |
+| 19 | [waitpid](19-waitpid/) | S | libc stub (processes) | – | 40 min | ★★★ |
+| 20 | [pthread_detach](20-detach/) | S | libc stub | – | 25 min | ★★☆ |
 
 Not here, with the reason:
 - *Pagefault handler with special addresses* (`0xDEADBEEF`): that is A0-04 – do it again with a

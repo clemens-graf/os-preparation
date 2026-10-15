@@ -149,6 +149,32 @@ itself had finished correctly; the backtrace names the CleanupThread.
 \end{itemize}
 No TLB flush is needed after \code{mapPage}: the entry was not present before.
 
+\section{Not every task is a syscall: \code{atexit}}
+\label{sec:atexit}
+
+Our own A0 (14 Oct 2026) asked for \code{atexit} --- nothing in the kernel at all. The stub is in
+\file{userspace/libc/src/stdlib.c}; \code{exit()} is in \file{exec.c}; \code{\_start}
+(\file{nonstd.c}) calls \code{exit(main())}. Task A0-13; more of that kind: A0-14 (string
+functions), A1-14 \ldots{} A1-17 (malloc, locks, semaphores, condition variables).
+
+\begin{lstlisting}[style=cpp]
+static void (*handlers[32])(void);   // static in the libc file: one copy per process
+static int count = 0;
+int atexit(void (*f)(void))
+{
+  if (f == 0 || count == 32) return -1;
+  handlers[count++] = f;
+  return 0;
+}
+void __runAtexitFunctions(void)      // exit() calls it before __syscall(sc_exit)
+{
+  while (count > 0) { count--; handlers[count](); }   // reverse order, pop first
+}
+\end{lstlisting}
+
+The first question for every task: \emph{does it need anything only the kernel has?}
+(\file{TRIAGE.md}). If not, it is libc work --- and saying so is half of the answer.
+
 \section{Variants to expect}
 
 Practise these as ``five-minute variations'' of the tasks:

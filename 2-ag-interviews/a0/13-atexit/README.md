@@ -1,6 +1,6 @@
-# A1-14 · atexit
+# A0-13 · atexit
 
-**Time box 20 min · ★☆☆ · man page: atexit**
+**Time box 20 min · ★☆☆ · type U (user space only) – the real A0 task of 14 Oct 2026 · read first: [TRIAGE.md](../../TRIAGE.md)**
 
 ```
 Name:         atexit (stdlib.h - the stub exists)
@@ -12,7 +12,7 @@ Return Value: 0, or -1 (NULL, or too many)
 
 ## Test
 
-`task.sh start a1-14` → `task.sh test`. Done when 6 checks pass.
+`task.sh start a0-13` → `task.sh test`. Done when 6 checks pass.
 
 ## Your team's code
 
@@ -28,7 +28,7 @@ Pure libc: an array in `stdlib.c`, called from `exit()` in `exec.c` before the e
 
 <details><summary>2 – threads</summary>
 
-A plain array + counter is enough. If two threads register at the very same moment, both can read the same counter value and one function is lost – mention it; a fix is a lock (A1-16) or `__sync_fetch_and_add(&count, 1)` to reserve the slot.
+A plain array + counter is enough. If two threads register at the very same moment, both can read the same counter value and one function is lost – mention it; a fix is a lock (A1-15) or `__sync_fetch_and_add(&count, 1)` to reserve the slot.
 </details>
 
 <details><summary>3 – a handler that calls exit()</summary>

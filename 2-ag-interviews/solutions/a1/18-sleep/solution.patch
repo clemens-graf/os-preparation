@@ -1,0 +1,110 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index a996aca5..78635347 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -32,6 +32,7 @@ class Syscall
+ 
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
++    static size_t sleep(size_t seconds);   // A1-18
+ 
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 51f0de2a..363a496e 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -32,6 +32,8 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_sleep 1715    // A1-18
++#define sc_uptime 1716
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..1d364e8d 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -88,6 +88,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
++    case sc_sleep:
++      return_value = sleep(arg1);
++      break;
++    case sc_uptime:
++      return_value = Scheduler::instance()->getTicks();
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+@@ -448,3 +454,15 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
+ }
++
++// A1-18: the timer interrupt counts ticks (Scheduler::incTicks), 1193180 / 65536 = 18.2 per second.
++// Wait until enough ticks have passed - giving the CPU away meanwhile, so other threads run.
++size_t Syscall::sleep(size_t seconds)
++{
++  if (seconds > 100000)
++    seconds = 100000;                                       // no overflow below
++  size_t until = Scheduler::instance()->getTicks() + seconds * 182 / 10;
++  while (Scheduler::instance()->getTicks() < until)
++    Scheduler::instance()->yield();                         // never wait while holding a lock
++  return 0;                                                 // POSIX: seconds left unslept = 0
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..d89c8b61 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// A1-18: timer ticks since boot (18.2 per second)
++extern size_t uptime(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..c7829a8b 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,10 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++// A1-18
++size_t uptime(void)
++{
++  return __syscall(sc_uptime, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
+diff --git a/userspace/libc/src/unistd.c b/userspace/libc/src/unistd.c
+index 76bbea2c..3ccac6a2 100644
+--- a/userspace/libc/src/unistd.c
++++ b/userspace/libc/src/unistd.c
+@@ -46,7 +46,7 @@ void* sbrk(intptr_t increment)
+  */
+ unsigned int sleep(unsigned int seconds)
+ {
+-  return -1U;
++  return __syscall(sc_sleep, seconds, 0x00, 0x00, 0x00, 0x00);   // A1-18
+ }
+ 
+ 

@@ -22,6 +22,8 @@ a0-08|a0/08-pthread-create|main||pthread_create_basic.sweb;pthread_create_exit.s
 a0-09|a0/09-pthread-multi|a0-08||pthread_multi_basic.sweb;pthread_create_basic.sweb;exit
 a0-11|a0/11-thread-note|main|--expect-pass 23|note_basic.sweb;note_errors.sweb;exit
 a0-12|a0/12-alias-page|main|--expect-pass 23|alias_basic.sweb;alias_errors.sweb;mult.sweb;exit
+a0-13|a0/13-atexit|main||atexit_basic.sweb;atexit_exit.sweb
+a0-14|a0/14-strings|main||strings_basic.sweb;exit
 a1-01|a1/01-pthread-join|a0-08||pthread_join_basic.sweb;pthread_create_basic.sweb;exit
 a1-02|a1/02-pthread-multiple|a1-01||pthread_multiple_basic.sweb;exit
 a1-03|a1/03-barrier|a1-01|-n 3|pthread_barrier_basic.sweb;exit
@@ -35,10 +37,13 @@ a1-10|a1/10-shared-page|main||shm_basic.sweb;exit
 a1-11|a1/11-pagefault-stats|main||pfstats_basic.sweb;exit
 a1-12|a1/12-sbrk|main||sbrk_basic.sweb;exit
 a1-13|a1/13-sum15|main||sum15_basic.sweb
-a1-14|a1/14-atexit|main||atexit_basic.sweb;atexit_exit.sweb
-a1-15|a1/15-malloc|main||malloc_basic.sweb;exit
-a1-16|a1/16-spinlock|a1-01||spinlock_basic.sweb;exit
-a1-17|a1/17-semaphore|a1-16||sem_basic.sweb;spinlock_basic.sweb;exit
+a1-14|a1/14-malloc|main||malloc_basic.sweb;exit
+a1-15|a1/15-spinlock|a1-01||spinlock_basic.sweb;exit
+a1-16|a1/16-semaphore|a1-15||sem_basic.sweb;spinlock_basic.sweb;exit
+a1-17|a1/17-cond|a1-15||cond_basic.sweb;spinlock_basic.sweb;exit
+a1-18|a1/18-sleep|main||sleep_basic.sweb;exit
+a1-19|a1/19-waitpid|main||waitpid_basic.sweb;exit
+a1-20|a1/20-detach|main||detach_basic.sweb;exit
 a2-01|a2/01-swap|main||swap_basic.sweb;swap_exit.sweb;swap_check.sweb;exit
 a2-02|a2/02-page-backup|a2-01||page_backup_basic.sweb;swap_check.sweb;exit
 a2-03|a2/03-heap-swap|a2-01||swap_basic.sweb;swap_heap_full.sweb;swap_exit.sweb;swap_check.sweb;exit
@@ -51,3 +56,4 @@ a2-09|a2/09-zero-page|main||zero_page_basic.sweb;mult.sweb;exit
 a2-10|a2/10-ram-obfuscation|main|-n 2|obfuscation_basic.sweb;mult.sweb;exit
 a2-11|a2/11-boot-counter|main|-n 2 --keep-disk|bootcount_basic.sweb
 a2-12|a2/12-syscall-blacklist|main||blacklist_basic.sweb;mult.sweb;exit
+a2-13|a2/13-mmap|main||mmap_basic.sweb;exit

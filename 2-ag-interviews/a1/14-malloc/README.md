@@ -1,4 +1,4 @@
-# A1-15 · malloc / free / calloc / realloc
+# A1-14 · malloc / free / calloc / realloc
 
 **Time box 30 min · ★★☆ · type U (user space only) – see [TRIAGE.md](../../TRIAGE.md)**
 
@@ -16,7 +16,7 @@ Return Value: the block, or NULL
 
 ## Test
 
-`task start a1-15` → `task test` (runs `malloc_basic.sweb`, then `exit` for the leak check).
+`task start a1-14` → `task test` (runs `malloc_basic.sweb`, then `exit` for the leak check).
 Done when 9 checks pass.
 
 ## Your team's code
@@ -59,5 +59,5 @@ memcpy the old size, free the old one.
 
 - Why is malloc not a syscall? When would it need one? (a pool that can grow: `sbrk`, A1-12, or `mmap`)
 - What is fragmentation? Show it with your implementation. How would merging free neighbours help?
-- Two threads call malloc at the same time – what can go wrong? How would you fix it? (a lock, A1-16)
+- Two threads call malloc at the same time – what can go wrong? How would you fix it? (a lock, A1-15)
 - What happens on `free` of a pointer malloc never returned, or a double free?

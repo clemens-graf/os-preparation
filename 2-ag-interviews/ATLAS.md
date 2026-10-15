@@ -274,17 +274,18 @@ They exist (header + function), but return an error or do nothing. A task like "
 
 | Function(s) | File | Type | The simple, working way | Course task |
 |---|---|---|---|---|
-| `atexit` | `stdlib.c` + `exit` in `exec.c` | U | array of 32 function pointers + counter; `exit` calls them backwards, then the syscall | A1-14 |
-| `malloc`, `free`, `calloc`, `realloc` | `stdlib.c` | U | a big static array as pool, a small header (size + used) before every block, first fit; `free` sets used = 0 | A1-15 |
-| `pthread_spin_init/lock/trylock/unlock` | `pthread.c` | U | `while (__sync_lock_test_and_set(lock, 1)) sched_yield();` – the one place you need an atomic | A1-16 |
-| `pthread_mutex_*` | `pthread.c` | U | the same as the spinlock (a mutex that yields while it waits) | A1-16 |
-| `sem_init/wait/trywait/post` | `semaphore.c` | U | one global spinlock (A1-16) protects the counter; `sem_wait` loops: lock, value > 0 → value--, unlock, else unlock + `sched_yield` | A1-17 |
-| `pthread_cond_*` | `pthread.c` | U (simple) / S (real) | simple: a generation counter – `wait` unlocks, yields until the counter changed, locks again; `signal`/`broadcast` increment it | – |
-| `pthread_detach` | `pthread.c` | S | a `detached_` flag in `UserThreadData`; `exitThread` frees the data at once, `join` refuses | – |
-| `sleep` | `unistd.c` | S | kernel: wait until `Scheduler::getTicks()` reached start + seconds × tick rate (yield in a loop) | – |
+| `atexit` | `stdlib.c` + `exit` in `exec.c` | U | array of 32 function pointers + counter; `exit` calls them backwards, then the syscall | A0-13 |
+| `strcpy`, `strncpy`, `strcat`, `strncmp`, `strchr` | `string.c` (+ declarations in `string.h`) | U | **missing**, not even stubs – plain C loops | A0-14 |
+| `malloc`, `free`, `calloc`, `realloc` | `stdlib.c` | U | a big static array as pool, a small header (size + used) before every block, first fit; `free` sets used = 0 | A1-14 |
+| `pthread_spin_init/lock/trylock/unlock` | `pthread.c` | U | `while (__sync_lock_test_and_set(lock, 1)) sched_yield();` – the one place you need an atomic | A1-15 |
+| `pthread_mutex_*` | `pthread.c` | U | the same as the spinlock (a mutex that yields while it waits) | A1-15 |
+| `sem_init/wait/trywait/post` | `semaphore.c` | U | one global spinlock (A1-15) protects the counter; `sem_wait` loops: lock, value > 0 → value--, unlock, else unlock + `sched_yield` | A1-16 |
+| `pthread_cond_*` | `pthread.c` | U (simple) / S (real) | simple: a generation counter – `wait` unlocks, yields until the counter changed, locks again; `signal`/`broadcast` increment it | A1-17 |
+| `pthread_detach` | `pthread.c` | S | a `detached_` flag in `UserThreadData`; `exitThread` frees the data at once, `join` refuses | A1-20 |
+| `sleep` | `unistd.c` | S | kernel: wait until `Scheduler::getTicks()` reached start + seconds × tick rate (yield in a loop) | A1-18 |
 | `clock` | `time.c` | S | a syscall that returns ticks of the process | A1-07 |
 | `sbrk`, `brk` | `unistd.c` | S | per-process break in `UserProcess`, pages mapped on demand in the page fault handler | A1-12 |
-| `waitpid` | `wait.c` | S | `ProcessRegistry` remembers exit codes per pid; the caller waits on a Condition | – |
-| `mmap`, `munmap`, `shm_*` | `mman.c` | S | like A0-02 (allocpage) with a size; shared pages like A1-10 | A1-10 |
+| `waitpid` | `wait.c` | S | `ProcessRegistry` remembers exit codes per pid; the caller waits on a Condition | A1-19 |
+| `mmap`, `munmap`, `shm_*` | `mman.c` | S | like A0-02 (allocpage) with a size; shared pages like A1-10 | A2-13 (mmap), A1-10 (shared) |
 | `mprotect` | `mman.c` | S | change `writeable` / `execution_disabled` bits + `flushTlb` | A2-07 |
 | `pthread_setcancelstate/type` | `pthread.c` | S | a flag per thread in `UserThreadData`, checked where `requested_cancel_` is checked | – |

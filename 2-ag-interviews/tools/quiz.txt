@@ -22,3 +22,23 @@ How do you read a physical page from the kernel?|(char*) ArchMemory::getIdentAdd
 Where are the swap partition and the other disks found?|BDManager::getInstance()->getDeviceByName("idea2")|common/source/fs/BDManager.cpp
 Where is USER_BREAK defined, and what is it?|offsets.h: 0x800000000000, end of user space|arch/x86/64/include/offsets.h
 Where do you add your own debug flag?|const size_t NAME = Ansi_Cyan | OUTPUT_ENABLED;|common/include/console/debug.h
+TASK: "implement atexit" - which type, where do you start?|U: libc only - stub in stdlib.c, call the handlers in exit() (exec.c)|TRIAGE.md, A0-13
+TASK: "malloc and free should work" - type, start?|U: stdlib.c - a static pool + block headers, no syscall needed|A1-14
+TASK: "add strncpy to the libc" - type, start?|U: declare in string.h, implement in string.c|A0-14
+TASK: "pthread_mutex_lock must really lock" - type, start?|U: pthread.c - one atomic test-and-set + sched_yield|A1-15
+TASK: "a syscall that returns the number of free pages" - type, start?|S: the six places, PageManager::getNumFreePages|syscall-definitions.h, A0-01
+TASK: "sleep(seconds) should work" - type, start?|S + E: a syscall that waits until Scheduler::getTicks() reached the target|unistd.c stub, A1-18
+TASK: "waitpid returns the child's exit code" - type, start?|S: exit code must outlive the process - a table in ProcessRegistry, filled in ~UserProcess|wait.c stub, A1-19
+TASK: "pages of the heap are mapped on first access" - type, start?|S + E: limit in UserProcess, a new case FIRST in handlePageFault|PageFaultHandler.cpp, A0-03
+TASK: "code pages must be read-only" - type, start?|E: Loader::loadPage maps with writeable = false for segments without PF_W|Loader.cpp, A0-05
+TASK: "when F3 is pressed, do X with the current process" - type, start?|E: Console::handleKey sets a flag, the top of syscallException does the work|Console.cpp, ex07, A2-06
+TASK: "a flagged thread runs twice as long" - type, start?|E + S: Scheduler::schedule keeps it for a second slice|Scheduler.cpp, A1-04
+TASK: "count page faults per process" - type, start?|A + E: pageFaultHandler in InterruptUtils.cpp (interrupts off: atomics)|A1-11
+TASK: "call a user function when the process segfaults" - type, start?|K + E: page fault handler sets user_registers_->rip/rsp/rdi to the handler|A0-06
+TASK: "a syscall with 15 arguments" - type, start?|A: 4-5 values in registers, the rest in an array in user memory|A1-13
+TASK: "a kernel thread that does X every few ticks" - type, start?|E: class derived from Thread with Run(), addNewThread in startup()|main.cpp, ex06, A2-10
+TASK: "pthread_join must work" - type, start?|S: UserProcess::joinThread - record that outlives the thread, wait on a Condition|your team's code, A1-01
+TASK: "never execute data or stack" - type, start?|E: execution_disabled bit in loadPage and mapStackPage|A2-08
+TASK: "mmap(MAP_ANONYMOUS) should work" - type, start?|S + E: regions in UserProcess, pages mapped on demand in the page fault handler|mman.c stub, A2-13
+TASK: "store a message on the disk that survives a reboot" - type, start?|E (boot) + S: BDManager getDeviceByName("idea2"), readData/writeData at boot|A2-11
+TASK: "pthread_detach" - type, start?|S: detached_ flag in UserThreadData, exitThread frees the record|pthread.c stub, A1-20

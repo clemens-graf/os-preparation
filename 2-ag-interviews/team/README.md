@@ -65,6 +65,8 @@ Types: **U** user space only · **S** syscall + kernel · **E** kernel event · 
 | A0-09 pthread_multi | S + K | `createThread(entry, false, 0, 0)` + `UserThread::pushToStack()` |
 | A0-11 thread note | S | `char note_[16] = {}` in `UserThread` |
 | A0-12 alias page | S | alias list in `UserProcess`, cleanup in `~UserProcess` before `delete arch_memory_` |
+| A0-13 atexit | U | libc: `stdlib.c` + `exit()` in `exec.c` |
+| A0-14 string functions | U | libc: `string.h` (declarations missing!) + `string.c` |
 | A1-01 pthread_join | S | **study task** – your P2 work: 8/9, then a kernel panic (below) |
 | A1-02 pthread_multiple | S | adds `MAX_USER_THREADS 64` to `createThread`; `discardThread`, `joinAny` in `UserProcess` |
 | A1-03 barrier | S | `barriers_`, `barriers_lock_`, `barrier_opened_` in `UserProcess` |
@@ -78,10 +80,13 @@ Types: **U** user space only · **S** syscall + kernel · **E** kernel event · 
 | A1-11 pagefault stats | A + E | `pf_stats_` in `UserProcess`, counted in `pageFaultHandler` |
 | A1-12 sbrk | S + E | like A0-03: `brk_`, `mapBrkPage()`, `sbrk()` in `UserProcess` |
 | A1-13 sum15 | A | only the six places |
-| A1-14 atexit | U | libc: `stdlib.c` + `exit()` in `exec.c` |
-| A1-15 malloc | U | libc: `stdlib.c` |
-| A1-16 spinlock + mutex | U | libc: `pthread.c` (+ the missing declarations in `pthread.h`) |
-| A1-17 semaphore | U | libc: `semaphore.c` |
+| A1-14 malloc | U | libc: `stdlib.c` |
+| A1-15 spinlock + mutex | U | libc: `pthread.c` (+ the missing declarations in `pthread.h`) |
+| A1-16 semaphore | U | libc: `semaphore.c` |
+| A1-17 condition variables | U | libc: `pthread.c` – a generation counter on top of the A1-15 mutex |
+| A1-18 sleep | S + E | `Scheduler::getTicks()`, yield until enough ticks passed; `unistd.c` |
+| A1-19 waitpid | S | exit-code table in `ProcessRegistry`; `exit_code_` in `UserProcess`; `wait.c` |
+| A1-20 pthread_detach | S | `detached_` in `UserThreadData`; `exitThread` frees the record |
 | A2-01 swap | S + E | `SwapManager`; `swapOut/swapIn` in `UserProcess`; swap-in first in the page fault handler |
 | A2-02 … A2-06 | E (+ S) | on top of A2-01, state in `UserProcess`; A2-06: `Console::handleKey` + top of `syscallException` |
 | A2-07 mprotect | S + E | PTE bits under `getThreadLock()` |
@@ -90,6 +95,7 @@ Types: **U** user space only · **S** syscall + kernel · **E** kernel event · 
 | A2-10 RAM obfuscation | E | `all_processes_` list, `relocatePage/isMapped` in `UserProcess`, `ObfuscationThread` |
 | A2-11 boot counter | E + S | `BootRecord`, `init()` in `ProcessRegistry::Run()` |
 | A2-12 syscall blacklist | E + S | `blacklist_` in `UserProcess`, checked at the top of `syscallException` |
+| A2-13 mmap | S + E | `mmap_regions_` in `UserProcess`, mapped in the page fault handler; `mman.c` |
 | ex03 stack growth | E | your stack already grows – the example raises `USERSTACK_PAGES` to 16 |
 | ex11 / ex12 | S | the tutorials, moved to your team's code (1580 / `getProcess()->getAddressSpace()`) |
 

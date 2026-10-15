@@ -1,6 +1,6 @@
-# A1-17 · semaphores in user space
+# A1-16 · semaphores in user space
 
-**Time box 25 min · ★★☆ · type U (user space only) · builds on A1-16 (spinlock)**
+**Time box 25 min · ★★☆ · type U (user space only) · builds on A1-15 (spinlock)**
 
 ```
 Name:         sem_init, sem_destroy, sem_wait, sem_trywait, sem_post (semaphore.h - stubs exist)
@@ -13,13 +13,13 @@ Return Value: 0, or -1 (NULL; trywait: the counter is 0)
 
 ## Test
 
-`task start a1-17` → `task test` (`sem_basic.sweb` + `spinlock_basic.sweb` of A1-16).
+`task start a1-16` → `task test` (`sem_basic.sweb` + `spinlock_basic.sweb` of A1-15).
 Done when 7 + 7 checks pass.
 
 ## Your team's code
 
 The stubs are in `userspace/libc/src/semaphore.c`, declared in `semaphore.h`. Your spinlock
-from A1-16 is already there (the task starts from its solution).
+from A1-15 is already there (the task starts from its solution).
 
 ## Hints
 

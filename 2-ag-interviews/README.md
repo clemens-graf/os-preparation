@@ -9,13 +9,14 @@ will ask yourself every time: **which file do I have to touch for this?**
 | | |
 |---|---|
 | [`GETTING-STARTED.md`](GETTING-STARTED.md) | **start here:** every command you type, with examples – setup, the daily loop, tests, debugging, git, reading the output, problems |
+| [`TRAINING-PLAN.md`](TRAINING-PLAN.md) | **the checklist:** every task, grouped by type – work through it and you have practised every kind of task (not only syscalls) |
 | [`TRIAGE.md`](TRIAGE.md) | **an unknown task in 5 minutes:** the five task types (user space only, syscall, kernel event, assembly, kernel calls user code), where each one goes, every course task classified |
 | [`ATLAS.md`](ATLAS.md) | **your team's code, file by file:** what is in every file, the call chains (program start/end, syscall, page fault, timer, key, pthread_create, fork), "I want to … → go to", the POSIX stubs of your libc |
 | [`guide.pdf`](guide.pdf) | The theory: what happens where in SWEB, recipes for every kind of change, **locking** (the biggest source of deductions), the A0/A1/A2 task families, your team's code |
 | [`examples/`](examples/) | 11 worked reference changes on **your team's code** with walkthroughs: syscalls, mapping pages, page faults, PTE flags, registers, kernel threads, F-keys, disk, loader, and the two A0 tutorials (ex11, ex12) as the tutors wrote them |
-| [`a0/`](a0/) | 11 tasks for the A0 interview, incl. both tutorials done right (A0-11, A0-12), and the [cheat sheet](a0/cheatsheet.pdf) |
-| [`a1/`](a1/) | 17 tasks for the A1 interview – threads, scheduling, and 4 pure-libc tasks (atexit, malloc, locks, semaphores) |
-| [`a2/`](a2/) | 12 tasks for the A2 interview – swapping, page-table bits, kernel threads, F-keys |
+| [`a0/`](a0/) | 13 tasks for the A0 interview, incl. both tutorials done right (A0-11, A0-12), `atexit` (A0-13, the real A0 task of 2026), string functions (A0-14), and the [cheat sheet](a0/cheatsheet.pdf) |
+| [`a1/`](a1/) | 20 tasks for the A1 interview – threads, scheduling, processes, and every POSIX stub of your libc (malloc, locks, semaphores, condition variables, sleep, waitpid, detach) |
+| [`a2/`](a2/) | 13 tasks for the A2 interview – swapping, page-table bits, kernel threads, F-keys, mmap |
 | [`solutions/`](solutions/) | a tested solution for every task on **your team's code**: `solution.patch` + `NOTES.md` (files, steps, locking, pitfalls, answers) |
 | [`team/`](team/) | which commit of your team's code the course runs on (`BASE`), your team's names, every task's place in your code, bugs found – [`team/README.md`](team/README.md) |
 | [`tools/`](tools/) | `task.sh` (start / test / reset / solution / run / debug / **quiz**), `run_test.sh`, `sweb_run.py`, `tasks.txt`, `quiz.txt` |
@@ -44,7 +45,7 @@ branch**, created by `task.sh`:
 | `task/a0-01-meminfo` | your work on a task (created with the test programs already in `userspace/tests/`) |
 | `solution/a0-01-meminfo` | the reference solution, to build, run and compare |
 | `example/ex02-map-page` | an example applied |
-| `base/a0-08` | for tasks that build on another task's solution (A0-09, A1-16 …) – created automatically |
+| `base/a0-08` | for tasks that build on another task's solution (A0-09, A1-15 …) – created automatically |
 | `backup/a0-01-meminfo-<date>` | your attempt, kept whenever you reset |
 
 ## Quick start
@@ -122,11 +123,11 @@ What students reported (`a0/README.md`): syscalls, page faults, mapping a page f
 register manipulation, "call a user function on segfault", the loader, the mechanics of
 `pthread_create`, `pthread_multi` – plus what the tutors themselves practised in the two A0
 tutorials: a user string, a debug flag and per-thread data (tutorial 1: ex11, A0-11), the
-physical page of a variable and a second mapping of it (tutorial 2: ex12, A0-12). The eleven A0
+physical page of a variable and a second mapping of it (tutorial 2: ex12, A0-12). The A0
 tasks cover exactly these. **But in the A0 of 14 Oct 2026 the task was `atexit` – pure libc, no
-syscall at all** (now A1-14; A1-15 … A1-17 are more of that kind): classify every task first.
+syscall at all** – it is [A0-13](a0/13-atexit/) now; A0-14 and A1-14 … A1-17 are more of that kind: classify every task first.
 **Short on time:** guide chapters 2–4, examples ex01, ex11, ex02, ex12, ex03, ex05, then tasks
-01, 11, 02, 12, 03, 06, 08.
+13, 01, 11, 02, 12, 03, 06, 08.
 
 ## Interview vs. training repo
 

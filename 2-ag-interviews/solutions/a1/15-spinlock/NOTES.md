@@ -1,4 +1,4 @@
-# A1-16 spinlock + mutex in user space – solution notes
+# A1-15 spinlock + mutex in user space – solution notes
 
 Patch: [`solution.patch`](solution.patch) – `userspace/libc/src/pthread.c` + the missing
 declarations in `userspace/libc/include/pthread.h`. Type U.
@@ -30,7 +30,7 @@ step – nobody can come between. **The test cannot prove this:** the naive vers
 it too (the window is a few instructions; the timer rarely hits exactly there). Such bugs survive
 testing – the tutor asks *why* yours is correct.
 
-- `atexit` (A1-14) gets away with a plain counter only because registering from two threads at
+- `atexit` (A0-13) gets away with a plain counter only because registering from two threads at
   the same moment is unusual – a lock is used by many threads at the same moment by definition.
 - `sched_yield` in the loop: on one CPU, spinning without yielding wastes the whole time slice –
   the holder cannot run and unlock in the meantime.

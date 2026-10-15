@@ -1,0 +1,239 @@
+diff --git a/common/include/kernel/ProcessRegistry.h b/common/include/kernel/ProcessRegistry.h
+index c67def30..3b67e17a 100644
+--- a/common/include/kernel/ProcessRegistry.h
++++ b/common/include/kernel/ProcessRegistry.h
+@@ -48,6 +48,12 @@ class ProcessRegistry : public Thread
+ 
+     void createProcess(const char* path, uint32 ppid);
+ 
++    // A1-19: what waitpid needs - which process is whose child, and how it ended
++    void processCreated(size_t pid, size_t ppid);
++    void processFinished(size_t pid, size_t exit_code);
++    /** waits until child pid of parent ppid has finished @return 0 (exit_code set), -1: no such child */
++    size_t waitForChild(size_t ppid, size_t pid, size_t* exit_code);
++
+   private:
+ 
+     char const **progs_;
+@@ -56,6 +62,19 @@ class ProcessRegistry : public Thread
+     uint32 pid_counter_;
+     Mutex pid_counter_lock_;
+     Condition all_processes_killed_;
++
++    // A1-19: a fixed table - no new/delete, so SWEB's leak check at shutdown stays quiet
++    static const size_t MAX_RECORDS = 64;
++    struct ProcessRecord
++    {
++      bool used;
++      bool finished;
++      size_t pid;
++      size_t ppid;
++      size_t exit_code;
++    } records_[MAX_RECORDS];
++    Mutex records_lock_;
++    Condition process_finished_;   // broadcast whenever a process has finished
+     static ProcessRegistry* instance_;
+ };
+ 
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index a996aca5..8f700d29 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -32,6 +32,7 @@ class Syscall
+ 
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
++    static size_t waitpid(size_t pid, size_t status);   // A1-19
+ 
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index ec56f120..705a83e7 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -157,6 +157,8 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    size_t exit_code_ = 0;   // A1-19: set by Syscall::exit, reported in ~UserProcess
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 51f0de2a..74b83c52 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -32,6 +32,7 @@
+ #define sc_pthread_join 1501
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
++#define sc_waitpid 1717   // A1-19
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/ProcessRegistry.cpp b/common/source/kernel/ProcessRegistry.cpp
+index 94f2a4e0..ea5704b2 100644
+--- a/common/source/kernel/ProcessRegistry.cpp
++++ b/common/source/kernel/ProcessRegistry.cpp
+@@ -2,6 +2,7 @@
+ #include "ProcessRegistry.h"
+ #include "Scheduler.h"
+ #include "UserProcess.h"
++#include "ScopeLock.h"
+ #include "kprintf.h"
+ #include "VfsSyscall.h"
+ #include "Loader.h"
+@@ -17,7 +18,8 @@ ProcessRegistry::ProcessRegistry(FileSystemInfo *root_fs_info, char const *progs
+     Thread(root_fs_info, "ProcessRegistry", Thread::KERNEL_THREAD), progs_(progs), progs_running_(0),
+     counter_lock_("ProcessRegistry::counter_lock_"), pid_counter_(0),
+     pid_counter_lock_("ProcessRegistry::pid_counter_lock_"),
+-    all_processes_killed_(&counter_lock_, "ProcessRegistry::all_processes_killed_")
++    all_processes_killed_(&counter_lock_, "ProcessRegistry::all_processes_killed_"), records_(),
++    records_lock_("ProcessRegistry::records_lock_"), process_finished_(&records_lock_, "ProcessRegistry::process_finished_")
+ {
+   instance_ = this; // instance_ is static! -> Singleton-like behaviour
+ }
+@@ -135,3 +137,62 @@ void ProcessRegistry::createProcess(const char* path, uint32 ppid)
+ 
+   debug(PROCESS_REG, "successful creation of process %s\n", path);
+ }
++
++// A1-19
++void ProcessRegistry::processCreated(size_t pid, size_t ppid)
++{
++  ScopeLock lock(records_lock_);
++  for (ProcessRecord& record : records_)
++  {
++    if (!record.used)
++    {
++      record = {true, false, pid, ppid, 0};
++      return;
++    }
++  }
++  debug(PROCESS_REG, "no free process record for pid %zu - waitpid will not find it\n", pid);
++}
++
++void ProcessRegistry::processFinished(size_t pid, size_t exit_code)
++{
++  ScopeLock lock(records_lock_);
++  for (ProcessRecord& record : records_)
++  {
++    if (record.used && record.ppid == pid)
++      record.used = false;                 // its children: nobody can wait for them any more
++  }
++  for (ProcessRecord& record : records_)
++  {
++    if (record.used && record.pid == pid)
++    {
++      record.finished = true;
++      record.exit_code = exit_code;
++      if (record.ppid == 0)
++        record.used = false;               // started by the kernel: nobody will wait
++    }
++  }
++  process_finished_.broadcast();           // every waitpid re-checks its own child
++}
++
++size_t ProcessRegistry::waitForChild(size_t ppid, size_t pid, size_t* exit_code)
++{
++  ScopeLock lock(records_lock_);
++  while (true)
++  {
++    ProcessRecord* child = nullptr;
++    for (ProcessRecord& record : records_)
++    {
++      if (record.used && record.pid == pid && record.ppid == ppid)
++        child = &record;
++    }
++    if (!child)
++      return (size_t) -1;                  // unknown, not ours, or already waited for
++    if (child->finished)
++    {
++      *exit_code = child->exit_code;
++      child->used = false;                 // reaped: a second waitpid fails
++      return 0;
++    }
++    process_finished_.wait();
++  }
++}
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..6da7ddf3 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -88,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
++    case sc_waitpid:
++      return_value = waitpid(arg1, arg2);
++      break;
+     case sc_pthread_join:
+       return_value = pthreadJoin(arg1, (void**)arg2);
+       break;
+@@ -291,6 +294,7 @@ void Syscall::exit(size_t exit_code)
+   UserProcess* process = currentThread->getProcess();
+   assert(process && "current Thread has no process\n");
+ 
++  process->exit_code_ = exit_code;   // A1-19: for waitpid - reported when the process is deleted
+   process->exitProcess();
+ 
+   delete process->findThreadData(caller);
+@@ -448,3 +452,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+   }
+   return false;
+ }
++
++// A1-19: wait for a child process, store its exit code in *status
++size_t Syscall::waitpid(size_t pid, size_t status)
++{
++  if (status != 0 && status > USER_BREAK - sizeof(int))
++    return (size_t) -1;
++  size_t exit_code = 0;
++  if (ProcessRegistry::instance()->waitForChild(currentThread->getProcess()->getPID(), pid, &exit_code) != 0)
++    return (size_t) -1;
++  if (status)
++    *(int*) status = (int) exit_code;        // user memory only after the lock is released
++  return pid;
++}
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index f37eb7ef..a1b68b1e 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -17,6 +17,7 @@ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info,
+   fd_(fd), ppid_(ppid), arch_memory_(arch_memory ? arch_memory : new ArchMemory()), pid_(ProcessRegistry::instance()->registerPID()),
+   thread_lock_("UserProcess::thread_lock"), thread_exited_(&thread_lock_, "UserProcess::thread_exited_"), next_stack_slot_lock_("UserProcess::next_stack_slot_lock"), running_threads_(0), next_stack_slot_(0)
+ {
++  ProcessRegistry::instance()->processCreated(pid_, ppid_);   // A1-19: waitpid can find it now
+   debug(USERPROCESS, "created process with ppid: %zu, pid: %zu, filename: %s, terminal_number: %d, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), terminal_number_, fd_);
+ }
+ 
+@@ -34,6 +35,7 @@ UserProcess::~UserProcess()
+   delete arch_memory_;
+ 
+   debug(USERPROCESS, "signaling ProcessRegistry the deletion for process with ppid: %zu, pid: %zu filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
++  ProcessRegistry::instance()->processFinished(pid_, exit_code_);   // A1-19: wake a waiting parent
+   ProcessRegistry::instance()->processExit();
+   debug(USERPROCESS, "finished signaling ProcessRegistry the deleted process with ppid: %zu, pid: %zu, filename %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
+ 
+diff --git a/userspace/libc/src/wait.c b/userspace/libc/src/wait.c
+index db2cb8e7..7b7be873 100644
+--- a/userspace/libc/src/wait.c
++++ b/userspace/libc/src/wait.c
+@@ -1,4 +1,6 @@
+ #include "wait.h"
++#include "sys/syscall.h"
++#include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ /**
+  * function stub
+@@ -6,7 +8,8 @@
+  */
+ pid_t waitpid(pid_t pid, int *status, int options)
+ {
+-  return -1;
++  (void) options;                                  // A1-19: options are not supported
++  return __syscall(sc_waitpid, pid, (size_t) status, 0x00, 0x00, 0x00);
+ }
+ 
+ 

@@ -25,8 +25,8 @@
      [ex12](../examples/ex12-tutorial2/); A0-12 is the same task done right.
 8. **A0, 14 Oct 2026 (our own interview): implement `atexit`** – no syscall at all: the stub in
    `userspace/libc/src/stdlib.c` and `exit()` in `exec.c`. Not every task is "add a syscall":
-   classify it first ([TRIAGE.md](../TRIAGE.md)). Practise it with [A1-14](../a1/14-atexit/), and
-   the other libc stubs with A1-15 … A1-17.
+   classify it first ([TRIAGE.md](../TRIAGE.md)). It is task [A0-13](13-atexit/) here; [A0-14](14-strings/) is another
+   one of that kind, the other libc stubs are A1-14 … A1-20.
 
 ## The tasks
 
@@ -43,6 +43,8 @@
 | 09 | [pthread_multi](09-pthread-multi/) – one thread runs a list of functions | 6 | 40 min | ★★★ | (builds on 08) |
 | 11 | [a note per thread](11-thread-note/) – tutorial 1 done right: a user string of unknown length, per-thread data, a debug flag | 7, 1 | 30 min | ★★☆ | ex11, ex01 |
 | 12 | [two addresses, one page](12-alias-page/) – tutorial 2 done right: physical page lookup, aliases, no double free | 7, 1, 5 | 40 min | ★★★ | ex12, ex02 |
+| 13 | [atexit](13-atexit/) – **the real A0 task of 14 Oct 2026**: pure libc, no syscall | 8 | 20 min | ★☆☆ | [TRIAGE.md](../TRIAGE.md) |
+| 14 | [string functions](14-strings/) – `strcpy`, `strncpy`, `strcat`, `strncmp`, `strchr`: missing in your libc, pure C | 8 | 20 min | ★☆☆ | [TRIAGE.md](../TRIAGE.md) |
 
 There is no task 10: the two tutorial tasks carry the number of their example –
 11 = tutorial 1 (ex11), 12 = tutorial 2 (ex12).

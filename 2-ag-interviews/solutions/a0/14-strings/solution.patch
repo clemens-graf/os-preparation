@@ -1,0 +1,79 @@
+diff --git a/userspace/libc/include/string.h b/userspace/libc/include/string.h
+index 839d5d3a..dd8e48a0 100644
+--- a/userspace/libc/include/string.h
++++ b/userspace/libc/include/string.h
+@@ -91,6 +91,13 @@ extern int strcmp (const char * l, const char * r);
+  */
+ extern char *strstr(const char *haystack, const char *needle);
+ 
++// A0-14: the usual string functions - missing in SWEB's libc
++extern char *strcpy(char *destination, const char *source);
++extern char *strncpy(char *destination, const char *source, size_t n);
++extern char *strcat(char *destination, const char *source);
++extern int strncmp(const char *first, const char *second, size_t n);
++extern char *strchr(const char *str, int character);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/string.c b/userspace/libc/src/string.c
+index b69bbbe7..771f9eb2 100644
+--- a/userspace/libc/src/string.c
++++ b/userspace/libc/src/string.c
+@@ -147,4 +147,54 @@ char *strstr(const char *haystack, const char *needle)
+   }
+ 
+   return NULL;
+-}
+\ No newline at end of file
++}
++
++
++// A0-14: pure user-space C - no syscall, nothing in the kernel
++char *strcpy(char *destination, const char *source)
++{
++  char *d = destination;
++  while ((*d++ = *source++))               // copies the NUL too, then stops
++    ;
++  return destination;
++}
++
++char *strncpy(char *destination, const char *source, size_t n)
++{
++  size_t i = 0;
++  for (; i < n && source[i]; ++i)          // at most n bytes of source ...
++    destination[i] = source[i];
++  for (; i < n; ++i)                       // ... the rest of the n bytes: 0 (POSIX).
++    destination[i] = 0;                    // source longer than n: NO terminating NUL!
++  return destination;
++}
++
++char *strcat(char *destination, const char *source)
++{
++  strcpy(destination + strlen(destination), source);   // copy to the old end
++  return destination;
++}
++
++int strncmp(const char *first, const char *second, size_t n)
++{
++  for (size_t i = 0; i < n; ++i)
++  {
++    unsigned char a = (unsigned char) first[i], b = (unsigned char) second[i];
++    if (a != b)
++      return a < b ? -1 : 1;
++    if (a == 0)
++      return 0;                            // both ended here: equal - never read further
++  }
++  return 0;
++}
++
++char *strchr(const char *str, int character)
++{
++  for (;; ++str)
++  {
++    if (*str == (char) character)
++      return (char*) str;                  // also finds the NUL if character == 0
++    if (*str == 0)
++      return 0;
++  }
++}

@@ -3,7 +3,7 @@
 \documentclass[10pt,a4paper,landscape]{article}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[landscape,margin=1cm,top=0.9cm,bottom=1cm]{geometry}
+\usepackage[landscape,margin=0.9cm,top=0.6cm,bottom=0.7cm]{geometry}
 \usepackage{lmodern}
 \usepackage{xcolor}
 \usepackage{tcolorbox}
@@ -60,7 +60,7 @@
 \newtcolorbox{csec}[2]{enhanced, breakable, colback=#1!5, colframe=#1, coltitle=white,
   fonttitle=\bfseries\small, title={#2}, boxrule=0.6pt, arc=2.5mm,
   left=4pt, right=4pt, top=3pt, bottom=3pt, toptitle=1.5pt, bottomtitle=1.5pt,
-  before skip=4pt, after skip=5pt, fontupper=\small\raggedright}
+  before skip=3pt, after skip=3pt, fontupper=\small\raggedright}
 \newtcolorbox{tip}[1][cAmber]{enhanced, colback=#1!10, colframe=#1!70, boxrule=0.4pt,
   arc=1.5mm, left=3pt, right=3pt, top=1pt, bottom=1pt, before skip=3pt, after skip=3pt,
   fontupper=\footnotesize}
@@ -327,6 +327,20 @@ size_t Syscall::allocPage()
   \item What happens to pages never freed at exit? (\cc{\textasciitilde UserProcess} deletes the address space)
   \item Why \cc{size\_t} and \cc{(size\_t)-1}? Why the overflow-safe pointer check?
 \end{itemize}
+\end{csec}
+
+% ================= 15 libc only =================
+\begin{csec}{cGreen}{15 \quad Not every task is a syscall (A0-13 \texttt{atexit})}
+Needs nothing only the kernel has? $\to$ only the libc stub:
+\begin{lstlisting}
+// userspace/libc/src/stdlib.c                (exit() is in exec.c)
+static void (*handlers[32])(void);  static int count = 0;
+int atexit(void (*f)(void))
+{ if (f == 0 || count == 32) return -1;  handlers[count++] = f;  return 0; }
+void __runAtexitFunctions(void)          // exit() calls it before sc_exit
+{ while (count > 0) { count--; handlers[count](); } }   // reverse, pop first
+\end{lstlisting}
+Missing: \cc{strcpy/strncpy/strcat} (A0-14). Stubs: \cc{malloc}, \cc{sem\_*}, \cc{pthread\_mutex/spin/cond\_*}, \cc{sleep}, \cc{waitpid}, \cc{mmap} (\cc{ATLAS.md} \S 5).
 \end{csec}
 
 \end{multicols}
