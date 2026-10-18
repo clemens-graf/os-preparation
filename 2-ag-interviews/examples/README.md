@@ -48,6 +48,9 @@ All four are the same code: *one new `if` in `handlePageFault` → `allocPPN` �
 | a key press reaches a process | ex07 | A2-06, A2 F-key tasks |
 | the disk | ex08 | A2-01 … A2-05, A2-11 |
 
+Theory behind each example: [concepts.pdf](../concepts.pdf) – every section ends with the examples that
+show it in code.
+
 ## Using an example
 
 ```bash

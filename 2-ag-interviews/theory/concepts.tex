@@ -5,6 +5,7 @@
 \newenvironment{selfcheck}{\begin{keybox}[title={Check yourself}]\begin{enumerate}[leftmargin=1.4em]}{\end{enumerate}\end{keybox}}
 \newcommand{\answers}[1]{\par\smallskip{\footnotesize\color{black!60}\textit{Answers:} #1\par}}
 \newcommand{\usedin}[1]{\par\smallskip\noindent\textbf{Tasks:} #1\par}
+\newcommand{\examplesfor}[1]{\noindent\textbf{Examples} (\file{examples/}, \code{task example exNN})\textbf{:} #1\par}
 \newcommand{\inteam}{\par\smallskip\noindent\textbf{In your team's code.} }
 \newcommand{\pitfalls}{\par\smallskip\noindent\textbf{Typical mistakes.} }
 
@@ -25,7 +26,7 @@
   \emph{what} the things are that the tasks are about, in plain words, with your team's code as the
   example. Every section has the same parts: the idea in one sentence, how it works, where it is in
   your team's code, typical mistakes, three questions to check yourself (answers below them), and
-  the tasks that need it. Deeper background: the foundations handbook
+  the tasks that need it and the worked examples (\file{examples/}) that show it in code. Deeper background: the foundations handbook
   (\file{1-foundations/theory/handbook.pdf}).
   \end{infobox}
   \vspace{1cm}
@@ -87,6 +88,7 @@ page-faults even though it is ``in the heap region''.
 2. no -- each process has its own page tables; the same virtual address maps to different frames.
 3. on that thread's stack; on the heap.}
 \usedin{A0-03, A1-12, A1-14, A2-13 (and every task that touches pages)}
+\examplesfor{ex09 loader (the segments of the binary), ex02 map a page}
 
 % =====================================================================================
 \conceptsection{The heap and how malloc works}
@@ -148,6 +150,7 @@ different thing in a different address space.
 \answers{1. from the header right before \code{p}. 2. a reused block contains what the previous
 owner wrote. 3. free memory split into pieces that are each too small for the request.}
 \usedin{A1-14 (malloc); background for A0-03, A1-12}
+\examplesfor{ex14 a libc function (state inside the libc)}
 
 % =====================================================================================
 \conceptsection{Program break, sbrk and demand paging}
@@ -188,6 +191,7 @@ flush when shrinking.
 is touched. 3. the check ``below the break'' and the \code{mapPage} happen in one critical section,
 so B's shrink either happens before (A is killed) or after (B unmaps the page).}
 \usedin{A0-03 heaplimit, A1-12 sbrk; the same idea in A2-13 mmap}
+\examplesfor{ex03 stack growth (a new case in the page fault handler), ex02 map a page}
 
 % =====================================================================================
 \conceptsection{Page faults as a tool}
@@ -225,6 +229,7 @@ holding a lock.
 covers the address; 9999: invalid fault (null, kernel address, protection). 3. the same page fault
 handler -- the fault comes from kernel mode, but the address is a user address.}
 \usedin{A0-03, A1-12, A1-11, A1-10, every A2 task}
+\examplesfor{ex03 stack growth, ex04 PTE flags}
 
 % =====================================================================================
 \conceptsection{Ending a program: exit, \_exit, atexit}
@@ -265,6 +270,7 @@ registration order. Running them in \code{\_exit}.
 run -- the kernel ends the process directly, \code{exit()} in the libc is never reached. 3. it only
 stores function pointers in the process' own memory and calls them before the exit syscall.}
 \usedin{A0-13 atexit; background for A1-19 waitpid}
+\examplesfor{ex14 a libc function (the same kind of task as atexit)}
 
 % =====================================================================================
 \conceptsection{Processes: fork, exec, zombies, waitpid}
@@ -305,6 +311,7 @@ Destroying the old address space in exec before the new program is loaded.
 2. the process object is deleted when its last thread is gone -- long before the parent may ask.
 3. zombie: ended, parent has not waited yet; orphan: its parent has ended.}
 \usedin{A1-19 waitpid; background for fork/exec in your team}
+\examplesfor{ex01 syscalls (the six places of a syscall)}
 
 % =====================================================================================
 \conceptsection{C strings}
@@ -341,6 +348,7 @@ must copy it byte by byte and check every address against \code{USER\_BREAK}
 \answers{1. 6. 2. \code{'h' 'e' 'l'} -- no terminating 0. 3. it does not know where the string ends:
 an unterminated string near \code{USER\_BREAK} would make it read kernel memory.}
 \usedin{A0-14 string functions; A0-11 (a user string in a syscall)}
+\examplesfor{ex14 a libc function (strtok), ex01 syscalls (a user buffer), ex11 tutorial 1 (a user string into the kernel)}
 
 % =====================================================================================
 \conceptsection{Registers, the calling convention and the stack frame}
@@ -386,6 +394,7 @@ loaded again. A syscall's return value is written into the saved \code{rax}.
 fresh stack has no return address -- if the thread's function returned, it would jump nowhere; the
 trampoline calls it and then \code{pthread\_exit}.}
 \usedin{A1-13 sum15, A0-07 upcall, A1-08 snapshot, A0-09 pthread\_multi}
+\examplesfor{ex05 registers}
 
 % =====================================================================================
 \conceptsection{Diverting a thread: changing its saved registers}
@@ -421,6 +430,7 @@ memory --- change \code{rip}, and the thread continues somewhere else when it re
 saved \code{rsp} points into the stack -- frames written since then would be wrong. 3. the saved
 \code{rax} when the thread returns to user mode.}
 \usedin{A0-07 upcall, A1-08 snapshot, A0-06 segv handler}
+\examplesfor{ex05 registers (\code{rip}, \code{rsp}, \code{rdi}, red zone)}
 
 % =====================================================================================
 \conceptsection{Interrupts and the interrupt entry}
@@ -453,6 +463,7 @@ nothing could ever wake it. 2. register \code{cr2}, passed on by the assembly st
 is caused by the running instruction (page fault, division by 0); a hardware interrupt comes from a
 device (timer, keyboard) at any time.}
 \usedin{A1-11 page fault statistics; background for A1-07, A1-18}
+\examplesfor{ex13 timer \& scheduler (\code{irqHandler\_0}), ex07 F-key (the keyboard interrupt)}
 
 % =====================================================================================
 \conceptsection{Time: timer ticks, time slices, the scheduler}
@@ -485,6 +496,7 @@ that can run (round robin: the first schedulable one in the list, then rotate th
 \answers{1. about 55\,ms (18.2 per second). 2. it runs in the timer interrupt with interrupts off.
 3. on every tick, add one to the counter of the thread that was running.}
 \usedin{A1-18 sleep, A1-07 thread runtime, A1-04 thread flag, A1-05 pthread\_invoke}
+\examplesfor{ex13 timer \& scheduler, ex01 syscalls (\code{getticks})}
 
 % =====================================================================================
 \conceptsection{Atomic instructions, spinlocks and mutexes}
@@ -522,6 +534,7 @@ holder needs the CPU to finish and unlock -- spinning would waste the whole time
 gap is a few instructions, the timer rarely hits exactly there -- correctness is an argument, not a
 test result.}
 \usedin{A1-15 spinlock + mutex; basis for A1-16, A1-17}
+\examplesfor{ex06 kernel thread (Mutex), ex11 tutorial 1 (\code{ScopeLock})}
 
 % =====================================================================================
 \conceptsection{Semaphores, condition variables and the lost wake-up}
@@ -564,6 +577,7 @@ implementation, remembers the counter before releasing).
 and wake-ups may be spurious. 2. signal wakes one waiter, broadcast all -- needed when waiters wait
 for different things. 3. counting events: the consumer waits until a producer has posted.}
 \usedin{A1-16 semaphore, A1-17 condition variables, A1-03 barrier; your join}
+\examplesfor{ex06 kernel thread (Mutex + Condition handshake)}
 
 % =====================================================================================
 \conceptsection{Barriers}
@@ -594,6 +608,7 @@ unlock(m);
 \answers{1. all $n-1$ waiters must wake up. 2. \code{arrived} may already count the next round when a
 waiter wakes. 3. the last one to arrive.}
 \usedin{A1-03 barrier}
+\examplesfor{ex06 kernel thread (Mutex + Condition)}
 
 % =====================================================================================
 \conceptsection{A thread's life in your team's code}
@@ -633,6 +648,7 @@ address space, runs, ends, and leaves a small record behind until somebody has j
 \answers{1. shared: address space, globals, heap, files; private: registers, stack. 2. the
 CleanupThread deletes it at an unknown time; join may come later. 3. a member of \code{UserThread}.}
 \usedin{A1-02, A0-09, A0-11, A1-07, A1-08, A1-20; your join/cancel}
+\examplesfor{ex06 kernel thread (object lifetime), ex11 tutorial 1 (per-thread data)}
 
 % =====================================================================================
 \conceptsection{Physical pages, reverse lookups and shared pages}
@@ -664,5 +680,6 @@ frees every present frame at exit --- a frame mapped twice is freed twice (``Dou
 2. its exit must not free the frame while the other process still maps it. 3. read and write any
 physical frame directly, without mapping it into a process.}
 \usedin{A1-09 vtop/ptov, A1-10 shared page; background A0-12}
+\examplesfor{ex02 map a page, ex12 tutorial 2 (a frame mapped twice), ex04 PTE flags}
 
 \end{document}
