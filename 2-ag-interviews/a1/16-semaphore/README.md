@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · type U (user space only) · builds on A1-15 (spinlock)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §13 semaphores & condvars, §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         sem_init, sem_destroy, sem_wait, sem_trywait, sem_post (semaphore.h - stubs exist)
 Description:  A semaphore is a counter (sem_t = unsigned int). sem_init sets it.

@@ -2,6 +2,8 @@
 
 **Time box 45 min · ★★★ · builds on A1-01 · your own P2 task**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §13 semaphores & condvars
+
 ```
 Name:         pthread_cancel
 Nr:           1640

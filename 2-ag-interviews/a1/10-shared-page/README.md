@@ -2,6 +2,8 @@
 
 **Time box 45 min · ★★★**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §4 page faults
+
 ```
 Name:         shm_attach, shm_detach
 Nr:           1680, 1681

@@ -2,6 +2,8 @@
 
 **Time box 40 min · ★★★ · builds on A1-01 · man page: pthread_barrier_wait**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §14 barriers, §13 semaphores & condvars
+
 ```
 Name:         pthread_barrier_init, pthread_barrier_wait, pthread_barrier_destroy
 Nr:           1610, 1611, 1612

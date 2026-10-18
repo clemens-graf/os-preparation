@@ -2,6 +2,8 @@
 
 **Time box 40 min · ★★★ · read first: [ex12](../../examples/ex12-tutorial2/) (the tutorial), [ex02](../../examples/ex02-map-page/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages
+
 ```
 Name:         get_physical_address, map_address
 Nr:           1560 (sc_get_physical_address), 1561 (sc_map_address)

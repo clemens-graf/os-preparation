@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · read first: [ex03](../../examples/ex03-stack-growth/), [ex04](../../examples/ex04-pte-flags/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §4 page faults
+
 ```
 Name:         magic page (no syscall)
 Description:  The page at address 0xC0FFEE000 does not exist in any program. When a

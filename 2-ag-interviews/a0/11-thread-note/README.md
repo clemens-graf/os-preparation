@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · read first: [ex11](../../examples/ex11-tutorial1/) (the tutorial), [ex01](../../examples/ex01-syscalls/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §7 C strings
+
 ```
 Name:         setnote, getnote
 Nr:           1570 (sc_setnote), 1571 (sc_getnote)

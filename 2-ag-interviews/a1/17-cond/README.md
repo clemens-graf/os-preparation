@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · type U (user space only) · builds on A1-15 (mutex)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §13 semaphores & condvars, §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         pthread_cond_init, pthread_cond_destroy, pthread_cond_wait,
               pthread_cond_signal, pthread_cond_broadcast (pthread.h - the stubs exist)

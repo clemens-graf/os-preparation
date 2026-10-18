@@ -2,6 +2,8 @@
 
 **Time box 60 min · ★★★ · builds on A0-08 (pthread_create) · your own P2 task**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §13 semaphores & condvars
+
 ```
 Name:         pthread_join (+ pthread_exit keeps its value)
 Nr:           1600 (sc_pthread_join)

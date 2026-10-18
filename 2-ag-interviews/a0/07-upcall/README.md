@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · read first: [ex05](../../examples/ex05-registers/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §8 registers & calling convention, §9 diverting a thread
+
 ```
 Name:         upcall
 Nr:           1540 (sc_upcall)

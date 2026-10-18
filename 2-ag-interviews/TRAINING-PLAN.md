@@ -5,8 +5,47 @@ throw at you – not only syscalls. Every task runs on your team's code (`task s
 Tick a line when the task passes **without looking at the solution**, in its time box, and you
 can answer the card's tutor questions out loud.
 
-Before each task: **30 seconds of triage** – type (U / S / E / A / K, [TRIAGE.md](TRIAGE.md)) and
+Before each task: read the **theory section** its card names ([concepts.pdf](concepts.pdf) – what a heap
+is, what `exit` does, what a register is for …; 10–15 min the first time). Then **30 seconds of triage** – type (U / S / E / A / K, [TRIAGE.md](TRIAGE.md)) and
 the first file ([ATLAS.md](ATLAS.md)). Say both out loud. Then start the timer.
+
+## 14-day plan: A1 + the A0 tasks that matter for A1 (19 Oct – 1 Nov 2026)
+
+23 tasks: all 17 A1 tasks that are not study tasks or done (A1-01, A1-06 are your team's own code,
+A1-20 you wrote yourself), plus the 6 A0 tasks whose content comes back in A1:
+A0-03 (page fault handler → A1-12), A0-07 (registers → A1-08, A1-13), A0-09 (threads on your team's
+`createThread`), A0-11 (per-thread state), A0-13 `atexit` and A0-14 (libc-only – like A1-14 … A1-17;
+`atexit` was the real A0 task – do it again from scratch, without your branch).
+Not needed for A1: A0-04, A0-05 (A2 material), A0-12 (A1-10 covers it); A0-06 only if time is left.
+
+About **1–1.5 h a day**:
+
+1. **Redo (≤ 20 min):** every task from 2 days ago that you only finished with hints or the
+   solution: `task reset <id>`, again from scratch, without looking.
+2. **The day's tasks**, each in its time box. Stuck after the time box: one hint, 10 more minutes,
+   then `task diff <id>` + `NOTES.md` – every line out loud with its "why". Mark it "needs redo".
+3. **Anki 15 min** (due cards) + `task quiz 5`.
+
+| ✓ | Day | Date | Tasks (time box) | Type | Note |
+|---|---|---|---|---|---|
+| [ ] | 1 | Mon 19 Oct | A1-09 vtop/ptov (25) · A0-14 strings (20) · A1-14 malloc (30) | S · U · U | warm-up, three different places |
+| [ ] | 2 | Tue 20 Oct | A0-03 heaplimit (30) · A1-12 sbrk (30) | S+E · S+E | the same pattern twice: page fault handler |
+| [ ] | 3 | Wed 21 Oct | A1-18 sleep (25) · A0-07 upcall (30) | S+E · K | timer; registers |
+| [ ] | 4 | Thu 22 Oct | A1-13 sum15 (15) · A0-13 atexit (20) · A1-15 spinlock + mutex (25) | A · U · U | short – debate week: read your crib sheet |
+| [ ] | 5 | Fri 23 Oct | A1-19 waitpid (40) · A1-16 semaphore (25) | S · U | processes; builds on A1-15 |
+| [ ] | 6 | Sat 24 Oct | A1-04 thread flag (30) · A1-17 cond (25) | E+S · U | scheduler; builds on A1-15 |
+| [ ] | 7 | Sun 25 Oct | A0-11 thread note – finish (30) · A1-05 pthread_invoke (30) | S · E+S | PoC tag day – keep it light |
+| [ ] | 8 | Mon 26 Oct | A1-02 pthread_multiple (45) | S | threads: all or nothing |
+| [ ] | 9 | Tue 27 Oct | A1-08 snapshot (40) · A1-07 thread runtime (30) | A+S · E+S | registers (after A0-07); timer |
+| [ ] | 10 | Wed 28 Oct | A1-11 page fault stats (30) | A+E | interrupt entry – plus redo time |
+| [ ] | 11 | Thu 29 Oct | A1-03 barrier (40) | S | Mutex + Condition |
+| [ ] | 12 | Fri 30 Oct | A0-09 pthread_multi (40) | S+K | PoC deadline – only one task |
+| [ ] | 13 | Sat 31 Oct | A1-10 shared page (45) | S+E | the longest one last |
+| [ ] | 14 | Sun 1 Nov | **redo day:** every task still marked "needs redo" · `task quiz 20` | | team meeting 2 (walkthrough) |
+
+Time left on days 8–13? Optional: A0-06 segv handler (40, K + page fault).
+
+After day 14: the week before the AG (16–20 Nov) – see section 7 below.
 
 ## 0 · Orientation (once, ~2 h)
 
@@ -14,7 +53,7 @@ the first file ([ATLAS.md](ATLAS.md)). Say both out loud. Then start the timer.
 - [ ] `task quiz 20` – twice, on different days (44 questions: places in the code + "which type?")
 - [ ] the Anki deck imported ([anki/](anki/README.md)) – then a few minutes every day until the interview
 - [ ] guide chapters 2–4 (map, recipes, locking)
-- [ ] examples ex01 (syscall), ex02 (map a page), ex03 (your stack growth), ex07 (F-key), ex11, ex12 (tutorials)
+- [ ] examples ex01 (syscall), ex02 (map a page), ex03 (your stack growth), ex07 (F-key), ex11, ex12 (tutorials), ex13 (timer + scheduler – before day 3), ex14 (libc only – before day 1)
 
 ## 1 · Type U – user space only (the `atexit` kind)
 

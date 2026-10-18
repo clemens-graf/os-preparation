@@ -2,6 +2,8 @@
 
 **Time box 20 min · ★☆☆ · type U (user space only) – an `atexit`-style task · read first: [TRIAGE.md](../../TRIAGE.md)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §7 C strings · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         strcpy, strncpy, strcat, strncmp, strchr (string.h)
 Description:  SWEB's libc has strlen, strcmp, strstr, memcpy, memset - but not these.

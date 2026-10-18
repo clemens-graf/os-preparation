@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★☆☆ · read first: [ex01](../../examples/ex01-syscalls/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §1 address space
+
 ```
 Name:         meminfo
 Nr:           1505 (sc_meminfo) – 1500 is your team's mkdir

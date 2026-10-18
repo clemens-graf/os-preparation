@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · read first: [ex03](../../examples/ex03-stack-growth/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
+
 ```
 Name:         heaplimit
 Nr:           1520 (sc_heaplimit)

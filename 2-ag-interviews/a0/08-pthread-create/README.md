@@ -2,6 +2,8 @@
 
 **Time box 60 min · ★★★ · read first: [ex06](../../examples/ex06-kernel-thread/), [ex02](../../examples/ex02-map-page/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §8 registers & calling convention
+
 ```
 Name:         pthread_create, pthread_exit (minimal)
 Nr:           1550 (sc_pthread_create), 1551 (sc_pthread_exit)

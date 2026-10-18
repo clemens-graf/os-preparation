@@ -2,6 +2,8 @@
 
 **Time box 40 min · ★★★ · type S (syscall + kernel, processes)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §6 processes, waitpid, §5 exit & atexit
+
 ```
 Name:         waitpid (POSIX, wait.h - the stub exists)
 Nr:           1717 (sc_waitpid)

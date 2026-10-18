@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · type U (user space only) · builds on A1-01 (pthread_join)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         pthread_spin_init/destroy/lock/trylock/unlock,
               pthread_mutex_init/destroy/lock/unlock (pthread.h - the stubs exist)

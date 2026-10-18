@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · read first: [ex02](../../examples/ex02-map-page/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §4 page faults
+
 ```
 Name:         allocpage, freepage
 Nr:           1510 (sc_allocpage), 1511 (sc_freepage)

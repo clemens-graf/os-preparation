@@ -11,6 +11,8 @@ ex08|examples/ex08-block-device|main||ex_block_device.sweb
 ex09|examples/ex09-loader|main||ex_loader.sweb
 ex11|examples/ex11-tutorial1|main|--expect-pass 1|ex_tutorial1.sweb;ex_tutorial1_top.sweb
 ex12|examples/ex12-tutorial2|main|--expect-panic --expect-pass 5|ex_tutorial2.sweb
+ex13|examples/ex13-timer-scheduler|main|--expect-pass 7|ex_timer_scheduler.sweb;exit
+ex14|examples/ex14-libc-function|main|--expect-pass 7|ex_libc.sweb;exit
 a0-01|a0/01-meminfo|main||meminfo_basic.sweb;exit
 a0-02|a0/02-allocpage|main||allocpage_basic.sweb;exit
 a0-03|a0/03-heaplimit|main||heaplimit_basic.sweb;exit

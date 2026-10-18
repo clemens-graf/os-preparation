@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §10 interrupts, §4 page faults
+
 ```
 Name:         pfstats
 Nr:           1690

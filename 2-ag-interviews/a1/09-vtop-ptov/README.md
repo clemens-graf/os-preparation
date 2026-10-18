@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §1 address space
+
 ```
 Name:         vtop, ptov
 Nr:           1670, 1671

@@ -2,6 +2,8 @@
 
 **Time box 15 min · ★☆☆**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §8 registers & calling convention
+
 ```
 Name:         sum15
 Nr:           1710

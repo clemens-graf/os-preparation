@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
+
 ```
 Name:         sbrk (POSIX, unistd.h - the stub exists)
 Nr:           1700

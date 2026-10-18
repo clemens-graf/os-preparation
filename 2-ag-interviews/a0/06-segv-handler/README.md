@@ -2,6 +2,8 @@
 
 **Time box 40 min · ★★★ · read first: [ex05](../../examples/ex05-registers/), [ex03](../../examples/ex03-stack-growth/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §9 diverting a thread, §4 page faults
+
 ```
 Name:         set_segv_handler
 Nr:           1530 (sc_setsegvhandler)

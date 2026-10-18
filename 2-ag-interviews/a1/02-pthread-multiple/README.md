@@ -2,6 +2,8 @@
 
 **Time box 45 min · ★★★ · builds on A1-01**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life
+
 ```
 Name:         pthread_multiple, pthread_join_any
 Nr:           1601, 1602

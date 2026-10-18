@@ -1,0 +1,212 @@
+diff --git a/arch/x86/64/source/InterruptUtils.cpp b/arch/x86/64/source/InterruptUtils.cpp
+index 65609d67..e0c3679b 100644
+--- a/arch/x86/64/source/InterruptUtils.cpp
++++ b/arch/x86/64/source/InterruptUtils.cpp
+@@ -168,6 +168,8 @@ extern "C" void irqHandler_0()
+   ArchCommon::drawHeartBeat();
+ 
+   Scheduler::instance()->incTicks();
++  if (currentThread)                  // EX13: before the first schedule() there is no current thread
++    ++currentThread->ticks_running_;  // the tick interrupted this thread - count it, then switch
+ 
+   Scheduler::instance()->schedule();
+ 
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index a996aca5..41fddfd1 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -18,6 +18,10 @@ class Syscall
+     static void pseudols(const char *pathname, char *buffer, size_t size);
+ 
+     static size_t createprocess(size_t path, size_t sleep);
++
++    // EX13
++    static size_t timesInfo(size_t user_info);
++    static size_t lowPriority(size_t on);
+     static void trace();
+ 
+     // process stuff
+diff --git a/common/include/kernel/Thread.h b/common/include/kernel/Thread.h
+index bf822dfb..550774db 100644
+--- a/common/include/kernel/Thread.h
++++ b/common/include/kernel/Thread.h
+@@ -90,6 +90,12 @@ class Thread
+ 
+     uint32 switch_to_userspace_;
+ 
++    // EX13: written only with interrupts off (timer interrupt, scheduler) or by the thread itself
++    size_t ticks_running_;     // timer ticks that hit while this thread was running
++    size_t times_picked_;      // how often schedule() chose this thread
++    size_t low_priority_;      // 1: schedule() passes this thread over every second time
++    size_t passed_over_;       // low priority: was it passed over the last time?
++
+     //Loader* loader_; // loader now belongs to proc
+ 
+ 
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 51f0de2a..54b824f3 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -16,6 +16,10 @@
+ #define sc_createprocess 191
+ #define sc_trace 252
+ 
++// EX13 - examples use 1400-1499
++#define sc_timesinfo 1470
++#define sc_lowpriority 1471
++
+ // Our custom syscalls:
+ 
+ // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
+diff --git a/common/source/kernel/Scheduler.cpp b/common/source/kernel/Scheduler.cpp
+index 7e94ab12..7cc178e6 100644
+--- a/common/source/kernel/Scheduler.cpp
++++ b/common/source/kernel/Scheduler.cpp
+@@ -54,12 +54,21 @@ void Scheduler::schedule()
+   {
+     if((*it)->schedulable())
+     {
++      // EX13: a low-priority thread is passed over every second time it would be chosen.
++      // The idle thread is always schedulable, so the loop still finds somebody.
++      if ((*it)->low_priority_ && !(*it)->passed_over_)
++      {
++        (*it)->passed_over_ = 1;
++        continue;
++      }
++      (*it)->passed_over_ = 0;
+       currentThread = *it;
+       break;
+     }
+   }
+ 
+   assert(it != threads_.end() && "No schedulable thread found");
++  ++currentThread->times_picked_; // EX13: interrupts are off - a plain increment is safe here
+   ustl::rotate(threads_.begin(), it + 1, threads_.end()); // no new/delete here - important because interrupts are disabled
+   //debug(SCHEDULER, "Scheduler::schedule: new currentThread is %p %s, switch_to_userspace: %d\n", currentThread, currentThread->getName(), currentThread->switch_to_userspace_);
+   currentThreadRegisters = currentThread->switch_to_userspace_ ? currentThread->user_registers_ : currentThread->kernel_registers_;
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 86cf85a2..5948f573 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -7,6 +7,7 @@
+ #include "ProcessRegistry.h"
+ #include "File.h"
+ #include "Scheduler.h"
++#include "kstring.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
+ 
+@@ -105,6 +106,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_getppid:
+       return_value = getppid();
+       break;
++    case sc_timesinfo:
++      return_value = timesInfo(arg1);
++      break;
++    case sc_lowpriority:
++      return_value = lowPriority(arg1);
++      break;
+     default:
+       return_value = -1;
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+@@ -411,6 +418,38 @@ void Syscall::trace()
+   currentThread->printBacktrace();
+ }
+ 
++// EX13: the same layout as TimesInfo in userspace/libc/include/nonstd.h (the kernel cannot include
++// libc headers - so the struct is written twice, field by field the same)
++struct TimesInfo
++{
++  size_t ticks_running;
++  size_t times_picked;
++};
++
++// EX13: read values the timer interrupt and the scheduler wrote.
++// Each is one aligned machine word: reading it is atomic - no lock needed (and none possible:
++// the writers run with interrupts off).
++size_t Syscall::timesInfo(size_t user_info)
++{
++  if (user_info == 0 || user_info >= USER_BREAK - sizeof(TimesInfo))
++    return (size_t) -1;
++
++  TimesInfo info;
++  info.ticks_running = currentThread->ticks_running_;
++  info.times_picked = currentThread->times_picked_;
++  memcpy((void*) user_info, &info, sizeof(info));
++  return 0;
++}
++
++// EX13: a flag the scheduler reads. Only the thread itself writes it - one word, no lock.
++size_t Syscall::lowPriority(size_t on)
++{
++  if (on > 1)
++    return (size_t) -1;
++  currentThread->low_priority_ = on;
++  return 0;
++}
++
+ size_t Syscall::getThreadCount()
+ {
+   return Scheduler::instance()->getThreadCount();
+diff --git a/common/source/kernel/Thread.cpp b/common/source/kernel/Thread.cpp
+index dadb421a..d5353664 100644
+--- a/common/source/kernel/Thread.cpp
++++ b/common/source/kernel/Thread.cpp
+@@ -32,6 +32,7 @@ extern "C" void threadStartHack()
+ 
+ Thread::Thread(FileSystemInfo *working_dir, ustl::string name, Thread::TYPE type, UserProcess* process) :
+     kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0),
++    ticks_running_(0), times_picked_(0), low_priority_(0), passed_over_(0),
+     next_thread_in_lock_waiters_list_(0), lock_waiting_on_(0), holding_lock_list_(0), state_(Running), tid_(0),
+     process_(process), my_terminal_(0), working_dir_(working_dir), name_(ustl::move(name))
+ {
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..ef4f1398 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,7 @@
+ #pragma once
+ 
++#include "types.h"
++
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +28,16 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// EX13
++typedef struct
++{
++  size_t ticks_running;  // timer ticks while the calling thread was running
++  size_t times_picked;   // how often the scheduler chose it
++} TimesInfo;
++
++extern int timesinfo(TimesInfo* info);
++extern int lowpriority(int on);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..d75198ad 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -10,6 +10,16 @@ int createprocess(const char* path, int sleep)
+ 
+ extern int main();
+ 
++int timesinfo(TimesInfo* info)
++{
++  return __syscall(sc_timesinfo, (size_t) info, 0x00, 0x00, 0x00, 0x00);
++}
++
++int lowpriority(int on)
++{
++  return __syscall(sc_lowpriority, (size_t) on, 0x00, 0x00, 0x00, 0x00);
++}
++
+ void _start()
+ {
+   exit(main());

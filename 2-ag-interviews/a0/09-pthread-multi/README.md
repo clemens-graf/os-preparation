@@ -2,6 +2,8 @@
 
 **Time box 40 min (with 08 done) · ★★★ · builds on [A0-08](../08-pthread-create/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §8 registers & calling convention
+
 ```
 Name:         pthread_multi
 Nr:           1552 (sc_pthread_multi)

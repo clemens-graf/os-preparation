@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · type S (syscall + kernel) · builds on your team's join**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life
+
 ```
 Name:         pthread_detach (POSIX, pthread.h - the stub exists)
 Nr:           1718 (sc_pthread_detach)

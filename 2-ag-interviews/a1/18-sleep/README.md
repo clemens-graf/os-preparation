@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · type S + E (syscall + timer)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler · example: [ex13](../../examples/ex13-timer-scheduler/)
+
 ```
 Name:         sleep (POSIX, unistd.h - the stub exists), uptime
 Nr:           1715 (sc_sleep), 1716 (sc_uptime)

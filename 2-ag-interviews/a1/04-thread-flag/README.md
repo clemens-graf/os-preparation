@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · builds on A1-01**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §15 a thread's life · example: [ex13](../../examples/ex13-timer-scheduler/)
+
 ```
 Name:         pthread_setdouble
 Nr:           1620

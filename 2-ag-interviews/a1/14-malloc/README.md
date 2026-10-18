@@ -2,6 +2,8 @@
 
 **Time box 30 min · ★★☆ · type U (user space only) – see [TRIAGE.md](../../TRIAGE.md)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §2 heap & malloc, §1 address space · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         malloc, free, calloc, realloc (stdlib.h - the stubs exist)
 Description:  A heap for user programs, entirely in the libc - no syscall.

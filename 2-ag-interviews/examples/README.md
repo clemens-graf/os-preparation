@@ -18,6 +18,35 @@ find the *where* yourself.
 | ex09 | [loader](ex09-loader/) | the ELF program headers of the running process | A0-05, A2 W⊕X |
 | ex11 | [tutorial 1](ex11-tutorial1/) | the first A0 tutorial as written there: a user string into the kernel, a debug flag of its own, per-thread data with a Mutex, `ScopeLock` – and its bugs | A0-11, A0-01 |
 | ex12 | [tutorial 2](ex12-tutorial2/) | the A0 tutorial of 7 Oct as written there: `resolveMapping`, a frame mapped twice, why the kernel panics at exit, what a tutor would criticise | A0-12, A1-09, A1-10 |
+| ex13 | [timer & scheduler](ex13-timer-scheduler/) | counting in the timer interrupt (`irqHandler_0`), changing the choice in `schedule()`, why no locks there | A1-04, A1-05, A1-07, A1-18 |
+| ex14 | [a libc function](ex14-libc-function/) | only user space: declaration in the header, implementation in the libc, state inside the libc, `void*` + function pointers, name clashes | A0-13, A0-14, A1-14 … A1-17 |
+
+## Tasks that share a mechanism
+
+Many tasks are the same mechanism in a new place. Once you can do one, the others are mostly
+"where" plus one new idea. Example: **ex03 → A0-03 → A1-12.**
+
+| Step | What it does in the page fault handler |
+|---|---|
+| ex03 stack growth | the fault is just below the stack: map a fresh page, return – the instruction runs again |
+| A0-03 heaplimit | the fault is in `[heap start, heap start + limit)`: map a fresh page – the limit is a constant |
+| A1-12 sbrk | the same, but the end moves: `brk_` per process, set by a syscall; shrinking unmaps |
+| A2-13 mmap | the same, for a range a syscall reserved |
+
+All four are the same code: *one new `if` in `handlePageFault` → `allocPPN` → `mapPage` under
+`thread_lock_`*. Only the condition changes. The groups:
+
+| Mechanism | Example | Tasks |
+|---|---|---|
+| new case in the page fault handler | ex03 | A0-03, A0-04, A1-12, A2-13, A0-06 |
+| map / unmap a frame | ex02, ex12 | A0-02, A0-12, A1-10, A2-09 |
+| walk the page tables | ex12 | A0-01, A1-09 |
+| change a thread's saved registers | ex05 | A0-07, A0-06, A1-08, A1-13 |
+| count in the timer, decide in `schedule()` | ex13 | A1-04, A1-05, A1-07, A1-18 |
+| sleep until another thread signals (Mutex + Condition) | ex06 | A1-01, A1-02, A1-03, A1-19 |
+| libc only | ex14 | A0-13, A0-14, A1-14 … A1-17 |
+| a key press reaches a process | ex07 | A2-06, A2 F-key tasks |
+| the disk | ex08 | A2-01 … A2-05, A2-11 |
 
 ## Using an example
 

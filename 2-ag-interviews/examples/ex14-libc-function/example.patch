@@ -1,0 +1,113 @@
+diff --git a/userspace/libc/include/stdlib.h b/userspace/libc/include/stdlib.h
+index 4e6e2606..b831e543 100644
+--- a/userspace/libc/include/stdlib.h
++++ b/userspace/libc/include/stdlib.h
+@@ -83,6 +83,13 @@ extern void *realloc(void *ptr, size_t size);
+ 
+ extern void free(void *ptr);
+ 
++/**
++ * EX14: sorts nmemb elements of the given size, starting at base, in ascending order
++ * @param compar returns < 0, 0 or > 0 if its first argument is smaller, equal or bigger
++ */
++extern void qsort(void *base, size_t nmemb, size_t size,
++                  int (*compar)(const void *, const void *));
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/include/string.h b/userspace/libc/include/string.h
+index 839d5d3a..882cadc6 100644
+--- a/userspace/libc/include/string.h
++++ b/userspace/libc/include/string.h
+@@ -91,6 +91,13 @@ extern int strcmp (const char * l, const char * r);
+  */
+ extern char *strstr(const char *haystack, const char *needle);
+ 
++/**
++ * EX14: splits str into tokens separated by any character of delim.
++ * First call with the string, then with NULL to get the next token. Writes '\0' into str.
++ * @return the next token, or NULL if there is none
++ */
++extern char *strtok(char *str, const char *delim);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/qsort.c b/userspace/libc/src/qsort.c
+new file mode 100644
+index 00000000..6aa623ad
+--- /dev/null
++++ b/userspace/libc/src/qsort.c
+@@ -0,0 +1,24 @@
++#include "stdlib.h"
++
++// EX14: swap two elements of any size, byte by byte
++static void swapBytes(char *a, char *b, size_t size)
++{
++  for (size_t i = 0; i < size; ++i)
++  {
++    char tmp = a[i];
++    a[i] = b[i];
++    b[i] = tmp;
++  }
++}
++
++// EX14: insertion sort - simple and correct is all an interview needs.
++// base is void*: the libc does not know the element type, so it computes addresses
++// in bytes (char*) and lets compar look at the elements.
++void qsort(void *base, size_t nmemb, size_t size,
++           int (*compar)(const void *, const void *))
++{
++  char *array = (char *) base;
++  for (size_t i = 1; i < nmemb; ++i)
++    for (size_t j = i; j > 0 && compar(array + (j - 1) * size, array + j * size) > 0; --j)
++      swapBytes(array + (j - 1) * size, array + j * size, size);
++}
+diff --git a/userspace/libc/src/strtok.c b/userspace/libc/src/strtok.c
+new file mode 100644
+index 00000000..c55092bd
+--- /dev/null
++++ b/userspace/libc/src/strtok.c
+@@ -0,0 +1,41 @@
++#include "string.h"
++
++// EX14: state of the libc - where the next call continues. Every process has its own copy
++// (it is in the process' .data); all threads of a process share it - strtok is not thread-safe.
++static char *next_token = 0;
++
++static int isDelimiter(char c, const char *delim)
++{
++  for (; *delim; ++delim)
++    if (c == *delim)
++      return 1;
++  return 0;
++}
++
++char *strtok(char *str, const char *delim)
++{
++  if (str == 0)
++    str = next_token;               // NULL: continue where the last call stopped
++  if (str == 0)
++    return 0;
++
++  while (*str && isDelimiter(*str, delim))
++    ++str;                          // skip delimiters before the token
++  if (*str == '\0')
++  {
++    next_token = 0;
++    return 0;
++  }
++
++  char *token = str;
++  while (*str && !isDelimiter(*str, delim))
++    ++str;
++  if (*str)
++  {
++    *str = '\0';                    // end the token in the caller's string
++    next_token = str + 1;
++  }
++  else
++    next_token = 0;
++  return token;
++}

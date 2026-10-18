@@ -2,6 +2,8 @@
 
 **Time box 25 min · ★★☆ · read first: [ex09](../../examples/ex09-loader/), [ex04](../../examples/ex04-pte-flags/)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §4 page faults, §1 address space
+
 ```
 Name:         read-only code
 Description:  Today the loader maps every page of a program writable – a program can

@@ -2,6 +2,8 @@
 
 **Time box 20 min · ★☆☆ · type U (user space only) – the real A0 task of 14 Oct 2026 · read first: [TRIAGE.md](../../TRIAGE.md)**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §5 exit & atexit · example: [ex14](../../examples/ex14-libc-function/)
+
 ```
 Name:         atexit (stdlib.h - the stub exists)
 Description:  atexit(function) registers a function that exit() calls. The functions run

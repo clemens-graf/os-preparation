@@ -15,3 +15,9 @@ clean:
 	rm -rf build
 
 .PHONY: clean
+
+# make ../concepts.pdf
+../concepts.pdf: concepts.tex preamble.tex
+	@mkdir -p build
+	@for i in 1 2 3; do $(LATEX) concepts.tex > build/concepts.console || { tail -40 build/concepts.log; exit 1; }; done
+	cp build/concepts.pdf $@

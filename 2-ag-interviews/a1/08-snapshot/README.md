@@ -2,6 +2,8 @@
 
 **Time box 40 min · ★★★**
 
+**Theory first:** [concepts.pdf](../../concepts.pdf) §9 diverting a thread, §8 registers & calling convention
+
 ```
 Name:         pthread_snapshot, pthread_revive
 Nr:           1660, 1661
