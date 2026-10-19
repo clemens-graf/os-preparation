@@ -12,7 +12,7 @@ index 87ebb9b7..f2c61108 100644
    /**
     * Print out the pagefault information. Check if the pagefault is valid, or the thread state is corrupt.
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..4e04fd08 100644
+index e9c4233f..c4a3ec63 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
 @@ -23,12 +23,16 @@ Loader::~Loader()
@@ -32,20 +32,22 @@ index e9c4233f..4e04fd08 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -55,10 +59,12 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -55,10 +59,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
            Syscall::exit(999);
          }
          found_page_content = true;
-+        executable |= ((*it).p_flags & ELF_PF_X) != 0;
++        if ((*it).p_flags & ELF_PF_X)
++          executable = true;
        }
        else if((*it).p_vaddr + (*it).p_memsz > virt_page_start_addr)
        {
          found_page_content = true;
-+        executable |= ((*it).p_flags & ELF_PF_X) != 0;
++        if ((*it).p_flags & ELF_PF_X)
++          executable = true;
        }
      }
    }
-@@ -77,6 +83,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -77,6 +85,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
      debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
      PageManager::instance()->freePPN(ppn);
    }

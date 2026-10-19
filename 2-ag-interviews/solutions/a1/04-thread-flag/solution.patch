@@ -39,30 +39,35 @@ index db84270e..c2219d82 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Scheduler.cpp b/common/source/kernel/Scheduler.cpp
-index 7e94ab12..ca08e0fa 100644
+index 7e94ab12..df8a1227 100644
 --- a/common/source/kernel/Scheduler.cpp
 +++ b/common/source/kernel/Scheduler.cpp
-@@ -49,6 +49,18 @@ void Scheduler::schedule()
+@@ -49,6 +49,23 @@ void Scheduler::schedule()
      debug(SCHEDULER, "schedule: WARNING - cleanup_thread is being descheduled before completing cleanup.\n");
    }
  
 +  // A1-04: a flagged thread keeps the CPU for a second time slice
-+  if (currentThread && currentThread->double_slice_ && !currentThread->extra_slice_used_ &&
-+      currentThread->schedulable())
++  if (currentThread != nullptr)
 +  {
-+    currentThread->extra_slice_used_ = 1;
-+    currentThreadRegisters = currentThread->switch_to_userspace_ ? currentThread->user_registers_ :
-+                                                                   currentThread->kernel_registers_;
-+    return;
++    bool flagged = currentThread->double_slice_;
++    bool had_extra_slice = currentThread->extra_slice_used_;
++    if (flagged && !had_extra_slice && currentThread->schedulable())
++    {
++      currentThread->extra_slice_used_ = 1;          // the second slice starts now
++      if (currentThread->switch_to_userspace_)
++        currentThreadRegisters = currentThread->user_registers_;
++      else
++        currentThreadRegisters = currentThread->kernel_registers_;
++      return;                                        // no switch: the same thread goes on
++    }
++    currentThread->extra_slice_used_ = 0;            // it loses the CPU: next time two slices again
 +  }
-+  if (currentThread)
-+    currentThread->extra_slice_used_ = 0;
 +
    auto it = threads_.begin();
    for(; it != threads_.end(); ++it)
    {
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..65a324ec 100644
+index 178fc3a2..72dbff38 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,8 @@
@@ -84,7 +89,7 @@ index 178fc3a2..65a324ec 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +545,20 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +545,24 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -102,7 +107,11 @@ index 178fc3a2..65a324ec 100644
 +      return (size_t) -1;                     // unknown, or already exited
 +    thread = thread_data->thread_;
 +  }
-+  ArchThreads::atomic_set((uint64&) thread->double_slice_, on ? 1 : 0);   // the scheduler may read it any moment
++  // one aligned 8-byte store: the scheduler (timer interrupt) sees either the old or the new value
++  if (on)
++    thread->double_slice_ = 1;
++  else
++    thread->double_slice_ = 0;
 +  return 0;
 +}
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h

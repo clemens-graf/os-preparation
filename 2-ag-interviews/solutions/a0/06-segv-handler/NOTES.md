@@ -18,7 +18,7 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 user: *(int*)0xDEAD000 = 1
  → #PF → handlePageFault: valid → loadPage: no segment → false
  → user && getProcess()->deliverSegv(user_registers_, address)
-      rsp' = ((rsp - 128) & ~0xF) - 8     (red zone, alignment, return-address slot)
+      rsp' = rsp - 128, rounded down to a multiple of 16, minus 8   (red zone, alignment, return-address slot)
       slot mapped? (checkAddressValid)    no → false → kill as before
       *slot = 0; rsp = rsp'; rip = segv_entry_; rdi = address; rsi = segv_handler_
       segv_handler_ = 0                   (one-shot)

@@ -164,7 +164,9 @@ not scheduled (not yet added, or sleeping).
 
 \begin{lstlisting}[style=cpp]
 ArchThreadRegisters* regs = currentThread->user_registers_;
-size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t); // red zone, align, ret slot
+size_t rsp = regs->rsp - 128;   // skip the red zone
+rsp = rsp - rsp % 16;           // 16-byte alignment
+rsp = rsp - sizeof(size_t);     // room for the return address
 pointer slot = loader->arch_memory_.checkAddressValid(rsp);  // under the page-table lock
 if (!slot) { /* no usable stack */ }
 *(size_t*) slot = return_address;   // e.g. regs->rip (continue after the syscall) or 0

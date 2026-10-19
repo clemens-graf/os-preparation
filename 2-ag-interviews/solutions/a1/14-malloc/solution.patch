@@ -1,8 +1,8 @@
 diff --git a/userspace/libc/src/stdlib.c b/userspace/libc/src/stdlib.c
-index 5f8ea361..ee74cd28 100644
+index 5f8ea361..183aa456 100644
 --- a/userspace/libc/src/stdlib.c
 +++ b/userspace/libc/src/stdlib.c
-@@ -1,12 +1,53 @@
+@@ -1,12 +1,55 @@
  #include "stdlib.h"
 +#include "string.h"
 +
@@ -26,15 +26,17 @@ index 5f8ea361..ee74cd28 100644
 -  return 0;
 +  if (size == 0 || size > POOL_SIZE)
 +    return 0;
-+  size = (size + ALIGN - 1) & ~(size_t) (ALIGN - 1);           // keep every block aligned
++  if (size % ALIGN != 0)
++    size = size + (ALIGN - size % ALIGN);                      // keep every block aligned
 +
-+  for (size_t offset = 0; offset < pool_end;)                  // 1. reuse a free block
++  size_t offset = 0;
++  while (offset < pool_end)                                    // 1. reuse a free block
 +  {
 +    struct BlockHeader* block = (struct BlockHeader*) (pool + offset);
 +    if (!block->used && block->size >= size)
 +    {
 +      block->used = 1;
-+      return block + 1;                                        // the memory right after the header
++      return (char*) block + sizeof(struct BlockHeader);                                        // the memory right after the header
 +    }
 +    offset += sizeof(struct BlockHeader) + block->size;
 +  }
@@ -45,19 +47,19 @@ index 5f8ea361..ee74cd28 100644
 +  block->size = size;
 +  block->used = 1;
 +  pool_end += sizeof(struct BlockHeader) + size;
-+  return block + 1;
++  return (char*) block + sizeof(struct BlockHeader);
  }
  
  void free(void *ptr)
  {
 +  if (ptr == 0)
 +    return;
-+  struct BlockHeader* block = (struct BlockHeader*) ptr - 1;   // the header is right before the block
++  struct BlockHeader* block = (struct BlockHeader*) ((char*) ptr - sizeof(struct BlockHeader));   // the header is right before the block
 +  block->used = 0;
  }
  
  static void (*atexit_functions[ATEXIT_MAX])(void);
-@@ -33,10 +74,30 @@ void __runAtexitFunctions(void)
+@@ -33,10 +76,30 @@ void __runAtexitFunctions(void)
  
  void *calloc(size_t nmemb, size_t size)
  {
@@ -80,7 +82,7 @@ index 5f8ea361..ee74cd28 100644
 +    free(ptr);
 +    return 0;
 +  }
-+  struct BlockHeader* block = (struct BlockHeader*) ptr - 1;
++  struct BlockHeader* block = (struct BlockHeader*) ((char*) ptr - sizeof(struct BlockHeader));
 +  if (block->size >= size)                                     // still fits
 +    return ptr;
 +  void* bigger = malloc(size);

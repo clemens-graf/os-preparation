@@ -21,12 +21,14 @@ for (each phdr)
     {
       ... copy ...
       found_page_content = true;
-      writable |= (phdr.p_flags & ELF_PF_W) != 0;
+      if (phdr.p_flags & ELF_PF_W)
+        writable = true;
     }
     else if (phdr.p_vaddr + phdr.p_memsz > page_start)  // only .bss on this page
     {
       found_page_content = true;
-      writable |= (phdr.p_flags & ELF_PF_W) != 0;
+      if (phdr.p_flags & ELF_PF_W)
+        writable = true;
     }
   }
 }

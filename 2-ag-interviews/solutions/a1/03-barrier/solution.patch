@@ -135,7 +135,7 @@ index 178fc3a2..15803f88 100644
 +  return result;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..699dd384 100644
+index e32f2cda..9d5f4536 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,13 +10,17 @@
@@ -157,7 +157,7 @@ index e32f2cda..699dd384 100644
    debug(USERPROCESS, "created process with ppid: %zu, pid: %zu, filename: %s, terminal_number: %d, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), terminal_number_, fd_);
  }
  
-@@ -600,3 +604,50 @@ void UserProcess::exitProcess()
+@@ -600,3 +604,51 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -186,10 +186,11 @@ index e32f2cda..699dd384 100644
 +    return (size_t) -1;
 +  Barrier& barrier = barriers_[id - 1];
 +  size_t my_generation = barrier.generation;
-+  if (++barrier.waiting == barrier.count)
++  barrier.waiting++;
++  if (barrier.waiting == barrier.count)
 +  {
 +    barrier.waiting = 0;                            // reset for the next round ...
-+    ++barrier.generation;                           // ... and open the current one
++    barrier.generation++;                           // ... and open the current one
 +    barrier_opened_.broadcast();                    // ALL waiters, not just one
 +    return 1;                                       // the "serial" thread
 +  }

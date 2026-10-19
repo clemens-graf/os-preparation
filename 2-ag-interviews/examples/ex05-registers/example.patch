@@ -27,7 +27,7 @@ index db84270e..8611b83b 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..23b8565d 100644
+index 178fc3a2..f58c6820 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,7 @@
@@ -63,7 +63,7 @@ index 178fc3a2..23b8565d 100644
 +
 +  ArchThreadRegisters* regs = currentThread->user_registers_;
 +  size_t rsp = regs->rsp - 128;   // leave the red zone alone: leaf functions keep locals below rsp
-+  rsp &= ~0xFULL;                 // System V ABI: rsp is 16-byte aligned before a call ...
++  rsp = rsp - rsp % 16;           // System V ABI: rsp is 16-byte aligned before a call ...
 +  rsp -= sizeof(size_t);          // ... and the call pushes an 8 byte return address
 +  *(size_t*) rsp = 0;             // that return address: if function returns, it faults at 0
 +

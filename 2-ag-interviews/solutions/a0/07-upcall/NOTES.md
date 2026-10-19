@@ -11,7 +11,9 @@ size_t Syscall::upcall(size_t function, size_t argument)
     return (size_t) -1;
 
   ArchThreadRegisters* regs = currentThread->user_registers_;
-  size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t);
+  size_t rsp = regs->rsp - 128;     // skip the red zone
+  rsp = rsp - rsp % 16;             // 16-byte alignment
+  rsp = rsp - sizeof(size_t);       // room for the return address
 
   UserProcess* process = currentThread->getProcess();
   {

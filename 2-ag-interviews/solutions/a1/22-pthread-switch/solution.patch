@@ -38,10 +38,10 @@ index 00000000..61065943
 +#endif
 diff --git a/userspace/libc/src/context.c b/userspace/libc/src/context.c
 new file mode 100644
-index 00000000..a806d4ec
+index 00000000..56b403c3
 --- /dev/null
 +++ b/userspace/libc/src/context.c
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,56 @@
 +#include "context.h"
 +#include "stdlib.h"
 +
@@ -84,13 +84,17 @@ index 00000000..a806d4ec
 +{
 +  // the top of the stack, 16-byte aligned: after the final ret of context_switch rsp is
 +  // exactly here, and the call in the trampoline then gives function the aligned stack it expects
-+  size_t* sp = (size_t*) (((size_t) stack + stack_size) & ~0xFUL);
-+  *--sp = (size_t) __context_trampoline;   // popped by ret
-+  *--sp = 0;                               // rbp
-+  *--sp = 0;                               // rbx
-+  *--sp = (size_t) function;               // r12
-+  *--sp = (size_t) arg;                    // r13
-+  *--sp = 0;                               // r14
-+  *--sp = 0;                               // r15
-+  ctx->rsp = (size_t) sp;                  // exactly what context_switch saves for a running context
++  size_t top = (size_t) stack + stack_size;
++  top = top - top % 16;
++
++  // 7 values right below the top - in the order context_switch pops them (lowest address first)
++  size_t* frame = (size_t*) top - 7;
++  frame[0] = 0;                              // r15
++  frame[1] = 0;                              // r14
++  frame[2] = (size_t) arg;                   // r13
++  frame[3] = (size_t) function;              // r12
++  frame[4] = 0;                              // rbx
++  frame[5] = 0;                              // rbp
++  frame[6] = (size_t) __context_trampoline;  // popped last, by ret: "returns" into the trampoline
++  ctx->rsp = (size_t) frame;                 // exactly what context_switch saves for a running context
 +}

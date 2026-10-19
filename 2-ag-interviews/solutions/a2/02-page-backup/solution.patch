@@ -172,7 +172,7 @@ index 00000000..dcbbabbd
 +    Mutex* lock_;            // protects slots_ and serialises our disk requests
 +};
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..5faf12c0 100644
+index 178fc3a2..d88daf72 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -183,21 +183,30 @@ index 178fc3a2..5faf12c0 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -92,6 +93,18 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,27 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_swapout:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->swapOut(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->swapOut(arg1 / PAGE_SIZE);
 +      break;
 +    case sc_swapinfo:
 +      return_value = SwapManager::instance()->usedSlots();
 +      break;
 +    case sc_createpagebackup:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->createPageBackup(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->createPageBackup(arg1 / PAGE_SIZE);
 +      break;
 +    case sc_loadpagebackup:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->loadPageBackup(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->loadPageBackup(arg1 / PAGE_SIZE);
 +      break;
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);

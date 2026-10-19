@@ -16,10 +16,10 @@ index 19431844..ec0546e4 100644
       * Fills out an ArchMemoryMapping object by translating the given
       * virtual page and collecting infos from the page tables along the way.
 diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
-index 6aff17ae..abf115bc 100644
+index 6aff17ae..10faaab1 100644
 --- a/arch/x86/64/source/ArchMemory.cpp
 +++ b/arch/x86/64/source/ArchMemory.cpp
-@@ -205,6 +205,34 @@ ArchMemory::~ArchMemory()
+@@ -205,6 +205,37 @@ ArchMemory::~ArchMemory()
    PageManager::instance()->freePPN(page_map_level_4_);
  }
  
@@ -44,7 +44,10 @@ index 6aff17ae..abf115bc 100644
 +          continue;
 +        PageTableEntry* pt = (PageTableEntry*) getIdentAddressOfPPN(pd[pdi].pt.page_ppn);
 +        for (uint64 pti = 0; pti < PAGE_TABLE_ENTRIES; pti++)
-+          count += pt[pti].present;
++        {
++          if (pt[pti].present)
++            count++;
++        }
 +      }
 +    }
 +  }

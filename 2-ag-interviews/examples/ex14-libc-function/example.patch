@@ -36,10 +36,10 @@ index 839d5d3a..882cadc6 100644
  #endif
 diff --git a/userspace/libc/src/qsort.c b/userspace/libc/src/qsort.c
 new file mode 100644
-index 00000000..6aa623ad
+index 00000000..9259115e
 --- /dev/null
 +++ b/userspace/libc/src/qsort.c
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,35 @@
 +#include "stdlib.h"
 +
 +// EX14: swap two elements of any size, byte by byte
@@ -60,16 +60,27 @@ index 00000000..6aa623ad
 +           int (*compar)(const void *, const void *))
 +{
 +  char *array = (char *) base;
-+  for (size_t i = 1; i < nmemb; ++i)
-+    for (size_t j = i; j > 0 && compar(array + (j - 1) * size, array + j * size) > 0; --j)
-+      swapBytes(array + (j - 1) * size, array + j * size, size);
++  for (size_t i = 1; i < nmemb; i++)
++  {
++    // move element i to the left until the one before it is not bigger
++    size_t j = i;
++    while (j > 0)
++    {
++      char *left = array + (j - 1) * size;     // element j - 1
++      char *right = array + j * size;          // element j
++      if (compar(left, right) <= 0)
++        break;                                 // in order: element i has found its place
++      swapBytes(left, right, size);
++      j--;
++    }
++  }
 +}
 diff --git a/userspace/libc/src/strtok.c b/userspace/libc/src/strtok.c
 new file mode 100644
-index 00000000..c55092bd
+index 00000000..3417767f
 --- /dev/null
 +++ b/userspace/libc/src/strtok.c
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,47 @@
 +#include "string.h"
 +
 +// EX14: state of the libc - where the next call continues. Every process has its own copy
@@ -78,36 +89,42 @@ index 00000000..c55092bd
 +
 +static int isDelimiter(char c, const char *delim)
 +{
-+  for (; *delim; ++delim)
-+    if (c == *delim)
++  for (size_t i = 0; delim[i] != '\0'; i++)
++  {
++    if (c == delim[i])
 +      return 1;
++  }
 +  return 0;
 +}
 +
 +char *strtok(char *str, const char *delim)
 +{
 +  if (str == 0)
-+    str = next_token;               // NULL: continue where the last call stopped
++    str = next_token;                 // NULL: continue where the last call stopped
 +  if (str == 0)
 +    return 0;
 +
-+  while (*str && isDelimiter(*str, delim))
-+    ++str;                          // skip delimiters before the token
-+  if (*str == '\0')
++  size_t start = 0;
++  while (str[start] != '\0' && isDelimiter(str[start], delim))
++    start++;                          // skip delimiters before the token
++  if (str[start] == '\0')
 +  {
 +    next_token = 0;
-+    return 0;
++    return 0;                         // only delimiters left: no more tokens
 +  }
 +
-+  char *token = str;
-+  while (*str && !isDelimiter(*str, delim))
-+    ++str;
-+  if (*str)
++  size_t end = start;
++  while (str[end] != '\0' && !isDelimiter(str[end], delim))
++    end++;                            // find the end of the token
++
++  if (str[end] == '\0')
 +  {
-+    *str = '\0';                    // end the token in the caller's string
-+    next_token = str + 1;
++    next_token = 0;                   // the string ends here: the next call returns NULL
 +  }
 +  else
-+    next_token = 0;
-+  return token;
++  {
++    str[end] = '\0';                  // end the token in the caller's string
++    next_token = &str[end + 1];
++  }
++  return &str[start];
 +}

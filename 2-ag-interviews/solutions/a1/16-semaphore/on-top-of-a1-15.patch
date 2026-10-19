@@ -1,5 +1,5 @@
 diff --git a/userspace/libc/src/semaphore.c b/userspace/libc/src/semaphore.c
-index 71ba1d16..55ed087d 100644
+index 71ba1d16..fa62af4f 100644
 --- a/userspace/libc/src/semaphore.c
 +++ b/userspace/libc/src/semaphore.c
 @@ -1,4 +1,11 @@
@@ -57,16 +57,18 @@ index 71ba1d16..55ed087d 100644
  }
  
  /**
-@@ -34,7 +59,7 @@ int sem_init(sem_t *sem, int pshared, unsigned value)
+@@ -34,7 +59,9 @@ int sem_init(sem_t *sem, int pshared, unsigned value)
   */
  int sem_destroy(sem_t *sem)
  {
 -  return -1;
-+  return sem ? 0 : -1;
++  if (!sem)
++    return -1;
++  return 0;
  }
  
  /**
-@@ -43,7 +68,12 @@ int sem_destroy(sem_t *sem)
+@@ -43,7 +70,12 @@ int sem_destroy(sem_t *sem)
   */
  int sem_post(sem_t *sem)
  {

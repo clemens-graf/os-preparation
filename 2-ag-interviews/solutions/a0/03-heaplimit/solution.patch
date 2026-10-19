@@ -68,7 +68,7 @@ index db84270e..968ff314 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..cde72de9 100644
+index 178fc3a2..5562b834 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -91,7 +91,7 @@ index 178fc3a2..cde72de9 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +509,17 @@ void Syscall::trace()
+@@ -503,6 +509,18 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -100,7 +100,8 @@ index 178fc3a2..cde72de9 100644
 +{
 +  if (size > HEAP_MAX_SIZE)
 +    return (size_t) -1;
-+  size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);        // round up to whole pages
++  if (size % PAGE_SIZE != 0)
++    size = size + (PAGE_SIZE - size % PAGE_SIZE);        // round up to whole pages
 +
 +  currentThread->getProcess()->setHeapLimit(size);    // per-process state: UserProcess
 +  return 0;
@@ -110,7 +111,7 @@ index 178fc3a2..cde72de9 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..48ceb0d0 100644
+index e32f2cda..0519a2c3 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -9,6 +9,7 @@
@@ -121,7 +122,7 @@ index e32f2cda..48ceb0d0 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -600,3 +601,29 @@ void UserProcess::exitProcess()
+@@ -600,3 +601,33 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -133,7 +134,9 @@ index e32f2cda..48ceb0d0 100644
 +  // check the limit and map in ONE critical section: setHeapLimit() could shrink the heap
 +  // between a check and a later mapPage(), leaving a page mapped above the limit
 +  bool inside = vpn * PAGE_SIZE < HEAP_START + heap_size_;
-+  bool mapped = inside && arch_memory_->mapPage(vpn, ppn, 1);
++  bool mapped = false;
++  if (inside)
++    mapped = arch_memory_->mapPage(vpn, ppn, 1);       // false: another thread mapped it first
 +  thread_lock_.release();
 +  if (!mapped)
 +    PageManager::instance()->freePPN(ppn);   // above the limit, or another thread mapped it first
@@ -143,7 +146,9 @@ index e32f2cda..48ceb0d0 100644
 +void UserProcess::setHeapLimit(size_t size)
 +{
 +  ScopeLock lock(thread_lock_);
-+  for (size_t vpn = (HEAP_START + size) / PAGE_SIZE; vpn < (HEAP_START + heap_size_) / PAGE_SIZE; ++vpn)
++  size_t first_vpn = (HEAP_START + size) / PAGE_SIZE;       // first page above the new limit
++  size_t end_vpn = (HEAP_START + heap_size_) / PAGE_SIZE;   // end of the old heap
++  for (size_t vpn = first_vpn; vpn < end_vpn; vpn++)
 +  {
 +    if (arch_memory_->resolveMapping(vpn).page_size != 0)
 +      arch_memory_->unmapPage(vpn);

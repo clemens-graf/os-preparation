@@ -111,7 +111,7 @@ index 6df1da55..96269fef 100644
        PageManager::instance()->printBitmap();
        kprintfd("Used kernel memory: %zu\n", KernelMemoryManager::instance()->getUsedKernelMemory(true));
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 98826faf..cf225eff 100644
+index bd668bf0..a380d3e1 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@

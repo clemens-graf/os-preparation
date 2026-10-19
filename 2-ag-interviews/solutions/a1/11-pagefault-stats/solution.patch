@@ -1,8 +1,8 @@
 diff --git a/arch/x86/64/source/InterruptUtils.cpp b/arch/x86/64/source/InterruptUtils.cpp
-index 65609d67..939ca6f2 100644
+index 65609d67..297c6469 100644
 --- a/arch/x86/64/source/InterruptUtils.cpp
 +++ b/arch/x86/64/source/InterruptUtils.cpp
-@@ -187,6 +187,27 @@ extern "C" void errorHandler(size_t num, size_t eip, size_t cs, size_t spurious)
+@@ -187,6 +187,33 @@ extern "C" void errorHandler(size_t num, size_t eip, size_t cs, size_t spurious)
  extern "C" void arch_pageFaultHandler();
  extern "C" void pageFaultHandler(uint64 address, uint64 error)
  {
@@ -19,11 +19,17 @@ index 65609d67..939ca6f2 100644
 +  {
 +    UserProcess::PageFaultStats& stats = process->pf_stats_;
 +    ArchThreads::atomic_add(stats.total, 1);
-+    ArchThreads::atomic_add((error & FLAG_PF_USER) ? stats.user : stats.kernel, 1);
++    if (error & FLAG_PF_USER)
++      ArchThreads::atomic_add(stats.user, 1);
++    else
++      ArchThreads::atomic_add(stats.kernel, 1);
++
 +    if (error & FLAG_PF_INSTR_FETCH)
 +      ArchThreads::atomic_add(stats.fetches, 1);
++    else if (error & FLAG_PF_RDWR)
++      ArchThreads::atomic_add(stats.writes, 1);
 +    else
-+      ArchThreads::atomic_add((error & FLAG_PF_RDWR) ? stats.writes : stats.reads, 1);
++      ArchThreads::atomic_add(stats.reads, 1);
 +    ArchThreads::atomic_set(stats.last_address, address);
 +  }
 +

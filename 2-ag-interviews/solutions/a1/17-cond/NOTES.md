@@ -7,9 +7,10 @@ Patches: [`on-top-of-a1-15.patch`](on-top-of-a1-15.patch) (read this – only `p
 int pthread_cond_wait(pthread_cond_t* cond, pthread_mutex_t* mutex)
 {
   if (!cond || !mutex) return -1;
-  pthread_cond_t generation = *(volatile pthread_cond_t*) cond;   // 1. while holding the mutex
+  volatile pthread_cond_t* counter = cond;                        // volatile: read from memory every time
+  pthread_cond_t generation = *counter;                           // 1. while holding the mutex
   pthread_mutex_unlock(mutex);                                    // 2. let the signaller in
-  while (*(volatile pthread_cond_t*) cond == generation)          // 3. wait for a new generation
+  while (*counter == generation)                                  // 3. wait for a new generation
     sched_yield();
   pthread_mutex_lock(mutex);                                      // 4. return holding it again
   return 0;

@@ -27,7 +27,7 @@ index db84270e..b1e60165 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..bddc5674 100644
+index 178fc3a2..30ff180c 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -50,7 +50,7 @@ index 178fc3a2..bddc5674 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +509,33 @@ void Syscall::trace()
+@@ -503,6 +509,35 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -63,7 +63,9 @@ index 178fc3a2..bddc5674 100644
 +    return (size_t) -1;
 +
 +  ArchThreadRegisters* regs = currentThread->user_registers_;
-+  size_t rsp = ((regs->rsp - 128) & ~0xFULL) - sizeof(size_t); // red zone, alignment, return address slot
++  size_t rsp = regs->rsp - 128;     // skip the red zone
++  rsp = rsp - rsp % 16;             // 16-byte alignment
++  rsp = rsp - sizeof(size_t);       // room for the return address
 +
 +  UserProcess* process = currentThread->getProcess();
 +  {

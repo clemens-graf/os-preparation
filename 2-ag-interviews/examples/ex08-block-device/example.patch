@@ -37,7 +37,7 @@ index db84270e..4ea70a55 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..aecb6f6f 100644
+index 178fc3a2..14511b76 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,11 @@
@@ -62,7 +62,7 @@ index 178fc3a2..aecb6f6f 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +511,38 @@ void Syscall::trace()
+@@ -503,6 +511,40 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -95,7 +95,9 @@ index 178fc3a2..aecb6f6f 100644
 +    }
 +  }
 +  delete[] block;
-+  return result == (int32) block_size ? 0 : (size_t) -1;
++  if (result != (int32) block_size)
++    return (size_t) -1;                           // the device read/wrote less than one block
++  return 0;
 +}
 +
  size_t Syscall::getThreadCount()

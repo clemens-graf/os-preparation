@@ -30,7 +30,10 @@ size_t Syscall::protectPage(size_t address, size_t writable)
   if (m.page_size != PAGE_SIZE)                // not mapped (yet) - m.pt may even be null
     return (size_t) -1;
 
-  m.pt[m.pti].writeable = writable ? 1 : 0;    // the one bit this syscall is about
+  if (writable)                                // the one bit this syscall is about
+    m.pt[m.pti].writeable = 1;
+  else
+    m.pt[m.pti].writeable = 0;
   ArchMemory::flushTlb();                      // the CPU may still cache the old entry in its TLB
   return 0;
 }

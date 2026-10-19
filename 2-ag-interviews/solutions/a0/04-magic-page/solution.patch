@@ -44,7 +44,7 @@ index e32f2cda..0e96831e 100644
 +  return true;                              // not present before -> not in the TLB -> no flush needed
 +}
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 2dfb14e4..f4e58350 100644
+index 2dfb14e4..a01eeb01 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -9,10 +9,16 @@
@@ -64,7 +64,7 @@ index 2dfb14e4..f4e58350 100644
  inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
                                                      bool present, bool switch_to_us)
  {
-@@ -72,6 +78,18 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+@@ -72,6 +78,19 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
  
    if (checkPageFaultIsValid(address, user, present, switch_to_us))
    {
@@ -72,9 +72,10 @@ index 2dfb14e4..f4e58350 100644
 +    {
 +      size_t ppn = PageManager::instance()->allocPPN();
 +      char* content = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
-+      const char prefix[] = "coffee for ";
-+      memcpy(content, prefix, sizeof(prefix) - 1);
-+      strncpy(content + sizeof(prefix) - 1, currentThread->getName(), PAGE_SIZE - sizeof(prefix));
++      const char* prefix = "coffee for ";
++      size_t prefix_length = strlen(prefix);
++      memcpy(content, prefix, prefix_length);                 // the page is zeroed: the rest stays 0
++      strncpy(content + prefix_length, currentThread->getName(), PAGE_SIZE - prefix_length - 1);
 +      if (!currentThread->getProcess()->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
 +        PageManager::instance()->freePPN(ppn);                  // another thread was faster
 +      return;

@@ -59,7 +59,7 @@ index 801f850a..33266369 100644
 +    void crypt(char* page);  // A2-04: XOR with the key - encrypts and decrypts
  };
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 98826faf..71d86189 100644
+index bd668bf0..12bbe27f 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -70,7 +70,7 @@ index 98826faf..71d86189 100644
  #include "SwapManager.h"
  
  #define PTHREAD_CREATE_ERROR -1
-@@ -99,6 +100,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -102,6 +103,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_swapinfo:
        return_value = SwapManager::instance()->usedSlots();
        break;
@@ -80,7 +80,7 @@ index 98826faf..71d86189 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -547,3 +551,15 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -550,3 +554,15 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -116,7 +116,7 @@ index 90f56e71..c1b14e8f 100644
 +  return true;
 +}
 diff --git a/common/source/mm/SwapManager.cpp b/common/source/mm/SwapManager.cpp
-index f96581e0..8f23f8bc 100644
+index f96581e0..1dcacf07 100644
 --- a/common/source/mm/SwapManager.cpp
 +++ b/common/source/mm/SwapManager.cpp
 @@ -6,6 +6,7 @@
@@ -127,21 +127,23 @@ index f96581e0..8f23f8bc 100644
  #include "assert.h"
  
  SwapManager* SwapManager::instance_ = nullptr;
-@@ -27,6 +28,13 @@ SwapManager::SwapManager() : device_(BDManager::getInstance()->getDeviceByName("
+@@ -27,6 +28,15 @@ SwapManager::SwapManager() : device_(BDManager::getInstance()->getDeviceByName("
    assert(device_ && "no swap partition idea2");
    num_slots_ = (size_t) device_->getNumBlocks() * device_->getBlockSize() / PAGE_SIZE;
    slots_ = new Bitmap(num_slots_);
 +  // A2-04: a key that differs from boot to boot: the time stamp counter
 +  uint32 low, high;
 +  asm volatile("rdtsc" : "=a"(low), "=d"(high));
-+  key_[0] = (((uint64) high << 32) | low) * 0x9E3779B97F4A7C15ULL;
-+  key_[1] = key_[0] ^ 0xD1B54A32D192ED03ULL;
++  key_[0] = high;
++  key_[0] = key_[0] * 4294967296ULL + low;       // the 64-bit counter: high part * 2^32 + low part
++  key_[0] = key_[0] * 0x9E3779B97F4A7C15ULL;     // mix the bits (multiplying by a big odd number)
++  key_[1] = key_[0] ^ 0xD1B54A32D192ED03ULL;     // the second 64 bits of the 128-bit key
 +  if (!key_[0])
 +    key_[0] = 1;
    debug(PM, "SwapManager: %zu slots on %s\n", num_slots_, device_->getName());
  }
  
-@@ -39,9 +47,13 @@ size_t SwapManager::writeOut(size_t ppn)
+@@ -39,9 +49,13 @@ size_t SwapManager::writeOut(size_t ppn)
    if (slot == num_slots_)
      return (size_t) -1;
    slots_->setBit(slot);
@@ -158,7 +160,7 @@ index f96581e0..8f23f8bc 100644
    assert(written == PAGE_SIZE && "swap write failed");
    return slot;
  }
-@@ -52,6 +64,24 @@ void SwapManager::readIn(size_t slot, size_t ppn)
+@@ -52,6 +66,24 @@ void SwapManager::readIn(size_t slot, size_t ppn)
    assert(slots_->getBit(slot) && "reading a free swap slot");
    int32 read = device_->readData(slot * PAGE_SIZE, PAGE_SIZE, (char*) ArchMemory::getIdentAddressOfPPN(ppn));
    assert(read == PAGE_SIZE && "swap read failed");

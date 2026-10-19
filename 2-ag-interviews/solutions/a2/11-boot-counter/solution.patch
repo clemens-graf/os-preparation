@@ -74,10 +74,10 @@ index db84270e..f52eb08e 100644
  
 diff --git a/common/source/kernel/BootRecord.cpp b/common/source/kernel/BootRecord.cpp
 new file mode 100644
-index 00000000..c0d07088
+index 00000000..b24df164
 --- /dev/null
 +++ b/common/source/kernel/BootRecord.cpp
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,63 @@
 +#include "BootRecord.h"
 +#include "BDManager.h"
 +#include "BDVirtualDevice.h"
@@ -112,12 +112,14 @@ index 00000000..c0d07088
 +    memset(&record_, 0, sizeof(record_));
 +    record_.magic = MAGIC;
 +  }
-+  ++record_.boot_count;
++  record_.boot_count++;
 +  int32 written = device_->writeData(0, sizeof(record_), (char*) &record_);
 +  assert(written == sizeof(record_));
 +  record_.motd[MOTD_SIZE - 1] = 0;
-+  kprintf("This is boot number %zu. Message of the day: %s\n", (size_t) record_.boot_count,
-+          record_.motd[0] ? record_.motd : "(none)");
++  const char* motd = "(none)";
++  if (record_.motd[0] != '\0')
++    motd = record_.motd;
++  kprintf("This is boot number %zu. Message of the day: %s\n", (size_t) record_.boot_count, motd);
 +}
 +
 +size_t BootRecord::bootCount()
@@ -161,7 +163,7 @@ index 94f2a4e0..1b71b9aa 100644
  
    debug(PROCESS_REG, "mkdir /usr\n");
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..8f5a784f 100644
+index 178fc3a2..b9a67620 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,8 @@
@@ -189,7 +191,7 @@ index 178fc3a2..8f5a784f 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +551,24 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +551,26 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -212,7 +214,9 @@ index 178fc3a2..8f5a784f 100644
 +  char text[MOTD_SIZE];
 +  memcpy(text, (void*) user_text, MOTD_SIZE);    // copy in (at most MOTD_SIZE bytes) ...
 +  text[MOTD_SIZE - 1] = 0;                       // ... and terminate the copy ourselves
-+  return BootRecord::instance()->setMotd(text) ? 0 : (size_t) -1;
++  if (!BootRecord::instance()->setMotd(text))
++    return (size_t) -1;
++  return 0;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
 index 901640e9..fe003400 100644

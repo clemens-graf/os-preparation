@@ -55,7 +55,7 @@ index db84270e..67946a2c 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..2fe2fff1 100644
+index 178fc3a2..989a65e7 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -79,7 +79,7 @@ index 178fc3a2..2fe2fff1 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +547,59 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +547,74 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -88,9 +88,15 @@ index 178fc3a2..2fe2fff1 100644
 +size_t Syscall::pthreadMultiple(size_t ids, size_t count, size_t start_routine, size_t args, size_t entry)
 +{
 +  size_t bytes = count * sizeof(size_t);
-+  if (count == 0 || count > MAX_USER_THREADS || ids == 0 || ids > USER_BREAK - bytes ||
-+      (args != 0 && args > USER_BREAK - bytes) || start_routine == 0 || start_routine >= USER_BREAK ||
-+      entry == 0 || entry >= USER_BREAK)
++  if (count == 0 || count > MAX_USER_THREADS)
++    return (size_t) -1;
++  if (ids == 0 || ids > USER_BREAK - bytes)
++    return (size_t) -1;
++  if (args != 0 && args > USER_BREAK - bytes)
++    return (size_t) -1;                           // args may be NULL: then every thread gets 0
++  if (start_routine == 0 || start_routine >= USER_BREAK)
++    return (size_t) -1;
++  if (entry == 0 || entry >= USER_BREAK)
 +    return (size_t) -1;
 +
 +  size_t arg_copy[MAX_USER_THREADS];
@@ -112,8 +118,9 @@ index 178fc3a2..2fe2fff1 100644
 +      return (size_t) -1;
 +    }
 +  }
++  size_t* user_ids = (size_t*) ids;
 +  for (size_t i = 0; i < count; ++i)
-+    ((size_t*) ids)[i] = created[i]->getTID();
++    user_ids[i] = created[i]->getTID();
 +  for (size_t i = 0; i < count; ++i)
 +    Scheduler::instance()->addNewThread(created[i]);   // only now: all or nothing
 +  return 0;
@@ -123,10 +130,14 @@ index 178fc3a2..2fe2fff1 100644
 +size_t Syscall::pthreadJoinAny(size_t ids, size_t count, size_t index_ptr, size_t value_ptr)
 +{
 +  size_t bytes = count * sizeof(size_t);
-+  if (count == 0 || count > MAX_USER_THREADS || ids == 0 || ids > USER_BREAK - bytes ||
-+      index_ptr == 0 || index_ptr > USER_BREAK - sizeof(size_t) ||
-+      (value_ptr != 0 && value_ptr > USER_BREAK - sizeof(void*)))
++  if (count == 0 || count > MAX_USER_THREADS)
 +    return (size_t) -1;
++  if (ids == 0 || ids > USER_BREAK - bytes)
++    return (size_t) -1;
++  if (index_ptr == 0 || index_ptr > USER_BREAK - sizeof(size_t))
++    return (size_t) -1;
++  if (value_ptr != 0 && value_ptr > USER_BREAK - sizeof(void*))
++    return (size_t) -1;                           // value_ptr may be NULL
 +
 +  size_t id_copy[MAX_USER_THREADS];
 +  memcpy(id_copy, (void*) ids, bytes);
@@ -134,9 +145,13 @@ index 178fc3a2..2fe2fff1 100644
 +  void* value = 0;
 +  if (currentThread->getProcess()->joinAny(id_copy, count, &index, &value) != 0)
 +    return (size_t) -1;
-+  *(size_t*) index_ptr = index;                  // user memory only after the lock is released
-+  if (value_ptr)
-+    *(void**) value_ptr = value;
++  size_t* user_index = (size_t*) index_ptr;      // user memory only after the lock is released
++  *user_index = index;
++  if (value_ptr != 0)
++  {
++    void** user_value = (void**) value_ptr;
++    *user_value = value;
++  }
 +  return 0;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp

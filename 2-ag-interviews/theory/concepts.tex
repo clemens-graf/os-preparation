@@ -1143,7 +1143,7 @@ mapping), the indices \code{m.pml4i}, \code{m.pdpti}, \code{m.pdi}, \code{m.pti}
 that does not exist is a null pointer --- that is why you check \code{m.page\_size} \emph{before} touching
 \code{m.pt}. So ex04's line reads:
 \begin{lstlisting}[style=cpp]
-m.pt[m.pti].writeable = writable ? 1 : 0;
+m.pt[m.pti].writeable = 0;     // (or 1 to make it writable again)
 //  |    |       \- one flag bit of that entry
 //  |    \- index 7: which of the 512 entries (bits 20..12 of the address)
 //  \- the page table on level 4

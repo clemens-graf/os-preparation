@@ -21,7 +21,7 @@ index c40fcbe2..a59a9d51 100644
  
  extern int pthread_setcanceltype(int type, int *oldtype);
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 8b8448e4..f29a0d77 100644
+index 8b8448e4..6bbefa9e 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
 @@ -1,4 +1,5 @@
@@ -67,7 +67,7 @@ index 8b8448e4..f29a0d77 100644
  }
  
  /**
-@@ -169,13 +171,19 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
+@@ -169,13 +171,21 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
    return -1;
  }
  
@@ -84,11 +84,13 @@ index 8b8448e4..f29a0d77 100644
  int pthread_spin_destroy(pthread_spinlock_t *lock)
  {
 -  return -1;
-+  return lock ? 0 : -1;
++  if (!lock)
++    return -1;
++  return 0;
  }
  
  /**
-@@ -184,7 +192,11 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
+@@ -184,7 +194,11 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
   */
  int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
  {
@@ -101,7 +103,7 @@ index 8b8448e4..f29a0d77 100644
  }
  
  /**
-@@ -193,7 +205,11 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
+@@ -193,7 +207,11 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
   */
  int pthread_spin_lock(pthread_spinlock_t *lock)
  {
@@ -114,18 +116,20 @@ index 8b8448e4..f29a0d77 100644
  }
  
  /**
-@@ -202,7 +218,9 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
+@@ -202,7 +220,11 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
   */
  int pthread_spin_trylock(pthread_spinlock_t *lock)
  {
 -  return -1;
 +  if (!lock)
 +    return -1;
-+  return __sync_lock_test_and_set(lock, 1) ? -1 : 0;
++  if (__sync_lock_test_and_set(lock, 1) != 0)
++    return -1;                                 // someone else holds it
++  return 0;
  }
  
  /**
-@@ -211,7 +229,10 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
+@@ -211,7 +233,10 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
   */
  int pthread_spin_unlock(pthread_spinlock_t *lock)
  {
@@ -138,7 +142,7 @@ index 8b8448e4..f29a0d77 100644
  
  /**
 diff --git a/userspace/libc/src/semaphore.c b/userspace/libc/src/semaphore.c
-index 71ba1d16..55ed087d 100644
+index 71ba1d16..fa62af4f 100644
 --- a/userspace/libc/src/semaphore.c
 +++ b/userspace/libc/src/semaphore.c
 @@ -1,4 +1,11 @@
@@ -196,16 +200,18 @@ index 71ba1d16..55ed087d 100644
  }
  
  /**
-@@ -34,7 +59,7 @@ int sem_init(sem_t *sem, int pshared, unsigned value)
+@@ -34,7 +59,9 @@ int sem_init(sem_t *sem, int pshared, unsigned value)
   */
  int sem_destroy(sem_t *sem)
  {
 -  return -1;
-+  return sem ? 0 : -1;
++  if (!sem)
++    return -1;
++  return 0;
  }
  
  /**
-@@ -43,7 +68,12 @@ int sem_destroy(sem_t *sem)
+@@ -43,7 +70,12 @@ int sem_destroy(sem_t *sem)
   */
  int sem_post(sem_t *sem)
  {

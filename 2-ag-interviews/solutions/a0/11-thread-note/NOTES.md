@@ -30,7 +30,8 @@ size_t Syscall::setNote(size_t string)
     char c = ((const char*) string)[length];    // may page-fault: loads a lazy user page
     if (c == '\0')
       break;
-    note[length++] = c;
+    note[length] = c;
+    length++;
   }
   note[length] = '\0';
   memcpy(thread->note_, note, sizeof(note));

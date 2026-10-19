@@ -51,38 +51,48 @@ index db84270e..5a7003ea 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Scheduler.cpp b/common/source/kernel/Scheduler.cpp
-index 7e94ab12..c488af6f 100644
+index 7e94ab12..d818ecb8 100644
 --- a/common/source/kernel/Scheduler.cpp
 +++ b/common/source/kernel/Scheduler.cpp
-@@ -49,15 +49,21 @@ void Scheduler::schedule()
+@@ -49,15 +49,32 @@ void Scheduler::schedule()
      debug(SCHEDULER, "schedule: WARNING - cleanup_thread is being descheduled before completing cleanup.\n");
    }
  
+-  auto it = threads_.begin();
+-  for(; it != threads_.end(); ++it)
 +  // A1-05: a directed yield wins - if that thread is still in the list (it may have been
 +  // destroyed since yieldTo) and runnable
 +  Thread* preferred = preferred_;
 +  preferred_ = nullptr;
-   auto it = threads_.begin();
--  for(; it != threads_.end(); ++it)
-+  while (preferred && it != threads_.end() && !(*it == preferred && (*it)->schedulable()))
-+    ++it;
-+  if (!preferred || it == threads_.end())          // no directed yield (or that thread is gone)
++  auto it = threads_.end();                        // end() = nothing chosen yet
++  if (preferred != nullptr)
    {
 -    if((*it)->schedulable())
--    {
++    for (auto candidate = threads_.begin(); candidate != threads_.end(); ++candidate)
+     {
 -      currentThread = *it;
 -      break;
--    }
++      if (*candidate == preferred && (*candidate)->schedulable())
++      {
++        it = candidate;                            // the directed yield: this one runs next
++        break;
++      }
+     }
+   }
++  if (it == threads_.end())                        // no directed yield (or that thread is gone)
++  {
 +    for (it = threads_.begin(); it != threads_.end(); ++it)   // normal round robin
++    {
 +      if ((*it)->schedulable())
 +        break;
-   }
++    }
++  }
 +  if (it != threads_.end())
 +    currentThread = *it;
  
    assert(it != threads_.end() && "No schedulable thread found");
    ustl::rotate(threads_.begin(), it + 1, threads_.end()); // no new/delete here - important because interrupts are disabled
-@@ -236,3 +242,10 @@ size_t Scheduler::getThreadCount()
+@@ -236,3 +253,10 @@ size_t Scheduler::getThreadCount()
    unlockScheduling();
    return thread_count;
  }

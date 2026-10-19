@@ -11,7 +11,13 @@ int pthread_spin_lock(pthread_spinlock_t* lock)
     sched_yield();                            // held: let the holder run, then try again
   return 0;
 }
-int pthread_spin_trylock(pthread_spinlock_t* lock) { ... return __sync_lock_test_and_set(lock, 1) ? -1 : 0; }
+int pthread_spin_trylock(pthread_spinlock_t* lock)
+{
+  ...
+  if (__sync_lock_test_and_set(lock, 1) != 0)
+    return -1;      // someone else holds it
+  return 0;
+}
 int pthread_spin_unlock(pthread_spinlock_t* lock)  { ... __sync_lock_release(lock); return 0; }   // = 0
 
 int pthread_mutex_lock(pthread_mutex_t* mutex) { return pthread_spin_lock(mutex); }   // same thing

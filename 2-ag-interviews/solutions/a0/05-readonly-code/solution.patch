@@ -34,7 +34,7 @@ index 6aff17ae..403e7748 100644
    }
  
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..3c38ae6f 100644
+index e9c4233f..1e29f483 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
 @@ -10,6 +10,9 @@
@@ -55,20 +55,22 @@ index e9c4233f..3c38ae6f 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -55,10 +59,12 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -55,10 +59,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
            Syscall::exit(999);
          }
          found_page_content = true;
-+        writable |= ((*it).p_flags & ELF_PF_W) != 0;
++        if ((*it).p_flags & ELF_PF_W)
++          writable = true;
        }
        else if((*it).p_vaddr + (*it).p_memsz > virt_page_start_addr)
        {
          found_page_content = true;
-+        writable |= ((*it).p_flags & ELF_PF_W) != 0;   // .bss is part of a writable segment
++        if ((*it).p_flags & ELF_PF_W)   // .bss is part of a writable segment
++          writable = true;
        }
      }
    }
-@@ -71,7 +77,9 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -71,7 +79,9 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
      Syscall::exit(666);
    }
  

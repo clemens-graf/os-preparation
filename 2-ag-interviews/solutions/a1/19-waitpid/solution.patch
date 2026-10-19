@@ -73,7 +73,7 @@ index db84270e..6d4396a7 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/ProcessRegistry.cpp b/common/source/kernel/ProcessRegistry.cpp
-index 94f2a4e0..ea5704b2 100644
+index 94f2a4e0..e7ea8fb6 100644
 --- a/common/source/kernel/ProcessRegistry.cpp
 +++ b/common/source/kernel/ProcessRegistry.cpp
 @@ -2,6 +2,7 @@
@@ -94,7 +94,7 @@ index 94f2a4e0..ea5704b2 100644
  {
    instance_ = this; // instance_ is static! -> Singleton-like behaviour
  }
-@@ -135,3 +137,62 @@ void ProcessRegistry::createProcess(const char* path, uint32 ppid)
+@@ -135,3 +137,66 @@ void ProcessRegistry::createProcess(const char* path, uint32 ppid)
  
    debug(PROCESS_REG, "successful creation of process %s\n", path);
  }
@@ -107,7 +107,11 @@ index 94f2a4e0..ea5704b2 100644
 +  {
 +    if (!record.used)
 +    {
-+      record = {true, false, pid, ppid, 0};
++      record.used = true;
++      record.finished = false;
++      record.pid = pid;
++      record.ppid = ppid;
++      record.exit_code = 0;
 +      return;
 +    }
 +  }

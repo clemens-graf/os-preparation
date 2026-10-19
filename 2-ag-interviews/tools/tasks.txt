@@ -21,14 +21,14 @@ a0-05|a0/05-readonly-code|main|--expect-pass 3|readonly_code_basic.sweb;readonly
 a0-06|a0/06-segv-handler|main|--expect-pass 5|segv_handler_basic.sweb;segv_handler_return.sweb;segv_handler_unregister.sweb;exit
 a0-07|a0/07-upcall|main|--expect-pass 6|upcall_basic.sweb;exit
 a0-08|a0/08-pthread-create|main|--expect-pass 9|pthread_create_basic.sweb;pthread_create_exit.sweb;exit
-a0-09|a0/09-pthread-multi|a0-08|--expect-pass 7|pthread_multi_basic.sweb;pthread_create_basic.sweb;exit
+a0-09|a0/09-pthread-multi|a0-08|--expect-pass 15|pthread_multi_basic.sweb;pthread_create_basic.sweb;exit
 a0-11|a0/11-thread-note|main|--expect-pass 23|note_basic.sweb;note_errors.sweb;exit
 a0-12|a0/12-alias-page|main|--expect-pass 23|alias_basic.sweb;alias_errors.sweb;mult.sweb;exit
 a0-13|a0/13-atexit|main|--expect-pass 6|atexit_basic.sweb;atexit_exit.sweb
 a0-14|a0/14-strings|main|--expect-pass 9|strings_basic.sweb;exit
 a1-01|a1/01-pthread-join|a0-08|--expect-pass 9|pthread_join_basic.sweb;pthread_create_basic.sweb;exit
 a1-02|a1/02-pthread-multiple|a1-01|--expect-pass 10|pthread_multiple_basic.sweb;exit
-a1-03|a1/03-barrier|a1-01|-n 3 --expect-pass 6|pthread_barrier_basic.sweb;exit
+a1-03|a1/03-barrier|a1-01|-n 3 --expect-pass 18|pthread_barrier_basic.sweb;exit
 a1-04|a1/04-thread-flag|a1-01|--expect-pass 3|thread_flag_basic.sweb;exit
 a1-05|a1/05-pthread-invoke|a1-01|--expect-pass 2|pthread_invoke_basic.sweb;exit
 a1-06|a1/06-pthread-cancel|a1-01|--expect-pass 9|pthread_cancel_basic.sweb;exit
@@ -41,22 +41,22 @@ a1-12|a1/12-sbrk|main|--expect-pass 7|sbrk_basic.sweb;exit
 a1-13|a1/13-sum15|main|--expect-pass 4|sum15_basic.sweb
 a1-14|a1/14-malloc|main|--expect-pass 9|malloc_basic.sweb;exit
 a1-15|a1/15-spinlock|a1-01|--expect-pass 7|spinlock_basic.sweb;exit
-a1-16|a1/16-semaphore|a1-15|--expect-pass 7|sem_basic.sweb;spinlock_basic.sweb;exit
-a1-17|a1/17-cond|a1-15|--expect-pass 5|cond_basic.sweb;spinlock_basic.sweb;exit
+a1-16|a1/16-semaphore|a1-15|--expect-pass 14|sem_basic.sweb;spinlock_basic.sweb;exit
+a1-17|a1/17-cond|a1-15|--expect-pass 12|cond_basic.sweb;spinlock_basic.sweb;exit
 a1-18|a1/18-sleep|main|--expect-pass 5|sleep_basic.sweb;exit
 a1-19|a1/19-waitpid|main|--expect-pass 7|waitpid_basic.sweb;exit
 a1-20|a1/20-detach|main|--expect-pass 6|detach_basic.sweb;exit
 a2-01|a2/01-swap|main|--expect-pass 10|swap_basic.sweb;swap_exit.sweb;swap_check.sweb;exit
 a2-02|a2/02-page-backup|a2-01|--expect-pass 7|page_backup_basic.sweb;swap_check.sweb;exit
 a2-03|a2/03-heap-swap|a2-01|--expect-pass 13|swap_basic.sweb;swap_heap_full.sweb;swap_exit.sweb;swap_check.sweb;exit
-a2-04|a2/04-xor-swap|a2-01|--expect-pass 4|swap_xor_basic.sweb;swap_basic.sweb;exit
+a2-04|a2/04-xor-swap|a2-01|--expect-pass 13|swap_xor_basic.sweb;swap_basic.sweb;exit
 a2-05|a2/05-dirty-swap|a2-01|--expect-pass 7|swap_dirty_basic.sweb;swap_check.sweb;exit
 a2-06|a2/06-f3-swap-all|a2-01|--expect-pass 2|&fkey_swap_check.sweb;!sleep 1;!key f3;help;exit
 a2-07|a2/07-mprotect|main|--expect-pass 7|mprotect_basic.sweb;exit
 a2-08|a2/08-nx|main|--expect-pass 1|nx_data.sweb;nx_stack.sweb;mult.sweb;exit
 a2-09|a2/09-zero-page|main|--expect-pass 6|zero_page_basic.sweb;mult.sweb;exit
-a2-10|a2/10-ram-obfuscation|main|-n 2 --expect-pass 2|obfuscation_basic.sweb;mult.sweb;exit
-a2-11|a2/11-boot-counter|main|-n 2 --keep-disk --expect-pass 4|bootcount_basic.sweb
+a2-10|a2/10-ram-obfuscation|main|-n 2 --expect-pass 4|obfuscation_basic.sweb;mult.sweb;exit
+a2-11|a2/11-boot-counter|main|-n 2 --keep-disk --expect-pass 6|bootcount_basic.sweb
 a2-12|a2/12-syscall-blacklist|main|--expect-pass 5|blacklist_basic.sweb;mult.sweb;exit
 a2-13|a2/13-mmap|main|--expect-pass 11|mmap_basic.sweb;exit
 a1-21|a1/21-forkall|main|--expect-pass 7|forkall_basic.sweb;exit

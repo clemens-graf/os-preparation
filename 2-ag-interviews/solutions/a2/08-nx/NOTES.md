@@ -2,7 +2,7 @@
 
 Patch: [`solution.patch`](solution.patch).
 
-- `Loader::loadPage`: `executable |= p_flags & PF_X` for every segment on the page; if not
+- `Loader::loadPage`: `if (p_flags & PF_X) executable = true;` for every segment on the page; if not
   executable → `execution_disabled = 1` in the same critical section as `mapPage`.
 - `UserProcess` constructor: the stack page gets NX (no lock needed: the process does not run yet).
 - `PageFaultHandler::checkPageFaultIsValid`: `present && fetch` → "Instruction fetch from a

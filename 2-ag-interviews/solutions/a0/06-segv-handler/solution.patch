@@ -144,7 +144,7 @@ index 178fc3a2..c97245bd 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..fb447a79 100644
+index e32f2cda..d288d143 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -9,6 +9,7 @@
@@ -155,7 +155,7 @@ index e32f2cda..fb447a79 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -600,3 +601,26 @@ void UserProcess::exitProcess()
+@@ -600,3 +601,30 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -167,8 +167,12 @@ index e32f2cda..fb447a79 100644
 +    return false;
 +
 +  // a "call" without a call instruction: below the red zone, 16-byte aligned minus 8
-+  size_t rsp = ((registers->rsp - 128) & ~0xFULL) - sizeof(size_t);
-+  if (registers->rsp >= USER_BREAK || rsp >= USER_BREAK)
++  size_t rsp = registers->rsp - 128;     // skip the red zone
++  rsp = rsp - rsp % 16;                  // 16-byte alignment
++  rsp = rsp - sizeof(size_t);            // room for the return address
++  if (registers->rsp >= USER_BREAK)
++    return false;
++  if (rsp >= USER_BREAK)
 +    return false;
 +  pointer slot = arch_memory_->checkAddressValid(rsp);  // kernel (ident) address of that stack slot
 +  if (!slot)

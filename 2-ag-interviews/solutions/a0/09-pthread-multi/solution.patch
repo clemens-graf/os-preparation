@@ -43,7 +43,7 @@ index db84270e..38cde8f0 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..06e4b150 100644
+index 178fc3a2..89fcf9ce 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -1,5 +1,6 @@
@@ -71,7 +71,7 @@ index 178fc3a2..06e4b150 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +545,40 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +545,46 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -82,9 +82,15 @@ index 178fc3a2..06e4b150 100644
 +size_t Syscall::pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry)
 +{
 +  size_t bytes = count * sizeof(size_t);
-+  if (count == 0 || count > PTHREAD_MULTI_MAX || thread_id == 0 || thread_id >= USER_BREAK - sizeof(size_t) ||
-+      functions == 0 || functions >= USER_BREAK - bytes || arguments == 0 || arguments >= USER_BREAK - bytes ||
-+      entry == 0 || entry >= USER_BREAK)
++  if (count == 0 || count > PTHREAD_MULTI_MAX)
++    return (size_t) -1;
++  if (thread_id == 0 || thread_id >= USER_BREAK - sizeof(size_t))
++    return (size_t) -1;
++  if (functions == 0 || functions >= USER_BREAK - bytes)
++    return (size_t) -1;
++  if (arguments == 0 || arguments >= USER_BREAK - bytes)
++    return (size_t) -1;
++  if (entry == 0 || entry >= USER_BREAK)
 +    return (size_t) -1;
 +
 +  // copy the arrays NOW: after the syscall returns the caller may reuse or free them,
@@ -113,7 +119,7 @@ index 178fc3a2..06e4b150 100644
 +  return 0;
 +}
 diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
-index 53def8c4..dfb26374 100644
+index 53def8c4..feae9aa8 100644
 --- a/common/source/kernel/UserThread.cpp
 +++ b/common/source/kernel/UserThread.cpp
 @@ -1,3 +1,4 @@
@@ -121,14 +127,15 @@ index 53def8c4..dfb26374 100644
  #include <UserThread.h>
  #include <UserProcess.h>
  #include <Loader.h>
-@@ -110,3 +111,26 @@ size_t UserThread::getUserStackBottomVpn()
+@@ -110,3 +111,28 @@ size_t UserThread::getUserStackBottomVpn()
  {
    return ((size_t)user_stack_top_ / PAGE_SIZE ) - USERSTACK_PAGES;
  }
 +
 +size_t UserThread::pushToStack(const void* data, size_t size)
 +{
-+  size_t user_address = (user_registers_->rsp - size) & ~0xFULL;
++  size_t user_address = user_registers_->rsp - size;
++  user_address = user_address - user_address % 16;          // 16-byte alignment
 +  // the initially mapped stack page only (lowest_mapped_stack_vpn_): enough for 2 * 16 pointers
 +  assert(user_address >= lowest_mapped_stack_vpn_ * PAGE_SIZE && "does not fit on the mapped stack page");
 +
@@ -136,7 +143,8 @@ index 53def8c4..dfb26374 100644
 +  // is active right now (for a thread of the same process it is ours - in fork it would not be)
 +  UserProcess* process = getProcess();
 +  ScopeLock lock(process->getThreadLock());
-+  for (size_t done = 0; done < size;)
++  size_t done = 0;
++  while (done < size)                                       // page by page: the stack may span two pages
 +  {
 +    size_t address = user_address + done;
 +    size_t chunk = ustl::min(size - done, PAGE_SIZE - address % PAGE_SIZE);

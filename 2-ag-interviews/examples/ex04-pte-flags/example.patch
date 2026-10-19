@@ -27,7 +27,7 @@ index db84270e..d17a416f 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..0d2b00c6 100644
+index 178fc3a2..9182d877 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -50,7 +50,7 @@ index 178fc3a2..0d2b00c6 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +509,24 @@ void Syscall::trace()
+@@ -503,6 +509,27 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -67,7 +67,10 @@ index 178fc3a2..0d2b00c6 100644
 +  if (m.page_size != PAGE_SIZE)                // not mapped (yet) - m.pt may even be null
 +    return (size_t) -1;
 +
-+  m.pt[m.pti].writeable = writable ? 1 : 0;
++  if (writable)
++    m.pt[m.pti].writeable = 1;
++  else
++    m.pt[m.pti].writeable = 0;
 +  ArchMemory::flushTlb();                      // the CPU may still cache the old entry in its TLB
 +  return 0;
 +}

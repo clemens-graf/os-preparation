@@ -102,10 +102,10 @@ index 178fc3a2..84647be1 100644
  {
    UserProcess* current_process = currentThread->getProcess();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..ad98f6f2 100644
+index e32f2cda..74e81238 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -168,6 +168,65 @@ size_t UserProcess::fork(UserThread* thread_to_clone_from)
+@@ -168,6 +168,69 @@ size_t UserProcess::fork(UserThread* thread_to_clone_from)
    return child_pid;
  }
  
@@ -143,8 +143,12 @@ index e32f2cda..ad98f6f2 100644
 +        copy->setUserStackTop(original->getUserStackTop());
 +        copy->setUserStackLowestMappedVpn(original->getUserStackLowestMappedVpn());
 +        if (original != caller)
-+          copy->user_registers_->rax = original->in_syscall_ ? (size_t) -1    // its syscall "fails" in the child
-+                                                              : original->user_registers_->rax;
++        {
++          if (original->in_syscall_)
++            copy->user_registers_->rax = (size_t) -1;                     // its syscall "fails" in the child
++          else
++            copy->user_registers_->rax = original->user_registers_->rax;  // undo the "rax = 0" of the copy
++        }
 +        copy->setRegisteredInProcess(true);
 +        child->running_threads_++;
 +        data_copy->thread_ = copy;

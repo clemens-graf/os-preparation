@@ -29,7 +29,7 @@ index db84270e..73be8abe 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..8ece34db 100644
+index 178fc3a2..0e4a5d01 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -55,7 +55,7 @@ index 178fc3a2..8ece34db 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +512,48 @@ void Syscall::trace()
+@@ -503,6 +512,51 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -88,9 +88,12 @@ index 178fc3a2..8ece34db 100644
 +
 +size_t Syscall::freePage(size_t address)
 +{
-+  if (address % PAGE_SIZE != 0 || address < ALLOC_REGION_START ||
-+      address >= ALLOC_REGION_START + ALLOC_REGION_PAGES * PAGE_SIZE)
-+    return (size_t) -1;
++  if (address % PAGE_SIZE != 0)
++    return (size_t) -1;                                  // not the start of a page
++  if (address < ALLOC_REGION_START)
++    return (size_t) -1;                                  // below the region
++  if (address >= ALLOC_REGION_START + ALLOC_REGION_PAGES * PAGE_SIZE)
++    return (size_t) -1;                                  // above the region
 +
 +  UserProcess* process = currentThread->getProcess();
 +  ScopeLock lock(process->getThreadLock());

@@ -65,7 +65,7 @@ index 178fc3a2..f483b9a7 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..e9e992a0 100644
+index e32f2cda..bd2453d8 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,6 +10,7 @@
@@ -76,7 +76,7 @@ index e32f2cda..e9e992a0 100644
  #include "ArchMemory.h"
  
  UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
-@@ -600,3 +601,39 @@ void UserProcess::exitProcess()
+@@ -600,3 +601,42 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -86,8 +86,11 @@ index e32f2cda..e9e992a0 100644
 +{
 +  size_t ppn = PageManager::instance()->allocPPN();     // before the lock: keeps it short
 +  thread_lock_.acquire();
-+  bool below = vpn * PAGE_SIZE < brk_;                  // check and map in ONE critical section:
-+  bool mapped = below && arch_memory_->mapPage(vpn, ppn, 1);   // sbrk() may shrink in between otherwise
++  // check and map in ONE critical section - sbrk() could shrink the heap in between otherwise
++  bool below = vpn * PAGE_SIZE < brk_;
++  bool mapped = false;
++  if (below)
++    mapped = arch_memory_->mapPage(vpn, ppn, 1);         // false: another thread mapped it first
 +  thread_lock_.release();
 +  if (!mapped)
 +    PageManager::instance()->freePPN(ppn);              // above the break, or another thread was faster

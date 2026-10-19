@@ -52,18 +52,24 @@ index 801f850a..dcbbabbd 100644
  
      static void freeSlotCallback(size_t slot);  // for ArchMemory::forEachSwappedPage
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 98826faf..5faf12c0 100644
+index bd668bf0..d88daf72 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -99,6 +99,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -102,6 +102,18 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_swapinfo:
        return_value = SwapManager::instance()->usedSlots();
        break;
 +    case sc_createpagebackup:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->createPageBackup(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->createPageBackup(arg1 / PAGE_SIZE);
 +      break;
 +    case sc_loadpagebackup:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->loadPageBackup(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->loadPageBackup(arg1 / PAGE_SIZE);
 +      break;
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);

@@ -69,7 +69,7 @@ index db84270e..801f59fb 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..c4e122e2 100644
+index 178fc3a2..404fad4e 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -94,7 +94,7 @@ index 178fc3a2..c4e122e2 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +548,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +548,20 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -106,8 +106,12 @@ index 178fc3a2..c4e122e2 100644
 +// A2-13: only anonymous mappings (no file): reserve the pages, map them on first access
 +size_t Syscall::mmap(size_t length, size_t prot, size_t flags, size_t fd)
 +{
-+  if (length == 0 || length > (1ULL << 30) || !(flags & MMAP_MAP_ANONYMOUS) || fd != (size_t) -1)
-+    return (size_t) -1;
++  if (length == 0 || length > 1024 * 1024 * 1024)
++    return (size_t) -1;                                  // nothing, or more than 1 GiB
++  if (!(flags & MMAP_MAP_ANONYMOUS))
++    return (size_t) -1;                                  // only anonymous mappings
++  if (fd != (size_t) -1)
++    return (size_t) -1;                                  // no files
 +  size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
 +  return currentThread->getProcess()->mmapAnonymous(pages, prot & MMAP_PROT_WRITE);
 +}

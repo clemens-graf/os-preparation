@@ -15,20 +15,25 @@ void* malloc(size_t size)
   for (size_t offset = 0; offset < pool_end;)               // 1. first fit among the blocks
   {
     struct BlockHeader* block = (struct BlockHeader*) (pool + offset);
-    if (!block->used && block->size >= size) { block->used = 1; return block + 1; }
+    if (!block->used && block->size >= size)
+    {
+      block->used = 1;
+      return (char*) block + sizeof(struct BlockHeader);
+    }
     offset += sizeof(struct BlockHeader) + block->size;
   }
   if (pool_end + sizeof(struct BlockHeader) + size > POOL_SIZE) return 0;   // 2. or append
   struct BlockHeader* block = (struct BlockHeader*) (pool + pool_end);
   block->size = size; block->used = 1;
   pool_end += sizeof(struct BlockHeader) + size;
-  return block + 1;
+  return (char*) block + sizeof(struct BlockHeader);
 }
 
 void free(void* ptr) { if (ptr) ((struct BlockHeader*) ptr - 1)->used = 0; }
 ```
 
-- `block + 1` = the first byte **after** the header (pointer arithmetic counts in headers);
+- `(char*) block + sizeof(struct BlockHeader)` = the first byte **after** the header (as `char*`, so the
+  addition counts in bytes). Short form you may see elsewhere: `block + 1` (counts in whole headers);
   `(struct BlockHeader*) ptr - 1` goes back to it.
 - `calloc`: overflow check `nmemb > POOL_SIZE / size`, then malloc + `memset 0` – a reused block
   contains old data (the test writes `0x55` into it first).

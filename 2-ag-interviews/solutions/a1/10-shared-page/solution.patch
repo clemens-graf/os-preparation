@@ -33,7 +33,7 @@ index 6aff17ae..e26ee123 100644
    bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
    if (empty)
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index bc32c487..4de41f64 100644
+index bc32c487..52b3df46 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -171,6 +171,11 @@ class UserProcess
@@ -53,7 +53,7 @@ index bc32c487..4de41f64 100644
  
      ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
 +
-+    size_t shm_attached_ = 0;      // A1-10: bit k = shared page k is mapped (thread_lock_)
++    bool shm_attached_[16] = {};   // A1-10: [k] = shared page k is mapped (16 = SHM_MAX_KEYS; thread_lock_)
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
 index db84270e..18f7f966 100644
@@ -128,7 +128,7 @@ index 178fc3a2..572f99fa 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..1d1117ec 100644
+index e32f2cda..54de6580 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,7 +10,9 @@
@@ -149,7 +149,7 @@ index e32f2cda..1d1117ec 100644
 +  // page, also the ones other processes still use
 +  for (size_t key = 1; key < SHM_MAX_KEYS; ++key)
 +  {
-+    if (shm_attached_ & (1UL << key))
++    if (shm_attached_[key])
 +    {
 +      arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
 +      SharedPages::instance()->release(key);
@@ -176,12 +176,12 @@ index e32f2cda..1d1117ec 100644
 +  bool already;
 +  {
 +    ScopeLock lock(thread_lock_);
-+    already = shm_attached_ & (1UL << key);
++    already = shm_attached_[key];
 +    if (!already)
 +    {
 +      bool mapped = arch_memory_->mapPage(vpn, ppn, 1);
 +      assert(mapped && "the shm region is only mapped by shmAttach");
-+      shm_attached_ |= 1UL << key;
++      shm_attached_[key] = true;
 +    }
 +  }
 +  if (already)
@@ -195,11 +195,11 @@ index e32f2cda..1d1117ec 100644
 +    return (size_t) -1;
 +  {
 +    ScopeLock lock(thread_lock_);
-+    if (!(shm_attached_ & (1UL << key)))
++    if (!shm_attached_[key])
 +      return (size_t) -1;
 +    arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);   // NOT freed: others may use it
 +    ArchMemory::flushTlb();
-+    shm_attached_ &= ~(1UL << key);
++    shm_attached_[key] = false;
 +  }
 +  SharedPages::instance()->release(key);     // ... unless we were the last one
 +  return 0;
@@ -226,10 +226,10 @@ index fd6819b0..7935d8cd 100644
    kprintf_init();
 diff --git a/common/source/mm/SharedPages.cpp b/common/source/mm/SharedPages.cpp
 new file mode 100644
-index 00000000..1f31b69c
+index 00000000..11b6d4fa
 --- /dev/null
 +++ b/common/source/mm/SharedPages.cpp
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,50 @@
 +#include "SharedPages.h"
 +#include "PageManager.h"
 +#include "Mutex.h"
@@ -264,7 +264,7 @@ index 00000000..1f31b69c
 +  Entry& entry = entries_[key];
 +  if (entry.ppn == 0)
 +    entry.ppn = PageManager::instance()->allocPPN();   // first user: a fresh zeroed page
-+  ++entry.references;
++  entry.references++;
 +  return entry.ppn;
 +}
 +
@@ -273,7 +273,8 @@ index 00000000..1f31b69c
 +  ScopeLock lock(*lock_);
 +  Entry& entry = entries_[key];
 +  assert(entry.references > 0);
-+  if (--entry.references == 0)
++  entry.references--;
++  if (entry.references == 0)
 +  {
 +    PageManager::instance()->freePPN(entry.ppn);       // last user gone
 +    entry.ppn = 0;

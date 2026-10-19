@@ -140,7 +140,7 @@ index db84270e..4f555ea4 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..a12418ed 100644
+index 178fc3a2..b4bfd1c7 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,7 @@
@@ -164,7 +164,7 @@ index 178fc3a2..a12418ed 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +510,38 @@ void Syscall::trace()
+@@ -503,6 +510,43 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -178,7 +178,9 @@ index 178fc3a2..a12418ed 100644
 +  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
 +  // page_size == PAGE_SIZE: a 4 KiB page is mapped. Otherwise page_ppn is 0 - a real frame
 +  // number, so "not mapped (yet)" must be -1.
-+  size_t ppn = (m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
++  size_t ppn = (size_t) -1;                 // not mapped
++  if (m.page_size == PAGE_SIZE)
++    ppn = m.page_ppn;
 +  process->getThreadLock().release();
 +  return ppn;
 +}
@@ -192,12 +194,15 @@ index 178fc3a2..a12418ed 100644
 +
 +  // ONE critical section: "the frame is mine" must still hold when it is mapped
 +  process->getThreadLock().acquire();
-+  bool mapped = process->getAddressSpace().mapsPhysicalPage(ppn)       // only frames of this process
-+                && process->getAddressSpace().mapPage(vpn, ppn, 1);      // false: vpn already mapped
++  bool mapped = false;
++  if (process->getAddressSpace().mapsPhysicalPage(ppn))                // only frames of this process
++    mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);          // false: vpn already mapped
 +  if (mapped)
 +    process->addAlias(vpn);                                        // ~UserProcess unmaps it without free
 +  process->getThreadLock().release();
-+  return mapped ? 0 : (size_t) -1;
++  if (!mapped)
++    return (size_t) -1;
++  return 0;
 +}
 +
  size_t Syscall::getThreadCount()

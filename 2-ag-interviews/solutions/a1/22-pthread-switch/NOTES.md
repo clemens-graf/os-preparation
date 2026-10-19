@@ -34,12 +34,16 @@ context_switch:          # rdi = from, rsi = to
 ## A context that never ran
 
 ```c
-size_t* sp = (size_t*) (((size_t) stack + stack_size) & ~0xFUL);   // aligned top
-*--sp = (size_t) __context_trampoline;   // popped by ret
-*--sp = 0;  *--sp = 0;                   // rbp, rbx
-*--sp = (size_t) function;               // r12
-*--sp = (size_t) arg;                    // r13
-*--sp = 0;  *--sp = 0;                   // r14, r15
+size_t top = (size_t) stack + stack_size;
+top = top - top % 16;                      // aligned top
+size_t* frame = (size_t*) top - 7;         // 7 values below the top, lowest = popped first
+frame[0] = 0;                              // r15
+frame[1] = 0;                              // r14
+frame[2] = (size_t) arg;                   // r13
+frame[3] = (size_t) function;              // r12
+frame[4] = 0;                              // rbx
+frame[5] = 0;                              // rbp
+frame[6] = (size_t) __context_trampoline;  // popped by ret
 ctx->rsp = (size_t) sp;
 ```
 ```asm

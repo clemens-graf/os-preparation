@@ -152,7 +152,7 @@ index 00000000..801f850a
 +    Mutex* lock_;            // protects slots_ and serialises our disk requests
 +};
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..98826faf 100644
+index 178fc3a2..bd668bf0 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -163,12 +163,15 @@ index 178fc3a2..98826faf 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -92,6 +93,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_swapout:
-+      return_value = arg1 < USER_BREAK ? currentThread->getProcess()->swapOut(arg1 / PAGE_SIZE) : (size_t) -1;
++      if (arg1 >= USER_BREAK)
++        return_value = (size_t) -1;
++      else
++        return_value = currentThread->getProcess()->swapOut(arg1 / PAGE_SIZE);
 +      break;
 +    case sc_swapinfo:
 +      return_value = SwapManager::instance()->usedSlots();

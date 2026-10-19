@@ -94,7 +94,9 @@ int atexit(void (*function)(void))
 ### K – make the thread continue in a user function
 ```cpp
 ArchThreadRegisters* r = currentThread->user_registers_;
-size_t rsp = ((r->rsp - 128) & ~0xFULL) - sizeof(size_t);   // skip the red zone, align, room for 1 value
+size_t rsp = r->rsp - 128;        // skip the red zone
+rsp = rsp - rsp % 16;             // 16-byte alignment
+rsp = rsp - sizeof(size_t);       // room for 1 value
 pointer slot = process->getAddressSpace().checkAddressValid(rsp);   // mapped? (under getThreadLock())
 if (!slot) return (size_t) -1;
 *(size_t*) slot = r->rip;     // "push" the old rip as return address (via the kernel's mapping)

@@ -33,7 +33,7 @@ size_t Syscall::jump(size_t function, size_t argument)
 
   ArchThreadRegisters* regs = currentThread->user_registers_;
   size_t rsp = regs->rsp - 128;   // leave the red zone alone: leaf functions keep locals below rsp
-  rsp &= ~0xFULL;                 // System V ABI: rsp is 16-byte aligned before a call ...
+  rsp = rsp - rsp % 16;           // System V ABI: rsp is 16-byte aligned before a call ...
   rsp -= sizeof(size_t);          // ... and the call pushes an 8 byte return address
   *(size_t*) rsp = 0;             // that return address: if function returns, it faults at 0
 

@@ -55,7 +55,7 @@ index db84270e..e0b500f8 100644
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..d0cc94ee 100644
+index 178fc3a2..d431a236 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,8 @@
@@ -80,7 +80,7 @@ index 178fc3a2..d0cc94ee 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +548,50 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +548,76 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -100,11 +100,24 @@ index 178fc3a2..d0cc94ee 100644
 +
 +  // field by field: copying the ArchThreadRegisters struct would also copy its fpu pointer
 +  // (and its destructor would free the fpu buffer of the thread)
-+  s->rip = regs->rip;  s->rflags = regs->rflags;  s->rax = regs->rax;  s->rbx = regs->rbx;
-+  s->rcx = regs->rcx;  s->rdx = regs->rdx;  s->rsi = regs->rsi;  s->rdi = regs->rdi;
-+  s->rbp = regs->rbp;  s->rsp = regs->rsp;  s->r8 = regs->r8;  s->r9 = regs->r9;
-+  s->r10 = regs->r10;  s->r11 = regs->r11;  s->r12 = regs->r12;  s->r13 = regs->r13;
-+  s->r14 = regs->r14;  s->r15 = regs->r15;
++  s->rip = regs->rip;
++  s->rflags = regs->rflags;
++  s->rax = regs->rax;
++  s->rbx = regs->rbx;
++  s->rcx = regs->rcx;
++  s->rdx = regs->rdx;
++  s->rsi = regs->rsi;
++  s->rdi = regs->rdi;
++  s->rbp = regs->rbp;
++  s->rsp = regs->rsp;
++  s->r8 = regs->r8;
++  s->r9 = regs->r9;
++  s->r10 = regs->r10;
++  s->r11 = regs->r11;
++  s->r12 = regs->r12;
++  s->r13 = regs->r13;
++  s->r14 = regs->r14;
++  s->r15 = regs->r15;
 +
 +  // the stack belongs to the state: without it, revive would continue with frames that have
 +  // been overwritten since (the __syscall frame of pthread_revive lies exactly where the one of
@@ -124,11 +137,24 @@ index 178fc3a2..d0cc94ee 100644
 +
 +  ArchThreadRegisters* regs = thread->user_registers_;
 +  memcpy((void*) s->rsp, s->stack, s->stack_size);   // these pages were mapped then and still are
-+  regs->rip = s->rip;  regs->rflags = s->rflags;  regs->rax = s->rax;  regs->rbx = s->rbx;
-+  regs->rcx = s->rcx;  regs->rdx = s->rdx;  regs->rsi = s->rsi;  regs->rdi = s->rdi;
-+  regs->rbp = s->rbp;  regs->rsp = s->rsp;  regs->r8 = s->r8;  regs->r9 = s->r9;
-+  regs->r10 = s->r10;  regs->r11 = s->r11;  regs->r12 = s->r12;  regs->r13 = s->r13;
-+  regs->r14 = s->r14;  regs->r15 = s->r15;
++  regs->rip = s->rip;
++  regs->rflags = s->rflags;
++  regs->rax = s->rax;
++  regs->rbx = s->rbx;
++  regs->rcx = s->rcx;
++  regs->rdx = s->rdx;
++  regs->rsi = s->rsi;
++  regs->rdi = s->rdi;
++  regs->rbp = s->rbp;
++  regs->rsp = s->rsp;
++  regs->r8 = s->r8;
++  regs->r9 = s->r9;
++  regs->r10 = s->r10;
++  regs->r11 = s->r11;
++  regs->r12 = s->r12;
++  regs->r13 = s->r13;
++  regs->r14 = s->r14;
++  regs->r15 = s->r15;
 +  return 1;    // written into rax: the old pthread_snapshot() call now returns 1
 +}
 diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp

@@ -61,7 +61,7 @@ index db84270e..bbf7892c 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..a8f53d1c 100644
+index 178fc3a2..4d77d0d4 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,7 @@
@@ -85,7 +85,7 @@ index 178fc3a2..a8f53d1c 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +510,45 @@ void Syscall::trace()
+@@ -503,6 +510,48 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -106,7 +106,8 @@ index 178fc3a2..a8f53d1c 100644
 +    char c = ((const char*) string)[length];    // may page-fault: loads a lazy user page
 +    if (c == '\0')
 +      break;
-+    note[length++] = c;
++    note[length] = c;
++    length++;
 +  }
 +  note[length] = '\0';                          // strncpy would not guarantee this
 +
@@ -118,8 +119,10 @@ index 178fc3a2..a8f53d1c 100644
 +
 +size_t Syscall::getNote(size_t buffer, size_t size)
 +{
-+  if (buffer == 0 || size == 0 || size > USER_BREAK || buffer > USER_BREAK - size)
++  if (buffer == 0 || size == 0)
 +    return (size_t) -1;
++  if (size > USER_BREAK || buffer > USER_BREAK - size)
++    return (size_t) -1;                         // the buffer would reach into the kernel half
 +  UserThread* thread = (UserThread*) currentThread;
 +  size_t length = strlen(thread->note_);
 +  size_t n = ustl::min(length, size - 1);

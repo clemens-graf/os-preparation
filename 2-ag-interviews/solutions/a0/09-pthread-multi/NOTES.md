@@ -31,7 +31,7 @@ size_t Syscall::pthreadMulti(size_t thread_id, size_t functions, size_t argument
 }
 ```
 
-`UserThread::pushToStack(data, size)`: new address = `(rsp - size) & ~0xF`, copy page by
+`UserThread::pushToStack(data, size)`: new address = `rsp - size`, rounded down to a multiple of 16, copy page by
 page through `checkAddressValid` (ident mapping) under the page-table lock, then
 `rsp = address - 8`.
 

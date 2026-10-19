@@ -22,7 +22,10 @@ size_t UserProcess::forkall(UserThread* caller)
         copy->setTID(data->tid_);                         // same pthread_t in the child
         copy->setUserStackTop(...); copy->setUserStackLowestMappedVpn(...);
         if (data->thread_ != caller)
-          copy->user_registers_->rax = data->thread_->in_syscall_ ? -1 : original rax;
+          if (data->thread_->in_syscall_)
+            copy->user_registers_->rax = -1;            // its syscall fails in the child
+          else
+            copy->user_registers_->rax = original rax;  // undo the rax = 0 of the copy
         copy->setRegisteredInProcess(true);
         child->running_threads_++;
         data_copy->thread_ = copy;
