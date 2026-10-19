@@ -17,6 +17,22 @@ task test              # the [TUTORIAL] debug lines, what came back, and the #GF
 
 [A0-11](../../a0/11-thread-note/) is the same task done right.
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/console/debug.h` | +2 |
+| `common/include/kernel/Syscall.h` | +2 |
+| `common/include/kernel/Thread.h` | +5 −1 |
+| `common/include/kernel/syscall-definitions.h` | +1 |
+| `common/source/kernel/Syscall.cpp` | +26 |
+| `common/source/kernel/Thread.cpp` | +1 −1 |
+| `userspace/libc/include/nonstd.h` | +2 |
+| `userspace/libc/src/nonstd.c` | +5 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex11` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## The change
 
 | Place | What |

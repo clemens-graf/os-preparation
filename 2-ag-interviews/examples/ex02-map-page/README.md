@@ -4,7 +4,22 @@
 kernel with "hello from the kernel". A second call returns the same page.
 Test: `ex_mapping.sweb` (2 checks).
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/kernel/Syscall.h` | +3 |
+| `common/include/kernel/syscall-definitions.h` | +3 |
+| `common/source/kernel/Syscall.cpp` | +34 |
+| `userspace/libc/include/nonstd.h` | +5 |
+| `userspace/libc/src/nonstd.c` | +5 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex02` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## The recipe
+
+*Shortened* – the core of `Syscall::scratchPage()` in `Syscall.cpp` (the full function: `example.patch`):
 
 ```cpp
 size_t ppn = PageManager::instance()->allocPPN();               // 1. a physical page (zeroed)

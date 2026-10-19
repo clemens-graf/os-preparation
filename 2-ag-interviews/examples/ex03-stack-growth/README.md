@@ -7,6 +7,15 @@ and the process is killed (exit 666 – the address belongs to no stack and no s
 This example walks through how your page fault handler grows the stack, and raises the limit to
 16 pages. Test: `ex_pagefault.sweb` (2 checks).
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/kernel/UserProcess.h` | +1 −1 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex03` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## The path of a page fault
 
 ```
@@ -27,21 +36,67 @@ CPU: #PF (vector 14), cr2 = address, error code = flags
 
 ## How your team's stack grows
 
+Your team's code as it is (`common/source/mm/PageFaultHandler.cpp`, `handlePageFault`, lines 79–135 –
+the example does not change it):
+
 ```cpp
-// handlePageFault, valid branch (common/source/mm/PageFaultHandler.cpp)
+UserThread* thread = static_cast<UserThread*>(currentThread);
+assert(thread && "Thread is no UserThread");
+
+UserProcess* current_process = currentThread->getProcess();
+assert(current_process && "Thread has no process");
+
 current_process->getThreadLock().acquire();
-if (isUserStackFault(thread, fault_vpn))          // stack bottom <= fault_vpn < stack top
+
+size_t fault_vpn = address / PAGE_SIZE;
+size_t lowest_mapped_vpn = thread->getUserStackLowestMappedVpn();
+
+if (isUserStackFault(thread, fault_vpn)) // check if fault is in range of threads stack TODO: maybe move into process class
 {
-  while (current_lowest_vpn > fault_vpn)          // map every page down to the fault
+  size_t current_lowest_vpn = lowest_mapped_vpn;
+  while (current_lowest_vpn > fault_vpn) // allocate pages until sat
   {
-    allocateStackPage(&ppn); mapStackPage(ppn, current_lowest_vpn - 1, 1);
-    current_lowest_vpn--;
+    size_t new_stack_vpn = current_lowest_vpn - 1;
+
+    size_t new_stack_ppn = 0;
+    if (!current_process->allocateStackPage(&new_stack_ppn))
+    {
+      current_process->getThreadLock().release();
+
+      debug(PAGEFAULT, "Could not allocate new page for stack of thread id: %zu", thread->getTID());
+      Syscall::exit(9999);
+    }
+
+    if (!current_process->mapStackPage(new_stack_ppn, new_stack_vpn, 1))
+    {
+      current_process->getThreadLock().release();
+
+      debug(PAGEFAULT, "Could not map new page for stack of thread id: %zu", thread->getTID());
+      current_process->deallocateStackPage(new_stack_ppn);
+      Syscall::exit(9999);
+    }
+
+    current_lowest_vpn = new_stack_vpn;
   }
   thread->setUserStackLowestMappedVpn(current_lowest_vpn);
-  release; return;
+
+  current_process->getThreadLock().release();
+
+  return; // stack fault resolved
 }
-else if (isGuardPage(fault_vpn)) { release; Syscall::exit(9999); }   // one page below a slot
-else { release; getLoader().loadPage(address, getAddressSpace()); }  // code/data - or 666
+else if (current_process->isGuardPage(fault_vpn)) // check if we hit a guard page
+{
+  current_process->getThreadLock().release();
+
+  debug(PAGEFAULT, "Well done, we hit a Guard page. Think about that\n");
+  Syscall::exit(9999);
+}
+else
+{
+  current_process->getThreadLock().release();
+
+  current_process->getLoader().loadPage(address, current_process->getAddressSpace());
+}
 ```
 
 Each thread gets a **slot** (`UserProcess::allocateNewStack`): `USERSTACK_PAGES` pages + 1 guard

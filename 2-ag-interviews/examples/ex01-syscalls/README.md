@@ -18,6 +18,9 @@ Test: `ex_syscall.sweb` (4 checks).
 Plus a test program in `userspace/tests/` – every `.c` there becomes a `.sweb` on the disk
 image (after cmake ran again).
 
+The exact, complete change: `example.patch` in this folder, or `task example ex01` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## How a syscall travels
 
 ```

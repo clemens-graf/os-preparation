@@ -4,7 +4,25 @@
 sleeps until that thread is done. Test: `ex_kernel_thread.sweb` (3 checks, 5 tick lines in
 the log).
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/console/debug.h` | +1 |
+| `common/include/kernel/Syscall.h` | +3 |
+| `common/include/kernel/TickerThread.h` | +24 |
+| `common/include/kernel/syscall-definitions.h` | +3 |
+| `common/source/kernel/Syscall.cpp` | +25 |
+| `common/source/kernel/TickerThread.cpp` | +29 |
+| `userspace/libc/include/nonstd.h` | +5 |
+| `userspace/libc/src/nonstd.c` | +5 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex06` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## A kernel thread
+
+*Shortened* – the full class: `TickerThread.h` / `TickerThread.cpp` in `example.patch`:
 
 ```cpp
 class TickerThread : public Thread
@@ -22,6 +40,8 @@ So: always `new`, never on the stack, never delete it yourself. New `.cpp` files
 cmake re-run (glob). Own debug flag: one line in `common/include/console/debug.h`.
 
 ## The handshake
+
+*Shortened* – from `Syscall::ticker()` and the end of `TickerThread::Run()` (full code: `example.patch`):
 
 ```cpp
 // waiting side (the syscall)

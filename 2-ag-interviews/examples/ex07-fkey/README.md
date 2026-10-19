@@ -3,6 +3,18 @@
 Pressing **F8** makes the next syscall print information about the process that makes it.
 Test: `run_test.sh '!key f8' help` → a `[FKEY] F8 handled by /usr/shell.sweb ...` line.
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/console/debug.h` | +1 |
+| `common/include/kernel/Syscall.h` | +4 |
+| `common/source/console/Console.cpp` | +9 |
+| `common/source/kernel/Syscall.cpp` | +18 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex07` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## Why not do the work directly when the key is pressed?
 
 Keys are handled in `Console::handleKey` (`common/source/console/Console.cpp`), which runs in
@@ -10,6 +22,8 @@ the **Console kernel thread**. That thread has the kernel's page tables, not the
 user memory of a process is not accessible from there, and touching another thread's state
 from there races with that thread. So: **set a flag** in the key handler, and let the target
 do the work at a safe point in its own context – here the top of `syscallException`.
+
+*Shortened* – the two places (full code, also `handleF8()`: `example.patch`):
 
 ```cpp
 // Console.cpp

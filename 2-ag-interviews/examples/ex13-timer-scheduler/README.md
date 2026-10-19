@@ -21,6 +21,9 @@ Theory: [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §10 interrup
 
 Plus the usual six places of the two syscalls (as in ex01).
 
+The exact, complete change: `example.patch` in this folder, or `task example ex13` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## How the timer reaches the scheduler
 
 ```

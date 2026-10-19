@@ -3,10 +3,26 @@
 `disknote(write, buffer)` writes/reads 512 bytes to/from the first block of `idea2`.
 Test: `ex_block_device.sweb` (4 checks).
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/kernel/Syscall.h` | +6 |
+| `common/include/kernel/syscall-definitions.h` | +3 |
+| `common/source/kernel/Syscall.cpp` | +40 |
+| `common/source/kernel/main.cpp` | +6 |
+| `userspace/libc/include/nonstd.h` | +5 |
+| `userspace/libc/src/nonstd.c` | +5 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex08` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## The disk
 
 The SWEB image has partitions `idea0` (boot), `idea1` (minixfs, mounted at `/usr`), and
 `idea2` (type 0x82 "Linux swap", ~50 MB, unused in your team's code so far – yours for A2).
+
+*The API* – how `Syscall::diskNote()` uses it (the real call: `device->writeData(0, block_size, block)`):
 
 ```cpp
 BDVirtualDevice* device = BDManager::getInstance()->getDeviceByName("idea2");

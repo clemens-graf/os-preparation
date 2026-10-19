@@ -1,13 +1,24 @@
-# Getting started – the task tool, step by step
+# Getting started – how to train, step by step
 
-Everything you type to train for the AG interviews, with an example for every command.
+How a training day works, and every command you type, with an example for each.
 All commands work **from any directory**.
+
+**Short version:** [TRAINING-PLAN.md](TRAINING-PLAN.md) says what to do today → for each task:
+theory section in `concepts.pdf` → task card → triage → `task start` + timer → `task test` →
+tick it in the plan. Every day: Anki 15 min + `task quiz 5`. Details: section 2.
 
 ## 0. What is where
 
 | What | Where | You … |
 |---|---|---|
-| Course: task cards, examples, solutions, `guide.pdf` | `~/Documents/University/2026-fall/os/preparation/2-ag-interviews/` | **read** here |
+| Course: task cards, examples, solutions | `~/Documents/University/2026-fall/os/preparation/2-ag-interviews/` | **read** here |
+| What to do today | [`TRAINING-PLAN.md`](TRAINING-PLAN.md) (14-day plan, 19 Oct – 1 Nov) | tick tasks off |
+| The theory behind each task (heap, sbrk, exit, registers, scheduler, locks …) | [`concepts.pdf`](concepts.pdf) – each task card names its section | read **before** a task |
+| Where to change SWEB, recipes, locking | [`guide.pdf`](guide.pdf) | read once, look things up |
+| Every file of your team's code | [`ATLAS.md`](ATLAS.md) | look things up |
+| "What kind of task is this?" (U / S / E / A / K) | [`TRIAGE.md`](TRIAGE.md) | 30 s before every task |
+| Worked examples, one per mechanism | [`examples/`](examples/README.md) (ex01 … ex14) | before the tasks that use them |
+| Flashcards | [`anki/ag-interviews.apkg`](anki/README.md) | 15 min a day |
 | Training copy of SWEB (a local git repo with your team's code) | `~/Documents/University/2026-fall/os/repos/sweb-ag/` | **write code** here |
 | Build folder of the training copy | `/tmp/sweb-ag/` | never touch (logs are here) |
 | The tool | `preparation/2-ag-interviews/tools/task.sh` | call it as `task` |
@@ -32,9 +43,9 @@ task list
 ```
 
 Expected: first one line `importing your team's code …` (only the very first time), then a
-table with every example and task (`ex01 … ex12`, `a0-01 … a0-13`, `a1-…`, `a2-…`). The
-training repo exists already. Only on another laptop, or after deleting it, do you need
-(your team repo must be cloned to `repos/osw26e3` first):
+table with every example and task (`ex01 … ex14`, `a0-01 … a0-14`, `a1-01 … a1-20`,
+`a2-01 … a2-13`). The training repo exists already. Only on another laptop, or after deleting
+it, do you need (your team repo must be cloned to `repos/osw26e3` first):
 
 ```bash
 task setup
@@ -42,23 +53,46 @@ task setup
 
 ## 2. The daily loop
 
+About 1–1.5 h a day. Which tasks: today's row in [TRAINING-PLAN.md](TRAINING-PLAN.md).
+
+1. **Redo (≤ 20 min):** every task from **2 days ago** that you only finished with hints or the
+   solution: `task reset <id>`, then from scratch, without looking.
+2. **For each of today's tasks:**
+   1. **Theory:** read the section of `concepts.pdf` the card names (line *Theory first*) and
+      answer its *Check yourself* questions out loud. If the card names an example, look at it
+      (`task example exNN`, then `task start <id>` for the task) – it shows the *how* on a
+      different case.
+   2. **Card:** read the spec block of `a1/NN-…/README.md` – **not** the section *Your team's
+      code* yet: that is your one hint.
+   3. **Triage (30 s, out loud):** the type (U / S / E / A / K) and the first file.
+   4. **Implement in the time box** (the card says how long):
+      ```bash
+      task start a1-09                  # branch task/a1-09-vtop-ptov, test programs copied in
+      task test                         # build + run the tests headless
+      ```
+      Done when only `[PASS]`, `0 failed`, `sweb_run status 0`.
+   5. **Stuck when the time is up:** read *Your team's code* (the hint), 10 more minutes. Then
+      `task diff <id>` + the solution's `NOTES.md`, every line out loud with its *why*.
+   6. **Commit** your attempt and **tick it** in the plan – or mark it *needs redo*.
+3. **Anki 15 min** (due cards) + `task quiz 5`.
+
 ```
-task start a0-01   →  read the card  →  code in repos/sweb-ag  →  task test
-       ↑                                                              │
-       └──── task reset a0-01 (start over) ←── stuck? hints → task solution / task diff
+TRAINING-PLAN → concepts.pdf → card (spec only) → triage → task start + timer → task test
+                                                                     │
+                       stuck? hint → 10 min → task diff + NOTES.md ←─┘     → commit, tick, next
 ```
 
 ```bash
-task start a0-01                        # branch task/a0-01-meminfo, test programs copied in
-xdg-open ~/Documents/University/2026-fall/os/preparation/2-ag-interviews/a0/01-meminfo/README.md
+task start a1-09
 # ... implement in repos/sweb-ag (CLion: File → Open → repos/sweb-ag) ...
-task test                               # build + run the tests headless
-cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "a0-01: meminfo works"
-task start a0-02                        # next task
+task test
+cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "a1-09: vtop/ptov works"
+task start a0-14                        # next task - no reset needed, every task has its own branch
 ```
 
 `task` refuses to switch to another task while you have uncommitted changes. Commit them
-(last line above) or throw them away with `task reset` (a backup is kept).
+(the `git commit` line above) or throw them away with `task reset` (a backup is kept).
+`task reset` is for **redoing** a task later, not for moving on.
 
 ## 3. Every command with examples
 
@@ -75,8 +109,8 @@ a0-09  a0/09-pthread-multi            a0-08
 ```
 *started* = you have a `task/…` (or `example/…`) branch, *solution branch* = you looked at the
 solution, `<- current` = the branch `repos/sweb-ag` is on now. *base* = what the task starts
-from: `main` (plain SWEB) or the solution of another task (A0-09 and A1 build on A0-08, A2-02…06
-on A2-01 – `task start` sets that up for you).
+from: `main` (your team's code) or the solution of another task (e.g. A1-16/A1-17 build on
+A1-15, A2-02 … A2-06 on A2-01 – `task start` sets that up for you).
 
 ### `task status` – where am I?
 
@@ -95,15 +129,17 @@ task test                               # its test
 task run                                # boot it, play with it
 task reset ex01                         # undo your experiments: back to the unchanged example
 ```
-Walkthrough of each example: `examples/exNN-…/README.md`. ex11 and ex12 are the two A0
-tutorials exactly as the tutors wrote them (with their bugs – that is the lesson).
+Walkthrough of each example: `examples/exNN-…/README.md`; which tasks share which mechanism:
+[examples/README.md](examples/README.md). ex11 and ex12 are the two A0 tutorials exactly as the
+tutors wrote them (with their bugs – that is the lesson). ex13 = timer + scheduler, ex14 = a
+function in the libc only (the `atexit` kind).
 
 ### `task start <id>` – begin (or continue) a task
 
 ```bash
-task start a0-01                        # new: branch task/a0-01-meminfo from main (your team's code) + tests
-task start a0-09                        # builds on A0-08: starts from main + A0-08's solution
-task start a0-01                        # again later: just switches back to your attempt
+task start a1-09                        # new: branch task/a1-09-vtop-ptov from main (your team's code) + tests
+task start a1-16                        # builds on A1-15: starts from main + A1-15's solution
+task start a1-09                        # again later: just switches back to your attempt
 ```
 The ids accept several spellings: `a0-01`, `a0/01`, `a0-01-meminfo`.
 
@@ -124,8 +160,8 @@ output: section 5.
 task run                                # QEMU window (like make qemu)
 task kvm                                # the same with hardware virtualisation - much faster
 ```
-In the window: press **Enter** at the GRUB menu (it has no timeout), then type a program, e.g.
-`meminfo_basic.sweb`, `help` or `ls`. Stop with **Ctrl+C in the terminal** (or close the window).
+SWEB boots right away (your team's GRUB menu has `timeout 0`); then type a program, e.g.
+`vtop_basic.sweb`, `help` or `ls`. Stop with **Ctrl+C in the terminal** (or close the window).
 The kernel's debug output appears in the terminal.
 
 ### `task debug` + `task gdb gdb` – the debugger
@@ -141,7 +177,7 @@ task gdb gdb                            # attach gdb (cgdb is not installed, so 
 In gdb:
 ```
 (gdb) break Syscall::write              # stop there
-(gdb) continue                          # let SWEB run - press Enter at GRUB in the QEMU window
+(gdb) continue                          # let SWEB run
 (gdb) bt                                # backtrace when it stops
 (gdb) print *currentThread              # look at variables
 (gdb) next / step / finish              # step over / into / out
@@ -192,10 +228,18 @@ interview: `currentThread->getProcess()`, `getAddressSpace()`, `getThreadLock()`
 
 ```bash
 task team setup                         # import the team code again (e.g. after team/BASE changed)
-task quiz                               # 5 random "where is …?" questions about that code
 ```
-On your team's code GRUB starts SWEB right away (no Enter needed). Your team's names and every
+Your team's names and every
 task's place in your code: [`team/README.md`](team/README.md); every file: [`ATLAS.md`](ATLAS.md).
+
+### `task quiz [N]` – "where is …?" questions
+
+```bash
+task quiz 5                             # 5 random questions (task quiz 20 on the redo day)
+```
+A question appears ("Where is the big switch over all syscall numbers?") – answer it out loud,
+look it up with `git grep` / CLion if you are unsure, press **Enter**: the answer and the file
+appear. 44 questions, from `tools/quiz.txt`; nothing in your repo is touched.
 
 ## 4. Git in the training repo
 
@@ -280,36 +324,38 @@ Special commands: `&prog` = start without waiting, `!sleep N` = wait, `!key f3` 
 | build error `unused parameter` / `reorder` | kernel warnings are errors: use the parameter or `(void) name;`; initializer list in declaration order |
 | `Unknown command: x.sweb` in SWEB | when building yourself (CLion, `make`): reload CMake and build **twice**; `task test` does both |
 | `disk image full of old programs - recreating it` | nothing to do, handled automatically |
-| QEMU window sits at a menu | press Enter (GRUB has no timeout) |
+| a libc task breaks the build of an unrelated test program | a name clash: tests are linked with the whole libc (ex14: `mult.c` has a global `rand`) |
 | `task gdb`: cgdb not found | `task gdb gdb` |
 | a test hangs for 30 s | it is a timeout (status 1): check `while` loops, sleeping without a wake-up, locks |
 
-## 8. Training plan until the A0 interview (13–17 Oct)
+## 8. The plan until the interviews
 
-Everything runs on your team's code – the code you will have in front of you.
+| When | What |
+|---|---|
+| 19 Oct – 1 Nov | [TRAINING-PLAN.md](TRAINING-PLAN.md): 23 tasks in 14 days (all A1 tasks + the A0 tasks that come back in A1), the loop of section 2 |
+| ~20–24 Oct | Student Debate A1 – your crib sheet |
+| ≈ 30 Oct | Design-PoC deadline – the plan has only one task that day |
+| 2 – 15 Nov | the rest of the plan's sections 1–6 (A2 tasks, `task quiz 20`, redo everything marked *needs redo*) |
+| the week before 16–20 Nov | TRAINING-PLAN section 7: tasks you have not touched for a week, one of every type, `git pull` in the team repo + `task team setup` if `team/BASE` changed |
 
-1. **Learn:** `guide.pdf` chapters 2–4 (what is where, recipes, locking).
-2. **Examples**, each with `task example exNN`, its README and `task test`:
-   ex01 → ex11 (tutorial 1) → ex02 → ex12 (tutorial 2) → ex03 → ex05
-3. **Tasks** with `task start`, time-boxed (the card says how long):
-   01 → 11 → 02 → 12 → 03 → 06 → 08
-4. **Simulate the interview:** a task you have not seen for a few days → `task reset <id>`,
-   timer on, explain out loud while you write, then answer the card's *questions a tutor might ask*.
+**Simulate the interview** at least twice: a task you have not seen for a few days →
+`task reset <id>`, timer on, explain out loud while you write, then answer the card's
+*questions a tutor might ask*.
 
 ## 9. Cheat sheet
 
 ```bash
 task list                    # all tasks and their state
 task status                  # where am I?
-task example ex01            # apply an example
-task start a0-01             # begin / continue a task
+task example ex13            # apply an example
+task start a1-09             # begin / continue a task
 task test                    # build + run the tests
 task run                     # boot in a window (task kvm: faster)
 task debug                   # debug boot, waits for gdb ...
 task gdb gdb                 # ... attach from a 2nd terminal; task nodebug afterwards
-task solution a0-01          # the reference solution
-task diff a0-01              # my attempt vs. the solution
-task reset a0-01             # start over (backup kept)
-task quiz                    # 5 "where is …?" questions (task quiz 20: more)
+task solution a1-09          # the reference solution
+task diff a1-09              # my attempt vs. the solution
+task reset a1-09             # start over for a redo (backup kept)
+task quiz 5                  # 5 "where is …?" questions (task quiz 20: more)
 cd ~/Documents/University/2026-fall/os/repos/sweb-ag && git add -A && git commit -m "wip"   # save
 ```

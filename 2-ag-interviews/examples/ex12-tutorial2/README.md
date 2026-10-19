@@ -20,6 +20,19 @@ task run               # boot it, type tutorial2.sweb (the original) or ex_tutor
 `task test` runs with `--expect-panic`: here the panic is the expected result, so the test
 counts it as success. [A0-12](../../a0/12-alias-page/) is the same task done right – no panic.
 
+## What the example changes
+
+| File | Lines |
+|---|---|
+| `common/include/kernel/Syscall.h` | +4 |
+| `common/include/kernel/syscall-definitions.h` | +3 |
+| `common/source/kernel/Syscall.cpp` | +26 |
+| `userspace/libc/include/nonstd.h` | +5 |
+| `userspace/libc/src/nonstd.c` | +10 |
+
+The code below is the important part. The exact, complete change: `example.patch` in this folder, or `task example ex12` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## The change: the usual six places
 
 | Place | Line |

@@ -17,6 +17,9 @@ Theory: [concepts.pdf](../../concepts.pdf) §7 C strings, §5 (atexit – the sa
 If the stub already exists (as `atexit`, `malloc` and `sem_*` do in your libc), you only fill
 in place 2.
 
+The exact, complete change: `example.patch` in this folder, or `task example ex14` and then
+`git -C ~/Documents/University/2026-fall/os/repos/sweb-ag show` (`q` quits).
+
 ## Three things a libc function has to deal with
 
 - **`void*` + element size (qsort):** the libc does not know the type, so it computes addresses
