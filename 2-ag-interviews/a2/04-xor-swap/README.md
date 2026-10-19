@@ -37,5 +37,16 @@ Two 64-bit words, from `rdtsc` at boot; XOR word i with key[i % 2].
 
 ## Questions a tutor might ask
 
-- Why is repeating XOR with a fixed key weak? (A zero page reveals the key.)
-- Where would the key live in a real system?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why is repeating XOR with a fixed key weak? (A zero page reveals the key.)</summary>
+
+XOR with a repeating key: `cipher = plain ^ key`. A page of zeros (very common: `.bss`, fresh heap) is stored as **the key itself**. Anyone who can read the disk and guesses one plaintext page learns the key and decrypts everything; identical plaintext blocks also give identical ciphertext blocks. Real systems use a block cipher such as AES-XTS.
+
+</details>
+
+<details><summary>Where would the key live in a real system?</summary>
+
+Never on the disk it protects: generated at boot from a good random source and kept only in kernel memory (a fresh per-boot key for swap is common – swap content doesn't need to survive a reboot). For data at rest: derived from a password or held in a TPM/secure enclave.
+
+</details>

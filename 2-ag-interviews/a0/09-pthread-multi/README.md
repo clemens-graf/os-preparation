@@ -64,7 +64,28 @@ returns the kernel address of a user address in that address space). Keep the st
 
 ## Questions a tutor might ask
 
-- Why copy the arrays, why not just pass the user pointers on?
-- Why copy into kernel memory first, and only then onto the new stack?
-- Could you do the whole thing in user space with `pthread_create`? What would be the difference?
-- What happens if one of the functions calls `pthread_exit`?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why copy the arrays, why not just pass the user pointers on?</summary>
+
+The caller's arrays may live on its stack or be overwritten right after the syscall returns (the test does exactly that) – the new thread runs later, possibly much later. It needs its **own** copy that lives as long as it does.
+
+</details>
+
+<details><summary>Why copy into kernel memory first, and only then onto the new stack?</summary>
+
+Check-then-use on **user** memory is a TOCTOU race: another thread of the process could change a function pointer after you checked it. Copy into the kernel first, check **the copy**, then put the checked copy onto the new thread's stack – that cannot be raced.
+
+</details>
+
+<details><summary>Could you do the whole thing in user space with <code>pthread_create</code>? What would be the difference?</summary>
+
+Yes: `pthread_create(&t, 0, runAll, packed)` where `packed` holds a copy of both arrays – but that copy must live somewhere until the thread is done: on the heap (needs `malloc`, a stub in SWEB) or in static memory (then only one call at a time). The kernel version puts the copy on the new thread's own stack, which lives exactly as long as the thread.
+
+</details>
+
+<details><summary>What happens if one of the functions calls <code>pthread_exit</code>?</summary>
+
+The thread ends right there – the remaining functions never run. That's the defined behaviour of `pthread_exit`: it ends the calling *thread*, whatever it was doing.
+
+</details>

@@ -49,7 +49,28 @@ Restore all registers, return 1 from the revive syscall: it goes into `rax` – 
 
 ## Questions a tutor might ask
 
-- Why does the snapshot need the stack? Give the exact sequence that breaks without it.
-- Which registers did you save? Why not the fpu?
-- What would break with more threads (stack top, other threads' stacks)?
-- How does user-space setjmp get away with saving only a few registers?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why does the snapshot need the stack? Give the exact sequence that breaks without it.</summary>
+
+The saved `rsp` points into the stack: the return addresses and locals of the frames above it are only *there*. Sequence: `snapshot()` saves registers, returns into `main`; main calls `f()`, whose frame overwrites the stack area where `snapshot`'s caller frames were (or `main` itself returns); `f` calls `revive()` → registers are restored, but the stack now contains `f`'s data → `ret` jumps to a garbage return address. Copying the used stack area back restores the frames.
+
+</details>
+
+<details><summary>Which registers did you save? Why not the fpu?</summary>
+
+All user registers of `user_registers_` (`ArchThreadRegisters`: general registers, `rip`, `rsp`, `rflags`, segments) – copied **field by field**, not as a whole struct: the struct holds a pointer `fpu` and its destructor `delete[]`s it, so a struct copy would share and later free the thread's FPU buffer. The FPU state itself isn't saved: the test programs keep no floating-point values across a snapshot.
+
+</details>
+
+<details><summary>What would break with more threads (stack top, other threads' stacks)?</summary>
+
+The stack copy is between the saved `rsp` and **this thread's** stack top (its own slot) – with several threads each has its own top, so it must be `((UserThread*) currentThread)->getUserStackTop()`, not a constant. Revive restores only the snapshotting thread's stack; other threads' stacks and globals keep their current state – a snapshot of one thread, not of the process.
+
+</details>
+
+<details><summary>How does user-space setjmp get away with saving only a few registers?</summary>
+
+`setjmp` is a **function call**: by the ABI the caller already assumes the caller-saved registers are destroyed, so `setjmp` only saves the callee-saved ones (`rbx rbp r12–r15`), `rsp` and the return address. And `longjmp` may only jump to a frame that is **still alive** (not returned) – so the stack doesn't need copying. The kernel snapshot can't make either assumption.
+
+</details>

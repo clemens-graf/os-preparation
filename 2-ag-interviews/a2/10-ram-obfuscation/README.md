@@ -53,7 +53,28 @@ whether the page is mapped again; if so, just return and repeat the access.
 
 ## Questions a tutor might ask
 
-- Why present = 0 before copying, not after?
-- What exactly happens to a thread that faults on the page during the copy?
-- Why is the TLB of the target process not a problem on one CPU – and on several?
-- Which deadlock would the reverse lock order cause?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why present = 0 before copying, not after?</summary>
+
+While the copy runs, a thread of the process may run (the kernel thread can be preempted) and **write** to the old frame – that write would be lost, because the mapping then switches to the copy taken before. With `present = 0` + flush first, such a write faults and waits; after the remap it is repeated on the new frame.
+
+</details>
+
+<details><summary>What exactly happens to a thread that faults on the page during the copy?</summary>
+
+It page-faults (not present). The handler first asks `isMapped(vpn)`: that takes the process's `thread_lock_` – which the relocation holds – so it **waits** until the copy is done, then sees the page present and returns; the instruction is repeated and works. Without that check it would call `loadPage` (data loss, or exit 666 for a stack page).
+
+</details>
+
+<details><summary>Why is the TLB of the target process not a problem on one CPU – and on several?</summary>
+
+On one CPU the target process isn't running while the kernel thread runs, and when it runs again its `cr3` is loaded – which flushes the TLB. On several CPUs a thread of the process may be running **right now** on another CPU with the old translation in its TLB: you'd need a **TLB shootdown** (an inter-processor interrupt that makes the other CPUs flush).
+
+</details>
+
+<details><summary>Which deadlock would the reverse lock order cause?</summary>
+
+The thread takes `all_processes_lock_` → one process's `thread_lock_`. If some path took a process's `thread_lock_` and then `all_processes_lock_` (e.g. a destructor unregistering while holding `thread_lock_`), the two could each hold one lock and wait for the other forever. One fixed order everywhere prevents the cycle.
+
+</details>

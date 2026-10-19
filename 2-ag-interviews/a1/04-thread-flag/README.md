@@ -48,7 +48,28 @@ pointer only while holding the lock (`exitThread` clears it under the same lock 
 
 ## Questions a tutor might ask
 
-- Why can the scheduler not take a lock? What happens if it tries?
-- Why is a plain bool enough for the flag – would a 2-word struct be?
-- Your test result depends on timing – why is it still reliable?
-- How would you implement priorities (n times as often)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can the scheduler not take a lock? What happens if it tries?</summary>
+
+`schedule()` runs in the timer interrupt (and in `yield`'s interrupt) with **interrupts off**. A Mutex may sleep – there is nobody to switch to inside the scheduler, so SWEB asserts. A SpinLock held by the interrupted thread would never be released: that thread can't run while we spin with interrupts off → deadlock.
+
+</details>
+
+<details><summary>Why is a plain bool enough for the flag – would a 2-word struct be?</summary>
+
+A `bool`/`size_t` is one aligned word: the scheduler reads either the old or the new value, never half of each – both are valid states. A 2-word struct could be read half-updated (one word new, one old) – then you'd need a consistent snapshot, e.g. disable interrupts while writing, or a sequence counter.
+
+</details>
+
+<details><summary>Your test result depends on timing – why is it still reliable?</summary>
+
+The test compares **amounts of work** over many time slices (e.g. 100 vs. 200 units), not exact moments. The scheduler decision itself is deterministic ("one extra slice"); timing noise only shifts a slice or so, which the comparison tolerates.
+
+</details>
+
+<details><summary>How would you implement priorities (n times as often)?</summary>
+
+A counter instead of a flag: `priority_` = n, and in `schedule()` keep the current thread while `slices_used_ < n` (reset when it is switched away). Or put a thread n times into the selection. All without locks – only single words written by the syscall and read by the scheduler.
+
+</details>

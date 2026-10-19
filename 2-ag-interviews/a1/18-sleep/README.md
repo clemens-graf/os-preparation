@@ -38,8 +38,22 @@ threads run. Never wait while holding a lock.
 
 ## Questions a tutor might ask
 
-- Your sleeping thread is scheduled again and again just to check the time – how would you
-  avoid that? (a per-thread "wake at tick" + state Sleeping; the timer interrupt (or the
-  scheduler) wakes it – without taking a lock: interrupts are off there)
-- Why may `getTicks()` be read without a lock? (one aligned 64-bit word, only incremented)
-- How precise is your sleep? (one tick = 55 ms)
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Your sleeping thread is scheduled again and again just to check the time – how would you avoid that? (a per-thread "wake at tick" + state Sleeping; the timer interrupt (or the scheduler) wakes it – without taking a lock: interrupts are off there)</summary>
+
+Give the thread a wake-up time and a state: `wake_at_ = now + ticks`, state Sleeping (not schedulable), then yield. On every tick the scheduler (or the timer interrupt) checks the sleeping threads and makes those with `wake_at_ <= ticks` runnable again. **No locks** there – interrupts are off – so only single words, written by the thread itself before it sleeps.
+
+</details>
+
+<details><summary>Why may <code>getTicks()</code> be read without a lock? (one aligned 64-bit word, only incremented)</summary>
+
+`ticks_` is one aligned 64-bit word, written only by the timer interrupt (`incTicks`) and only ever incremented. A read returns the old or the new value, never a mix (atomic on x86-64) – both are valid answers to "what time is it".
+
+</details>
+
+<details><summary>How precise is your sleep? (one tick = 55 ms)</summary>
+
+At best one tick, ≈ 55 ms (18.2 per second): `sleep(1)` waits 18 ticks ≈ 0.99 s plus whatever part of the current tick had already passed, plus the time until the scheduler picks the thread again. Sub-tick precision needs a faster timer or a high-resolution clock (`rdtsc`).
+
+</details>

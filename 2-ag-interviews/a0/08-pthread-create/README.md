@@ -103,9 +103,40 @@ destructor of each extra thread decrements it **as its very last action**.
 
 ## Questions a tutor might ask
 
-- Which registers did you set for the new thread and why exactly those?
-- Why does the thread not start at `start_routine` directly?
-- What is shared between the threads, what is private?
-- When exactly is the stack of a finished thread unmapped – and why not in `pthread_exit`?
-- What happens if `thread` points to an unmapped page? (order of operations in your syscall!)
-- What changes for `pthread_join` (A1)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Which registers did you set for the new thread and why exactly those?</summary>
+
+In the `UserThread` constructor (`createUserRegisters` + `setThreadArguments` + `setAddressSpace`): `rip` = entry (the libc trampoline `pthread_start`), `rsp` = top of the thread's own stack slot, `rdi`/`rsi` = `start_routine` and `arg` (the trampoline's two arguments), user code/data segments and `rflags` with interrupts on, `cr3` = the process's page tables, `rsp0` = the thread's kernel stack (used at the next interrupt). Everything else starts at 0.
+
+</details>
+
+<details><summary>Why does the thread not start at <code>start_routine</code> directly?</summary>
+
+Because `start_routine` may simply **return** – and on a fresh stack there is no return address to return to. The libc trampoline `pthread_start(start_routine, arg)` calls it and then `pthread_exit(result)`, so a return ends the thread properly.
+
+</details>
+
+<details><summary>What is shared between the threads, what is private?</summary>
+
+**Shared** (the `UserProcess`): the address space – code, globals, heap, all stacks are visible to all –, the loader, open files, the working directory. **Private:** registers, the own user stack slot, the own kernel stack, the `UserThreadData` record.
+
+</details>
+
+<details><summary>When exactly is the stack of a finished thread unmapped – and why not in <code>pthread_exit</code>?</summary>
+
+In your team's code `exitThread` frees the stack pages (`freeUserThreadStack`) under `thread_lock_`, while the thread still runs on its **kernel** stack – that's safe because it no longer uses the user stack. What must *not* happen inside `pthread_exit` is freeing the thread **object** or its kernel stack: the thread is still running on it. That's why the object is deleted later by the CleanupThread, after `kill()`.
+
+</details>
+
+<details><summary>What happens if <code>thread</code> points to an unmapped page? (order of operations in your syscall!)</summary>
+
+Your team's `pthreadCreate` checks `thread < USER_BREAK` up front and writes `*thread = tid` **after** the thread was created but **before** `addNewThread`. If the page isn't loaded, the kernel write page-faults and `loadPage` maps it; if no segment covers it, the process dies (666) – with a created but never scheduled thread. Safer order: copy-out first (or check it is writable), then create.
+
+</details>
+
+<details><summary>What changes for <code>pthread_join</code> (A1)?</summary>
+
+The thread's exit value must outlive the thread object (the CleanupThread deletes it at some point) – so a record per thread (`UserThreadData`: tid, exit value, exited, joined) stays until a join takes it. `exitThread` stores the value and broadcasts a Condition; `join` waits on it. That is exactly your team's A1 code.
+
+</details>

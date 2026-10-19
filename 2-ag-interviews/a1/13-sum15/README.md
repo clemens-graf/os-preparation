@@ -38,5 +38,16 @@ array is the robust way.
 
 ## Questions a tutor might ask
 
-- Where are arguments 7–15 of a normal C call? Arguments 1–6?
-- Why copy the array into the kernel instead of reading it in the loop?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Where are arguments 7–15 of a normal C call? Arguments 1–6?</summary>
+
+Arguments 1–6 in `rdi rsi rdx rcx r8 r9` (System V ABI). Arguments 7–15 on the **stack**, pushed by the caller right above the return address (argument 7 at `rsp + 8` when the function starts). SWEB's syscalls are different: number in `rax`, arguments in `rbx rcx rdx rsi rdi` – only five.
+
+</details>
+
+<details><summary>Why copy the array into the kernel instead of reading it in the loop?</summary>
+
+Reading user memory in the loop means: every access can page-fault, and another thread of the process can change values between two reads (TOCTOU) – the sum would mix old and new values. One `memcpy` into a kernel array after checking the pointer, then compute only on the copy.
+
+</details>

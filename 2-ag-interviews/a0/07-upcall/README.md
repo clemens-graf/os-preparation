@@ -65,7 +65,28 @@ page-table lock) and write through the returned kernel address.
 
 ## Questions a tutor might ask
 
-- Draw the user stack right before `function` starts.
-- Why does the kernel not need to save any other register?
-- What happens with `rbx`, which `__syscall` uses as an input register?
-- What would break if user code were compiled with `-fomit-frame-pointer`?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Draw the user stack right before <code>function</code> starts.</summary>
+
+From high to low addresses: the old frame of `__syscall` (its locals in the **red zone**, 128 bytes below the old `rsp`), padding for alignment, then the **old `rip`** (the instruction after `int $0x80`) – `rsp` points at it, `rsp % 16 == 8`. Exactly like right after a real `call`.
+
+</details>
+
+<details><summary>Why does the kernel not need to save any other register?</summary>
+
+`function` is entered like after a `call`: the ABI guarantees it keeps the callee-saved registers (`rbx`, `rbp`, `r12`–`r15`) and `rsp`. The caller-saved registers may be destroyed by any call anyway – `__syscall` doesn't rely on them after `int $0x80`, apart from `rax` (the result).
+
+</details>
+
+<details><summary>What happens with <code>rbx</code>, which <code>__syscall</code> uses as an input register?</summary>
+
+`rbx` is callee-saved, so `function` restores it before `ret`. And `__syscall` only needed it as an *input* – after `int $0x80` its value doesn't matter anyway.
+
+</details>
+
+<details><summary>What would break if user code were compiled with <code>-fomit-frame-pointer</code>?</summary>
+
+After the upcall, `__syscall` restores its `rsp` with `leave` (from `rbp`) – that repairs the moved `rsp`. Without a frame pointer it would do `add $n, %rsp` relative to the **moved** `rsp` and return to garbage. A robust kernel pushes a trampoline that restores the exact old `rsp` (Linux: `sigreturn`).
+
+</details>

@@ -74,8 +74,34 @@ stack page is killed with 666. Copy both (`setUserStackTop`, `setUserStackLowest
 
 ## Questions a tutor might ask
 
-- Why can the copied threads simply continue – where is their state?
-- What happens to a thread of the parent that sleeps in a lock or in `pthread_join` – in the parent, and in the child?
-- Other threads of the parent keep running while you copy the address space. Is the copy consistent? How would you make it consistent?
-- Why do you add the copies to the scheduler only at the end, under the child's lock?
-- Why keep the thread ids – and what would break if the child got new ones?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can the copied threads simply continue – where is their state?</summary>
+
+A thread that isn't running consists of its **saved user registers** (`user_registers_`, saved at the last timer interrupt or at `int 0x80`) plus its **stack**, which lies in the address space. The deep copy of the address space duplicates every stack; copying the registers (the `UserThread` copy constructor) duplicates the rest. In the child the copy resumes exactly where the original was.
+
+</details>
+
+<details><summary>What happens to a thread of the parent that sleeps in a lock or in <code>pthread_join</code> – in the parent, and in the child?</summary>
+
+**In the parent** nothing changes – it keeps sleeping in its lock or join. **In the child** its copy has no kernel half (the parent's kernel stack, the Condition it sleeps on, a held lock are not copied): it continues in user mode right after `int 0x80`, so its syscall must return something – -1, "failed" (`in_syscall_` decides). Locks held in *user space* (A1-15) are copied as "held" – a classic forkall problem.
+
+</details>
+
+<details><summary>Other threads of the parent keep running while you copy the address space. Is the copy consistent? How would you make it consistent?</summary>
+
+No: while the parent's lock is held, its other threads can still run in user mode and write memory without any lock – a thread may be copied with registers from one moment and stack/heap contents from a slightly later one. Consistent: stop all other threads first (a "please stop" flag checked at every syscall and timer tick, wait until all are stopped), then copy, then let them go.
+
+</details>
+
+<details><summary>Why do you add the copies to the scheduler only at the end, under the child's lock?</summary>
+
+The caller's copy could run immediately and call `exit()`; `exitProcess` kills every thread in the child's list – one that isn't known to the scheduler yet would never be cleaned up (and the process never deleted). Holding the **child's** `thread_lock_` makes `exitProcess` (which takes it) wait until all copies are scheduled.
+
+</details>
+
+<details><summary>Why keep the thread ids – and what would break if the child got new ones?</summary>
+
+`pthread_t` values are stored in **user memory** (globals, the stack) – e.g. the test's `spinner_tid`. If the copies got new tids, every stored id would be wrong in the child: `pthread_join`/`pthread_cancel` with them would fail or hit the wrong thread. Same tids are fine, because tids only need to be unique **within a process** (`findThreadDataByTid` searches one process).
+
+</details>

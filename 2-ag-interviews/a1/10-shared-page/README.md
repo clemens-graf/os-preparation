@@ -50,7 +50,28 @@ reference. At exit: the Loader's destructor unmaps the attached keys and drops t
 
 ## Questions a tutor might ask
 
-- What happens without the reference count when the parent exits first?
-- Why take the reference BEFORE mapping?
-- Where does process exit clean up, and in which thread does that run?
-- How would you give it names instead of numbers (shm_open)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What happens without the reference count when the parent exits first?</summary>
+
+The parent's exit runs `~ArchMemory`, which frees every present page – including the shared frame. The child still maps it and now reads/writes a frame that the PageManager may hand to someone else (use after free). At the child's exit it is freed a second time → "Double free PPN".
+
+</details>
+
+<details><summary>Why take the reference BEFORE mapping?</summary>
+
+If you mapped first and took the reference afterwards, there'd be a moment where the frame is mapped but its count doesn't include you: another process detaching (or exiting) in that moment sees count 0 and frees the frame while you're about to use it. Reference first = the frame can't disappear under you.
+
+</details>
+
+<details><summary>Where does process exit clean up, and in which thread does that run?</summary>
+
+In the process's destructor: `~UserProcess` (before `delete arch_memory_`) detaches every shared page – unmap **without** freeing, then drop the reference (free only if it was the last). That destructor runs in the **CleanupThread**, which deletes the last dead thread → so it must not rely on the process's `cr3` being active.
+
+</details>
+
+<details><summary>How would you give it names instead of numbers (shm_open)?</summary>
+
+A table `name → key` in the kernel (`shm_open(name)`): copy the name in (`copyUserString`), look it up under a global lock, create an entry if it doesn't exist, return a handle; `shm_unlink(name)` removes the name (the page stays until the last detach). The numbers then become internal.
+
+</details>

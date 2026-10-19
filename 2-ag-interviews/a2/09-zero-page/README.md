@@ -51,6 +51,22 @@ shutdown does not count it.
 
 ## Questions a tutor might ask
 
-- Without CR0.WP, what would a read() into a fresh .bss buffer do?
-- Why the TLB flush after the copy?
-- How does this generalise to fork's copy-on-write (reference counts)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Without CR0.WP, what would a read() into a fresh .bss buffer do?</summary>
+
+`CR0.WP` makes the **kernel** respect read-only pages too. Without it, a `read()` syscall writing into a fresh `.bss` buffer (mapped read-only to the shared zero page) would **not fault** – the kernel would write straight into the shared zero page, and every process would suddenly see that data in its "zero" pages.
+
+</details>
+
+<details><summary>Why the TLB flush after the copy?</summary>
+
+The PTE stays present but now points to a **new frame** – the TLB may still cache the old translation (→ the shared zero page, read-only). Without the flush the next access could still go to the zero page (and fault again, or read stale data). Any change of a present entry's frame or rights needs a flush.
+
+</details>
+
+<details><summary>How does this generalise to fork's copy-on-write (reference counts)?</summary>
+
+`fork` shares **all** pages read-only between parent and child instead of copying them; a write faults, the faulting process gets its own copy, made writable. Unlike the zero page, these frames are shared by a varying number of processes – so each needs a **reference count**: copy on write while count > 1, the last owner just makes it writable again; free when the count reaches 0.
+
+</details>

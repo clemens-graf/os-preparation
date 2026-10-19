@@ -74,8 +74,34 @@ stack). So when the trampoline's `call` happens, `rsp` must be a multiple of 16:
 
 ## Questions a tutor might ask
 
-- Why does `context_switch` not save `rax`, `rcx`, `rdx`, `rsi`, `rdi`, `r8`–`r11`?
-- Where is `rip` of the saved context?
-- What is the difference to what the kernel does on a timer interrupt (A1-05, ex13)?
-- What happens if the coroutine's stack is too small? Where would a guard page help?
-- Why is this not preemptive – and what would you need to make it preemptive?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why does <code>context_switch</code> not save <code>rax</code>, <code>rcx</code>, <code>rdx</code>, <code>rsi</code>, <code>rdi</code>, <code>r8</code>–<code>r11</code>?</summary>
+
+For the compiler `context_switch` is an ordinary function call, and the System V ABI says a call **may destroy** `rax rcx rdx rsi rdi r8–r11` – the caller saves what it still needs before calling. Only the callee-saved registers `rbx rbp r12–r15` (and `rsp`) must be the same after the call, so only those are saved.
+
+</details>
+
+<details><summary>Where is <code>rip</code> of the saved context?</summary>
+
+On the saved context's **stack**: the `call context_switch` pushed the return address. The saved `rsp` points 6 registers below it; after `rsp = to->rsp` and six `pop`s, `ret` pops exactly that address into `rip`.
+
+</details>
+
+<details><summary>What is the difference to what the kernel does on a timer interrupt (A1-05, ex13)?</summary>
+
+The timer interrupt can come at **any** instruction, the interrupted code didn't prepare for it – so the kernel must save **all** registers + flags (+ FPU) into `user_registers_`/`kernel_registers_` and later restore them all (`arch_contextSwitch`, `iretq`). Your switch is a voluntary call (cooperative): the compiler already handled the caller-saved registers, 6 + `rsp` are enough. And the kernel picks the next thread itself (`schedule()`), here the caller names it.
+
+</details>
+
+<details><summary>What happens if the coroutine's stack is too small? Where would a guard page help?</summary>
+
+The coroutine's stack grows down below its buffer and **silently overwrites** whatever lies there (another global, another coroutine's stack) – crashes appear later, somewhere else. A guard page (an unmapped page right below each stack, like your team's stack slots) turns the overflow into an immediate page fault at the right place – possible only with memory from `mmap`/the kernel, not with a static array.
+
+</details>
+
+<details><summary>Why is this not preemptive – and what would you need to make it preemptive?</summary>
+
+Nothing takes the CPU away from a coroutine: it runs until it calls `context_switch` itself. A coroutine in an endless loop blocks all others. Preemptive would need an interruption from outside: a timer signal delivered to user space (an upcall, A0-07/A0-06) whose handler saves **all** registers and switches – what the kernel does with the timer interrupt.
+
+</details>

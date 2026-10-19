@@ -40,7 +40,22 @@ in a loop and `sched_yield()` between the tries. Never wait while holding `sem_l
 
 ## Questions a tutor might ask
 
-- Semaphore vs. mutex: what can a semaphore do that a mutex cannot? (count; post from another thread)
-- Your `sem_wait` keeps trying – what does a kernel semaphore do instead? (sleep on a wait
-  queue, wake one thread in post: `Condition` in SWEB's kernel)
-- Why is one global lock for all semaphores correct? What does it cost?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Semaphore vs. mutex: what can a semaphore do that a mutex cannot? (count; post from another thread)</summary>
+
+A semaphore **counts**: initialised with n it lets n threads in at once (a mutex: exactly 1). And it has **no owner**: any thread may `sem_post` – e.g. a producer posts, a consumer waits. That makes it good for signalling events and counting resources; a mutex must be unlocked by the thread that locked it.
+
+</details>
+
+<details><summary>Your <code>sem_wait</code> keeps trying – what does a kernel semaphore do instead? (sleep on a wait queue, wake one thread in post: <code>Condition</code> in SWEB's kernel)</summary>
+
+A kernel semaphore lets the waiter **sleep**: `sem_wait` with counter 0 puts the thread into a wait queue (in SWEB's kernel: `Condition::wait` with the semaphore's Mutex), `sem_post` increments and wakes one sleeper (`signal`). The waiter uses no CPU at all while waiting – yours is scheduled again and again just to check.
+
+</details>
+
+<details><summary>Why is one global lock for all semaphores correct? What does it cost?</summary>
+
+Correct, because every semaphore operation (check-and-decrement, increment) happens under one lock – no two operations on any semaphore can interleave. The cost: unrelated semaphores block each other, everything is serialised. A lock per semaphore would need room for it in `sem_t` (here only an `unsigned int`).
+
+</details>

@@ -47,6 +47,22 @@ Present pages with a clean copy own a slot too – free those at exit as well.
 
 ## Questions a tutor might ask
 
-- Why must the dirty bit be read after the TLB flush?
-- What does the TLB have to do with the dirty bit?
-- What would the accessed bit be good for (A2 page replacement: clock / second chance)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why must the dirty bit be read after the TLB flush?</summary>
+
+The CPU sets the dirty bit on the first write **through the TLB entry**. As long as the page is present, a write can come between "read dirty" and "present = 0" and set the bit after you decided "clean" – that write would be lost. After `present = 0` + flush no write is possible any more, so the bit is final.
+
+</details>
+
+<details><summary>What does the TLB have to do with the dirty bit?</summary>
+
+The CPU caches PTEs in the TLB. It sets the dirty bit in the PTE in memory only the first time it writes through a TLB entry that doesn't have it set yet. If you clear `dirty` in memory while a TLB entry with dirty already set exists, later writes go through that entry and the bit is never set again – so: clear it only when no TLB entry exists (not present / after a flush).
+
+</details>
+
+<details><summary>What would the accessed bit be good for (A2 page replacement: clock / second chance)?</summary>
+
+The CPU sets `accessed` on every use. A replacement policy uses it to find pages that weren't used recently: **clock / second chance** walks the pages, clears `accessed` of a used one (second chance) and evicts the first one whose bit is still clear. Cheap approximation of LRU.
+
+</details>

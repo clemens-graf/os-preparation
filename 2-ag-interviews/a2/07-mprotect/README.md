@@ -41,6 +41,22 @@ Rights are removed – flush, inside the critical section.
 
 ## Questions a tutor might ask
 
-- Why can't x86 express 'write-only'?
-- Why check all pages before changing any?
-- What does W⊕X protect against?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can't x86 express 'write-only'?</summary>
+
+x86 page rights are a ladder: **present** means readable; `writeable` adds write; `execution_disabled` (NX) removes execute. There is no bit for "not readable but writable" – any present page can be read. So `PROT_WRITE` alone becomes read + write (POSIX allows giving more rights than asked).
+
+</details>
+
+<details><summary>Why check all pages before changing any?</summary>
+
+All or nothing: if page 5 of 10 isn't mapped and you'd already changed pages 1–4, you'd return an error with half the range changed – the caller can't know which part. Check every page first (under the lock), then change all – the lock guarantees nothing changes in between.
+
+</details>
+
+<details><summary>What does W⊕X protect against?</summary>
+
+Code injection: an attacker writes machine code into a buffer (stack, heap) and makes the program jump there. With W⊕X a page is never both writable and executable – injected data can't be run, and code can't be modified. Attackers then need to reuse existing code (ROP).
+
+</details>

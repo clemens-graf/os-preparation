@@ -63,7 +63,28 @@ that also protects the page tables). And: never call `Syscall::exit` while holdi
 
 ## Questions a tutor might ask
 
-- Walk me through what happens on the first write to `HEAP_START + 5000`.
-- Two threads touch the same new heap page at the same moment – what happens?
-- Why not just map all pages in the syscall? (memory, speed – and what Linux does: overcommit)
-- What would you have to change so that the heap grows automatically on access (like a stack)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Walk me through what happens on the first write to <code>HEAP_START + 5000</code>.</summary>
+
+CPU: #PF (not present, user, write) → `arch_pageFaultHandler` (asm, saves registers, `cr2` = address) → `pageFaultHandler` → `PageFaultHandler::enterPageFault` → `handlePageFault` → valid → **heap branch first**: `mapHeapPage(vpn)`: `allocPPN` (zeroed), under `thread_lock_`: below the limit? → `mapPage` → return. Back in user mode the same write instruction runs again and succeeds.
+
+</details>
+
+<details><summary>Two threads touch the same new heap page at the same moment – what happens?</summary>
+
+Both fault, both allocate a frame, both take `thread_lock_` one after the other. The first maps; for the second `mapPage` returns `false` – it frees its frame and returns "inside" too. Both threads continue, the page is mapped once.
+
+</details>
+
+<details><summary>Why not just map all pages in the syscall? (memory, speed – and what Linux does: overcommit)</summary>
+
+Lazy is cheaper: a program that sets a 100 MiB limit but touches 1 MiB uses 1 MiB of RAM, and the syscall is fast. Linux does the same – memory is only *promised* (overcommit) and mapped on first touch; the price is that memory can run out later, at a page fault.
+
+</details>
+
+<details><summary>What would you have to change so that the heap grows automatically on access (like a stack)?</summary>
+
+Drop the limit check (or make the limit move): in the page fault handler map any fault inside the heap region – exactly what your team's stack growth does for the stack slot (`isUserStackFault`). A1-12 `sbrk` is the version with a moving limit.
+
+</details>

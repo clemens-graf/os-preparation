@@ -46,10 +46,46 @@ Where to look:
 
 ## Questions a tutor might ask
 
-- Why can the exit value not stay in the thread object?
-- Why `broadcast`, not `signal`?
-- What happens if two threads join the same thread at the same time?
-- Why is the slot freed in join and not when the thread ends?
-- Joining yourself – why must that fail, and how do you detect it?
-- Where is this state in your code, and which lock protects it?
-- What happens to a thread that sleeps in `pthread_join` when another thread calls `exit`?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can the exit value not stay in the thread object?</summary>
+
+The thread object (`UserThread`) is deleted by the CleanupThread at some point after the thread ended – the joiner may come much later, or not at all yet. So the value is stored in a separate record that outlives the thread: `UserThreadData` (`exit_value_`, `exited_`) in the process's `threads_`, removed only by the join.
+
+</details>
+
+<details><summary>Why <code>broadcast</code>, not <code>signal</code>?</summary>
+
+All joiners of all threads of the process sleep on the **same** Condition `thread_exited_`. `signal` wakes one – maybe one waiting for a *different* thread, which checks, sees its thread still runs, and sleeps again; the right one never wakes. `broadcast` wakes all; each re-checks its own `exited_` in the `while` loop.
+
+</details>
+
+<details><summary>What happens if two threads join the same thread at the same time?</summary>
+
+`joined_` is set under `thread_lock_` before the first joiner sleeps. The second joiner finds `joined_ == true` and gets -1 at once. Without it both would wait, both get the value, and both would `delete` the record – a double free.
+
+</details>
+
+<details><summary>Why is the slot freed in join and not when the thread ends?</summary>
+
+In your team's code the **stack pages** are freed already when the thread ends (`exitThread` → `freeUserThreadStack`): nobody runs on them any more. The **record** (`UserThreadData`) is freed in join, because it carries the exit value that the joiner still has to collect – freeing it at exit would lose the value.
+
+</details>
+
+<details><summary>Joining yourself – why must that fail, and how do you detect it?</summary>
+
+Joining yourself would wait for your own end, which can't happen while you wait: a deadlock. Detect it by comparing ids: `tid == currentThread->getTID()` → -1 (POSIX: `EDEADLK`).
+
+</details>
+
+<details><summary>Where is this state in your code, and which lock protects it?</summary>
+
+`UserThreadData` in `UserProcess::threads_` (`tid_`, `exit_value_`, `exited_`, `joined_`, `detached_`); the Condition `thread_exited_`. All protected by the process's `thread_lock_` (`getThreadLock()`) – the same Mutex that `thread_exited_` uses.
+
+</details>
+
+<details><summary>What happens to a thread that sleeps in <code>pthread_join</code> when another thread calls <code>exit</code>?</summary>
+
+In your team's code: **a kernel panic.** `exitProcess` calls `kill()` on the sleeping joiner – that only sets its state; it is still in the waiters list of `thread_exited_`. When the last thread is gone, `~UserProcess` destroys the Condition with a waiter still listed → "still waiting on this lock" assertion. Fix: `thread_exited_.broadcast()` in `exitProcess` before the kill loop (or end every thread at its next safe point, like cancel).
+
+</details>

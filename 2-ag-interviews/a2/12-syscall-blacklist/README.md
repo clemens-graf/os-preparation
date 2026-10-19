@@ -33,6 +33,22 @@ Per-process list + Mutex. Even the check (a read) takes it: another thread may b
 
 ## Questions a tutor might ask
 
-- Why must exit stay allowed?
-- What about a child created after blacklisting (inherit?)
-- Linux's version of this: seccomp.
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why must exit stay allowed?</summary>
+
+If `exit` were blacklisted the process could never end: returning from `main` calls `exit()`, which would just return -1 – and `_start` has nothing after it. A kill from outside (a fault → `Syscall::exit`) still works, but a normal end would be impossible.
+
+</details>
+
+<details><summary>What about a child created after blacklisting (inherit?)</summary>
+
+With `fork` the child is a copy of the parent's state – the blacklist (per process) should be copied too, else a restricted program escapes by forking. seccomp filters are inherited by children for exactly that reason. With `exec` the list should also stay (Linux: inherited across execve).
+
+</details>
+
+<details><summary>Linux's version of this: seccomp.</summary>
+
+**seccomp** (Linux): a process installs a filter (strict mode: only `read`/`write`/`exit`/`sigreturn`; filter mode: a BPF program that decides per syscall and argument). Once installed it can't be removed, and it is inherited by children – used by browsers, Docker, systemd to sandbox code.
+
+</details>

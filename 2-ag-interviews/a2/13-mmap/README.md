@@ -51,7 +51,28 @@ frames), `flushTlb()`, mark the entry free.
 
 ## Questions a tutor might ask
 
-- Why map lazily? What does `free` memory cost before it is touched?
-- munmap while another thread faults on the same page – walk through it.
-- What would a *file* mapping need? (the page fault handler reads the file – like `loadPage`)
-- What would `MAP_SHARED` between two processes need? (A1-10: one frame, two page tables)
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why map lazily? What does <code>free</code> memory cost before it is touched?</summary>
+
+Lazy is cheaper and faster: `mmap` of 1 GiB only reserves address space – a few lines in a table. Memory that is never touched costs **nothing** (no frame, no page table); each page costs a frame only at its first access. Linux does the same (overcommit).
+
+</details>
+
+<details><summary>munmap while another thread faults on the same page – walk through it.</summary>
+
+`munmap` takes `thread_lock_`, removes the region and unmaps its pages (frees them), flushes. The faulting thread's `mapMmapPage` takes the same lock: **before** the munmap → it maps the page, then munmap unmaps it again; **after** → it finds no region → "not inside" → the process is killed (access to unmapped memory). Never a page mapped without a region, because check + map is one critical section.
+
+</details>
+
+<details><summary>What would a *file* mapping need? (the page fault handler reads the file – like <code>loadPage</code>)</summary>
+
+The region stores the file (an open file + offset); the page fault handler reads the page's 4 KiB from the file into a fresh frame instead of zeroing it – exactly what `loadPage` does for the program binary. For writable shared file mappings also: write dirty pages back (msync, munmap, exit).
+
+</details>
+
+<details><summary>What would <code>MAP_SHARED</code> between two processes need? (A1-10: one frame, two page tables)</summary>
+
+Both processes must map **the same frame** for the same region: the first fault allocates it and stores it (with a reference count) in a shared object; the other process's fault maps that frame instead of a new one; free only when the last mapping goes – A1-10's shared pages, per page.
+
+</details>

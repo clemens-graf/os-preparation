@@ -49,6 +49,22 @@ the counting after `enableInterrupts`.
 
 ## Questions a tutor might ask
 
-- Why could cr2 differ from the passed address later on?
-- Which error code bits exist, and what does a kernel-mode fault on a user address mean?
-- Why can you not take a Mutex in pageFaultHandler, but you can in handlePageFault?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why could cr2 differ from the passed address later on?</summary>
+
+`cr2` holds the address of the **most recent** page fault. If the handler re-enables interrupts and another thread runs and faults (or the handler itself faults, e.g. touching a user buffer), `cr2` is overwritten. That's why the assembly stub reads `cr2` **at entry** and passes it on as an argument.
+
+</details>
+
+<details><summary>Which error code bits exist, and what does a kernel-mode fault on a user address mean?</summary>
+
+Bit 0 present (0 = not present, 1 = protection violation), bit 1 write (0 = read), bit 2 user (fault from user mode), bit 3 reserved bit set, bit 4 instruction fetch (NX). A kernel-mode fault on a user address = the kernel touched user memory for a syscall (e.g. `write`'s buffer) – legal: the page is loaded on demand, as for the user.
+
+</details>
+
+<details><summary>Why can you not take a Mutex in pageFaultHandler, but you can in handlePageFault?</summary>
+
+`pageFaultHandler` runs right after the interrupt entry with **interrupts off** – a Mutex might sleep, which must not happen there. `PageFaultHandler::enterPageFault` switches to the thread's kernel context and **turns interrupts on**; from then on (`handlePageFault`) the thread is an ordinary kernel thread and may sleep on a Mutex.
+
+</details>

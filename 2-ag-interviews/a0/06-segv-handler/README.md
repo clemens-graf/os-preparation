@@ -84,8 +84,34 @@ anyway). The one-shot reset must happen in the same critical section as the read
 
 ## Questions a tutor might ask
 
-- Why only for user-mode faults? What would go wrong for a fault inside `Syscall::write`?
-- Why the 128 bytes? Why the `- 8`?
-- What happens if the handler itself faults? Why one-shot?
-- How would you also catch a division by zero? (`errorHandler` in `InterruptUtils.cpp`)
-- How does Linux do this (signals, `sigreturn`, `sigaltstack`)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why only for user-mode faults? What would go wrong for a fault inside <code>Syscall::write</code>?</summary>
+
+A user-mode fault interrupted user code – changing its registers is like a function call. A fault **inside the kernel** (e.g. `Syscall::write` touching a bad buffer) interrupted kernel code that may hold locks and be half-way through a change. Jumping to a user handler from there would abandon that kernel code with locks held and data inconsistent.
+
+</details>
+
+<details><summary>Why the 128 bytes? Why the <code>- 8</code>?</summary>
+
+**128 bytes:** the red zone – the interrupted function may keep data below its `rsp` without moving it. **Alignment, then `- 8`:** the ABI says `rsp % 16 == 8` at the first instruction of a function (as if `call` had pushed a return address onto an aligned stack); the 8 bytes are that return-address slot.
+
+</details>
+
+<details><summary>What happens if the handler itself faults? Why one-shot?</summary>
+
+The handler is **one-shot**: `segv_handler_` is reset before jumping. A fault in the handler then finds no handler and the process is killed – instead of an endless loop of faults and handler calls.
+
+</details>
+
+<details><summary>How would you also catch a division by zero? (<code>errorHandler</code> in <code>InterruptUtils.cpp</code>)</summary>
+
+In `errorHandler` (`arch/x86/64/source/InterruptUtils.cpp`): in the userspace branch, before `Syscall::exit(888)`, call the same `deliverSegv`-like function (pass the vector number instead of an address).
+
+</details>
+
+<details><summary>How does Linux do this (signals, <code>sigreturn</code>, <code>sigaltstack</code>)?</summary>
+
+The kernel delivers a signal by building a frame on the user stack (saved registers, `siginfo`) and jumping to the handler; when the handler returns it calls the `sigreturn` syscall, which restores the saved registers – the program continues. `sigaltstack` gives the handler a separate stack, so even a stack overflow can be handled.
+
+</details>

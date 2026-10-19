@@ -33,5 +33,16 @@ Everything above `SwapManager` (PTE marker, page fault, exit cleanup) stays. A s
 
 ## Questions a tutor might ask
 
-- Why is the kernel heap a bad place for swapped pages in general?
-- Which lock protects the buffer table? Is `new` under that lock OK?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why is the kernel heap a bad place for swapped pages in general?</summary>
+
+Swapping exists because **RAM is full** – and the kernel heap *is* RAM. Moving a page from a frame into the heap frees nothing overall (and costs a copy). Plus the kernel heap is small and the kernel needs it itself: if it runs out, `new` asserts and the whole kernel stops. Useful only as an exercise: it separates the bookkeeping from the device.
+
+</details>
+
+<details><summary>Which lock protects the buffer table? Is <code>new</code> under that lock OK?</summary>
+
+`SwapManager::lock_` (a Mutex) protects `buffers_[]`. `new` under it is fine: the kernel heap has its own lock inside, and the order is always SwapManager → heap, never the reverse – no cycle. And a Mutex may be held while `new` takes time; with interrupts off (in a SpinLock or the scheduler) it would not be allowed.
+
+</details>

@@ -51,6 +51,22 @@ address). The page stays mapped; the process sees the old content immediately.
 
 ## Questions a tutor might ask
 
-- Why keep the page-table lock while writing the backup?
-- What happens to the backup if the page is swapped out in between?
-- Who frees the backup slots?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why keep the page-table lock while writing the backup?</summary>
+
+So the page can't change, be swapped out or be unmapped **during** the disk write – otherwise the backup could be torn, or written from a frame that was already freed and reused. Holding a Mutex during disk I/O is fine (the request sleeps).
+
+</details>
+
+<details><summary>What happens to the backup if the page is swapped out in between?</summary>
+
+The backup slot and the swap slot are different slots: swapping the page out writes it into a **new** swap slot, the backup slot stays untouched. `loadPageBackup` on a swapped page must swap it in first (or write into the swap slot) – the solution requires the page to be present, i.e. it faults it back in first.
+
+</details>
+
+<details><summary>Who frees the backup slots?</summary>
+
+`~UserProcess` – it frees all slots in `backups_` (otherwise `swapinfo` never returns to 0 and the device fills up). An overwrite of an existing backup reuses its slot, so slots don't pile up while the process runs.
+
+</details>

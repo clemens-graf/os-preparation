@@ -49,6 +49,22 @@ is never freed.
 
 ## Questions a tutor might ask
 
-- What exactly is freed for a detached thread, and when? What is left without detach?
-- A thread is being joined, and another thread detaches it – what does your code do, and why?
-- Why does the detach of an already-ended thread have to free the record itself?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What exactly is freed for a detached thread, and when? What is left without detach?</summary>
+
+For a detached thread, its `UserThreadData` (tid, exit value) is deleted **as soon as it ends** – in `exitThread` – or immediately in `detachThread` if it already ended. Without detach the record stays until someone joins – forever if nobody does (a "zombie thread", a small leak per thread). The thread object and its stack go either way (CleanupThread, `freeUserThreadStack`).
+
+</details>
+
+<details><summary>A thread is being joined, and another thread detaches it – what does your code do, and why?</summary>
+
+Your `detachThread` returns -1 if `joined_` is set: the joiner is already waiting for the value – detaching now would delete the record under the joiner's feet. Refusing keeps join and detach mutually exclusive, which is what POSIX requires (detaching a thread that is being joined is undefined – refusing is the safe choice).
+
+</details>
+
+<details><summary>Why does the detach of an already-ended thread have to free the record itself?</summary>
+
+`exitThread` already ran – at that time `detached_` was false, so it kept the record for a join. Nobody else will ever delete it: no join is coming (the thread is now detached). So `detachThread` must delete it itself, under the same lock, or it leaks.
+
+</details>

@@ -59,7 +59,28 @@ away: a parameter `bool writeable = true` for `ArchMemory::mapPage`.
 
 ## Questions a tutor might ask
 
-- Why do you have to look at *all* segments on the page, not just the first one?
-- What is the difference between `p_filesz` and `p_memsz`?
-- Which page fault does a write to `main` cause, and where is it rejected?
-- How would you also make the stack and the heap **non-executable**? (`execution_disabled` bit – A2!)
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why do you have to look at *all* segments on the page, not just the first one?</summary>
+
+A page can hold the end of one segment and the start of the next (e.g. the end of `.rodata` and the start of `.data`). If *any* segment on the page is writable, the page must be writable – otherwise the writable segment breaks. In SWEB programs the segments happen to be page-aligned, but you can't rely on that.
+
+</details>
+
+<details><summary>What is the difference between <code>p_filesz</code> and <code>p_memsz</code>?</summary>
+
+`p_filesz` = bytes stored in the ELF file, `p_memsz` = bytes the segment occupies in memory. The difference is `.bss`: zero-initialised data that is not stored in the file – the loader fills it with zeros.
+
+</details>
+
+<details><summary>Which page fault does a write to <code>main</code> cause, and where is it rejected?</summary>
+
+#PF with **present + write + user** (the page is mapped, but read-only) → `checkPageFaultIsValid` rejects it ("even though the address is mapped") → exit 9999.
+
+</details>
+
+<details><summary>How would you also make the stack and the heap <b>non-executable</b>? (<code>execution_disabled</code> bit – A2!)</summary>
+
+Set `execution_disabled` (the NX bit, bit 63 of the PTE) on stack and heap pages – SWEB enables `EFER.NXE` at boot, so it works. An instruction fetch from such a page faults with the *instruction fetch* flag. That's A2-08 (NX) / W⊕X.
+
+</details>

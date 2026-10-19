@@ -53,7 +53,28 @@ Where to look:
 
 ## Questions a tutor might ask
 
-- Why deferred? What could break with asynchronous cancellation?
-- Your cancel flag is written by one thread and read by another without a lock – why is that fine?
-- A cancelled thread sleeps in pthread_join. Walk me through how it ends.
-- What does pthread_setcancelstate(DISABLE) need?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why deferred? What could break with asynchronous cancellation?</summary>
+
+Killing a thread from the outside could stop it anywhere: inside a syscall holding `thread_lock_`, half-way through changing the page tables, after allocating memory but before storing the pointer. Locks would stay taken forever, data inconsistent, memory leaked. Deferred: only set a flag – the thread itself ends at a safe point (a cancellation point) where it holds nothing.
+
+</details>
+
+<details><summary>Your cancel flag is written by one thread and read by another without a lock – why is that fine?</summary>
+
+It's one aligned bool (`requested_cancel_`), written once from false to true, never back. A reader sees either false (and checks again at the next cancellation point) or true – no torn value possible. And in your team's code it is written and read under `thread_lock_` anyway.
+
+</details>
+
+<details><summary>A cancelled thread sleeps in pthread_join. Walk me through how it ends.</summary>
+
+Your team's code since 18 Oct: `cancelThread` sets `requested_cancel_` and **broadcasts** `thread_exited_` → the joiner wakes, its wait loop finds its own flag → `joined_ = false` (the target can be joined again), return `JOIN_CANCELED`, the `ScopeLock` releases `thread_lock_` → `Syscall::pthreadJoin` sees `JOIN_CANCELED` → `exitThread(PTHREAD_CANCELED_VALUE)` – outside the lock.
+
+</details>
+
+<details><summary>What does pthread_setcancelstate(DISABLE) need?</summary>
+
+A per-thread state `cancel_enabled_` (in `UserThreadData`). `pthread_setcancelstate(DISABLE)` sets it; every cancellation point checks `requested_cancel_ && cancel_enabled_`. A cancel while disabled stays pending; on ENABLE the next cancellation point acts on it.
+
+</details>

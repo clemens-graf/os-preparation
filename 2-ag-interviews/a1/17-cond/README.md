@@ -48,7 +48,22 @@ unlock and your first check still changes the number you compare with.
 
 ## Questions a tutor might ask
 
-- Why must `pthread_cond_wait` always be called in a `while (condition)` loop?
-- Why does wait take the mutex as a parameter? What would go wrong without it (lost wake-up)?
-- How would the kernel version look? (a wait queue: `Condition::wait` / `signal` – the waiter
-  sleeps instead of yielding; your team's `thread_exited_` is one)
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why must <code>pthread_cond_wait</code> always be called in a <code>while (condition)</code> loop?</summary>
+
+Because waking up doesn't mean the condition is true: another thread may have been faster and taken the item, `broadcast` wakes all waiters but only one can use it, and spurious wake-ups are allowed (yours wakes everyone on every signal). The `while` re-checks the condition with the mutex held and waits again if needed.
+
+</details>
+
+<details><summary>Why does wait take the mutex as a parameter? What would go wrong without it (lost wake-up)?</summary>
+
+The waiter checks the condition while holding the mutex, then must release it so the signaller can change the state. Releasing and starting to wait must look **atomic**: if the signaller could get the mutex, change the state and signal *between* "unlock" and "wait", the signal is lost and the waiter sleeps forever. Your version reads the generation **before** unlocking – a signal after that changes the number, so it is noticed.
+
+</details>
+
+<details><summary>How would the kernel version look? (a wait queue: <code>Condition::wait</code> / <code>signal</code> – the waiter sleeps instead of yielding; your team's <code>thread_exited_</code> is one)</summary>
+
+A wait queue in the kernel: `pthread_cond_wait` → syscall → `Condition::wait()`, which puts the thread to sleep **and** releases the Mutex in one step; `signal` takes one sleeper off the queue and makes it runnable, `broadcast` all. The waiter costs no CPU. Your team's `thread_exited_` in `joinThread` is exactly this.
+
+</details>

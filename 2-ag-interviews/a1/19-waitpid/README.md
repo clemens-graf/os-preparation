@@ -55,7 +55,28 @@ more); a process started by the kernel (ppid 0) needs no record after it ended.
 
 ## Questions a tutor might ask
 
-- Why can the exit code not stay in the `UserProcess`? When exactly is that object deleted?
-- What is a zombie? Where are they in your solution, and when do they disappear?
-- The parent ends before the child – what happens to the child's record?
-- Why write `*status` only after the registry lock is released?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can the exit code not stay in the <code>UserProcess</code>? When exactly is that object deleted?</summary>
+
+`~UserProcess` runs in the **CleanupThread**, some time after the last thread of the process died – the parent may call `waitpid` much later, or before. The object is deleted when its last `UserThread` is destroyed. So the exit code needs a place that outlives the process: a record in the `ProcessRegistry`, the same idea as `UserThreadData` for join.
+
+</details>
+
+<details><summary>What is a zombie? Where are they in your solution, and when do they disappear?</summary>
+
+A zombie = a process that has ended but whose exit code nobody collected yet – in the solution: a `ProcessRecord` with `finished = true`. It disappears when the parent waits for it (`used = false`), when the parent itself ends (its children's records are dropped), or at once for processes without a waiting parent.
+
+</details>
+
+<details><summary>The parent ends before the child – what happens to the child's record?</summary>
+
+Nobody can ever wait for it any more (only the parent may). Its record is dropped – immediately when the parent ends (`processFinished` drops the records of the parent's children), or when the child itself finishes. Real Unix gives orphans to `init`, which collects them.
+
+</details>
+
+<details><summary>Why write <code>*status</code> only after the registry lock is released?</summary>
+
+Writing user memory can **page-fault**, and the page fault handler may need to sleep (load from disk, take `thread_lock_`). Sleeping while holding the registry's lock blocks every other process's `exit`/`waitpid` meanwhile – or deadlocks. So: copy the code into a kernel variable under the lock, release, then write `*status`.
+
+</details>

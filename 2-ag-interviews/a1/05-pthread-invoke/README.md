@@ -45,6 +45,22 @@ Look the thread up under the process' thread lock, release the lock, then yield.
 
 ## Questions a tutor might ask
 
-- Why may `schedule()` compare the pointer but not dereference it before finding it in the list?
-- What if the target thread is sleeping (blocked in join)?
-- How would `pthread_switch(tid)` (caller sleeps until switched back to) differ?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why may <code>schedule()</code> compare the pointer but not dereference it before finding it in the list?</summary>
+
+After `thread_lock_` is released, the target may end and be **deleted** before `schedule()` runs – `preferred_` may dangle. Comparing a pointer value is harmless; dereferencing it is a use-after-free. Every thread in the scheduler's own list is alive (the CleanupThread removes threads from the list before deleting them), so `schedule()` touches it only after finding it there.
+
+</details>
+
+<details><summary>What if the target thread is sleeping (blocked in join)?</summary>
+
+It's not `schedulable()` (state Sleeping), so `schedule()` doesn't find a runnable match and falls back to the normal round robin. `pthread_invoke` is only a hint; it can't make a blocked thread run – that would break whatever it waits for.
+
+</details>
+
+<details><summary>How would <code>pthread_switch(tid)</code> (caller sleeps until switched back to) differ?</summary>
+
+The caller would also give up its *right to run*: it becomes non-schedulable until someone switches back to it (or the target ends) – a true hand-over like coroutines. You'd need a per-thread "waiting for switch-back" state, a way to wake it, and an answer to "what if the target never switches back". `pthread_invoke` only reorders: the caller stays runnable. (The register-level switch itself is A1-22.)
+
+</details>

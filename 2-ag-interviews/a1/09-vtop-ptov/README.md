@@ -38,6 +38,22 @@ indices *are* the virtual page number: `((pml4i*512 + pdpti)*512 + pdi)*512 + pt
 
 ## Questions a tutor might ask
 
-- Why can't the kernel answer ptov fast? How do real kernels do it (rmap)?
-- Why does vtop of a global variable fail before the first access?
-- Can two virtual pages map the same ppn? (shared memory, zero page in A2)
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can't the kernel answer ptov fast? How do real kernels do it (rmap)?</summary>
+
+Page tables are a tree from vpn to ppn – the other direction has no index, so `ptov` must search all present entries of the process. Real kernels keep a **reverse map** (Linux: `rmap` – per physical page a list of the page tables / VMAs that map it, kept up to date on every map/unmap), which makes the lookup cheap but every mapping change more expensive.
+
+</details>
+
+<details><summary>Why does vtop of a global variable fail before the first access?</summary>
+
+**Lazy loading:** the page of the global is mapped only by the page fault of the first access. Before that its PTE is not present → `resolveMapping` gives `page_size = 0` → `vtop` returns -1.
+
+</details>
+
+<details><summary>Can two virtual pages map the same ppn? (shared memory, zero page in A2)</summary>
+
+Yes – nothing in the page tables forbids it: shared memory (A1-10, the same frame in two processes), aliases (A0-12, two addresses in one process), the shared zero page (A2-09), copy-on-write after fork. That is why `ptov` must define *which* vpn (the lowest) – and why such frames need a reference count before they may be freed.
+
+</details>

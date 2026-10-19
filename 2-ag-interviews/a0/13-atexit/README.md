@@ -51,6 +51,22 @@ Pop each function before calling it: a nested exit() continues with the remainin
 
 ## Questions a tutor might ask
 
-- Why reverse order?
-- What is the difference between exit and _exit?
-- How would the kernel version look (A0-07 upcalls)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why reverse order?</summary>
+
+Later registrations may depend on earlier ones (a library registered first, code that uses it later). Cleaning up in reverse order – like a stack – tears things down in the opposite order they were set up.
+
+</details>
+
+<details><summary>What is the difference between exit and _exit?</summary>
+
+`exit` runs the `atexit` handlers (and would flush stdio buffers), then makes the exit syscall. `_exit` makes the syscall **directly** – no handlers. In your team's libc both are in `exec.c`; `exit` calls `__runAtexitFunctions()` first.
+
+</details>
+
+<details><summary>How would the kernel version look (A0-07 upcalls)?</summary>
+
+The exit syscall would, before ending the process, divert the thread into each registered function like an upcall (A0-07): push the old `rip`, set `rip` = handler – and after the last one make the real exit. Much more complicated, and nothing in it needs the kernel – which is why the real answer is libc.
+
+</details>

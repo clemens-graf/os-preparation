@@ -76,8 +76,34 @@ overflow: `info >= USER_BREAK - sizeof(...)` → reject.
 
 ## Questions a tutor might ask
 
-- Why can the kernel write to `info` directly, without copying through some special function?
-- What happens if `info` points to an unmapped user page? To an address above `USER_BREAK`?
-- Why is `process_pages` only 2 at the start of the program, although the binary is bigger?
-- Which page-table entries did you *not* count (page-table pages themselves, kernel half)?
-- Your walk takes a lock – which one, what does it protect, who else takes it?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can the kernel write to <code>info</code> directly, without copying through some special function?</summary>
+
+The kernel runs with the **process's own page tables** (`cr3` of the running process), and the kernel half is mapped in every PML4. So a user address like `info` is valid in kernel mode too – the kernel can simply write `*(MemInfo*) info = ...`. Only the pointer has to be checked first (below `USER_BREAK`).
+
+</details>
+
+<details><summary>What happens if <code>info</code> points to an unmapped user page? To an address above <code>USER_BREAK</code>?</summary>
+
+**Unmapped user page:** the kernel's write page-faults; the fault is on a user address, so `checkPageFaultIsValid` accepts it and `loadPage` maps it if a segment covers it – otherwise the process is killed (666). That is why you write the result *after* releasing the lock. **Above `USER_BREAK`:** the syscall must return -1 before touching it – otherwise a user could make the kernel overwrite kernel memory. Check without overflow: `info >= USER_BREAK - sizeof(MemInfo)`.
+
+</details>
+
+<details><summary>Why is <code>process_pages</code> only 2 at the start of the program, although the binary is bigger?</summary>
+
+**Lazy loading.** At the start only the first stack page is mapped (and whatever the first instructions touched). Every code/data page is mapped by `Loader::loadPage` on its **first** page fault – pages of the binary that were never used are never loaded.
+
+</details>
+
+<details><summary>Which page-table entries did you *not* count (page-table pages themselves, kernel half)?</summary>
+
+The **page-table pages themselves** (PML4, PDPT, PD, PT – they are frames too, but no user page) and the **kernel half** of the PML4 (entries 256–511, the same in every process). You count only `pt[pti].present` entries in the lower half.
+
+</details>
+
+<details><summary>Your walk takes a lock – which one, what does it protect, who else takes it?</summary>
+
+`process->getThreadLock()` (`thread_lock_`, a Mutex). It protects the page tables (and the thread list, the stack slots) of this process. Also taken by: the page fault handler for stack growth, `createThread`, `exitThread`/`joinThread`, every task that maps or unmaps pages. Without it another thread could unmap (and free!) a page table while you walk it.
+
+</details>

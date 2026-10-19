@@ -62,8 +62,34 @@ entry. Otherwise the leak shows up as `swapinfo() != 0` after the process is gon
 
 ## Questions a tutor might ask
 
-- Why present = 0 BEFORE writing to disk? What breaks otherwise?
-- Two threads fault on the same swapped page. Walk through both.
-- Which locks are held during the disk write? Why is that allowed?
-- Why does a kernel-mode fault (syscall writes into a swapped page) also work?
-- What does your team's A2 design do instead of a syscall (a swap thread, a policy)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why present = 0 BEFORE writing to disk? What breaks otherwise?</summary>
+
+Writing to disk takes time and the process's other threads keep running. If the page were still present, a thread could write to it **during** the disk write: the copy on disk would be torn (half old, half new), and after swap-in that write is lost. `present = 0` + `flushTlb()` first makes every access fault – and the fault waits on `thread_lock_` until the swap-out is finished.
+
+</details>
+
+<details><summary>Two threads fault on the same swapped page. Walk through both.</summary>
+
+Thread A faults, takes `thread_lock_`, sees "swapped", allocates a frame, reads the slot (sleeps during the disk read – still holding the lock), maps the page, `present = 1` last, releases. Thread B faulted meanwhile and waited for the lock; it then finds the page **present** → `swapIn` returns `true` ("someone was faster") – nothing to do, its instruction is repeated and works.
+
+</details>
+
+<details><summary>Which locks are held during the disk write? Why is that allowed?</summary>
+
+The process's `thread_lock_` (a Mutex) and inside the device request the `SwapManager`'s lock. Allowed because both are Mutexes: the disk request **sleeps** (yields until the IDE interrupt), it doesn't spin. Holding `thread_lock_` blocks this process's page faults meanwhile – exactly what keeps them away from the half-done page. A SpinLock here would be wrong.
+
+</details>
+
+<details><summary>Why does a kernel-mode fault (syscall writes into a swapped page) also work?</summary>
+
+The page fault handler runs with interrupts on in the faulting thread's context – no matter whether the fault came from user code or from the kernel touching a user buffer for a syscall. Both take the same path: `swapIn` reads the page back, the kernel instruction is repeated.
+
+</details>
+
+<details><summary>What does your team's A2 design do instead of a syscall (a swap thread, a policy)?</summary>
+
+In the real A2 no program asks for swapping: when `allocPPN` finds no free frame (or a kernel swap thread sees memory running low), the kernel itself picks a victim page with a **replacement policy** (FIFO, clock/second chance using the accessed bit, …) and swaps it out. The syscall in this task is only a way to trigger it deterministically for the test.
+
+</details>

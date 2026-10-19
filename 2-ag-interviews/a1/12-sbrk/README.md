@@ -44,6 +44,22 @@ Unmap the pages from `roundup(new_break)` to `roundup(old_break)`, then flush th
 
 ## Questions a tutor might ask
 
-- Why return the old break?
-- How would malloc use sbrk? Why does free usually not shrink?
-- Two threads call sbrk at the same time – what does your lock guarantee?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why return the old break?</summary>
+
+The old break is the **start of the new memory**: `p = sbrk(4096)` gives you exactly the block you just got. `sbrk(0)` returns the current end without changing it. (A negative increment returns the old end too – the caller then knows what it gave back.)
+
+</details>
+
+<details><summary>How would malloc use sbrk? Why does free usually not shrink?</summary>
+
+`malloc` asks for a big chunk with `sbrk` when its pool is empty and cuts blocks out of it (A1-14). `free` usually only marks a block free: the break can only shrink from the **top**, and a free block in the middle (with used blocks above it) can't be returned. Only when the topmost blocks are free could `malloc` shrink with `sbrk(-n)`.
+
+</details>
+
+<details><summary>Two threads call sbrk at the same time – what does your lock guarantee?</summary>
+
+Reading the old break, checking the new one and storing it is one critical section under `thread_lock_` (the same lock the page fault handler uses for mapping heap pages). Two concurrent `sbrk(+n)` therefore get **disjoint** ranges, and a shrink can't happen between a fault's "below the break?" check and its `mapPage`.
+
+</details>

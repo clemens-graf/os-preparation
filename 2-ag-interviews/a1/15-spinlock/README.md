@@ -58,7 +58,28 @@ not whether the test passed. Know the answer from hint 1.
 
 ## Questions a tutor might ask
 
-- Why does a lock need an atomic instruction, while A0-13's `atexit` counter does not?
-- What is the difference between a spinlock and a mutex? When is spinning OK?
-- Why `sched_yield` in the loop? What happens on one CPU without it?
-- What happens if a thread unlocks a lock it does not hold? If it locks twice?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why does a lock need an atomic instruction, while A0-13's <code>atexit</code> counter does not?</summary>
+
+A lock's *whole job* is that two threads trying **at the same moment** can't both get it – checking "free" and writing "taken" must be one indivisible step (`xchg`), else the timer can switch between them and both enter. `atexit` is called by one thread at startup; two threads registering at the very same moment is unusual – a plain counter is acceptable there (and you can say so).
+
+</details>
+
+<details><summary>What is the difference between a spinlock and a mutex? When is spinning OK?</summary>
+
+A spinlock **waits actively** – it keeps trying (here: yields in a loop). A mutex puts the waiting thread **to sleep** and the unlocker wakes it – that needs the kernel (a wait queue). Spinning is OK when the wait is very short and the holder runs on another CPU, or when sleeping is impossible (interrupt handlers, inside the scheduler).
+
+</details>
+
+<details><summary>Why <code>sched_yield</code> in the loop? What happens on one CPU without it?</summary>
+
+On one CPU the holder can only release the lock when it **runs**. Without `sched_yield` the waiter spins for its whole 55 ms time slice, achieving nothing – every attempt fails. With `sched_yield` it gives the CPU away at once, the holder runs, unlocks, and the next attempt succeeds.
+
+</details>
+
+<details><summary>What happens if a thread unlocks a lock it does not hold? If it locks twice?</summary>
+
+Unlock of a lock you don't hold: your version just writes 0 – it frees somebody else's lock, and two threads can be inside. Locking twice from the same thread: it spins forever on its own lock (self-deadlock). POSIX error-checking mutexes store the owner's thread id to detect both; recursive mutexes count instead.
+
+</details>

@@ -33,5 +33,16 @@ Instruction fetch from a present NX page: `present = 1`, `fetch = 1` → `checkP
 
 ## Questions a tutor might ask
 
-- What is the attack this prevents?
-- How would a JIT compiler work under such a policy?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What is the attack this prevents?</summary>
+
+Running injected code: a buffer overflow writes machine code onto the stack/heap and overwrites a return address to jump into it. With NX on every non-code page the jump faults (instruction fetch from an NX page) instead of running the attacker's code.
+
+</details>
+
+<details><summary>How would a JIT compiler work under such a policy?</summary>
+
+It generates code into a **writable, non-executable** page, then switches that page to **executable, non-writable** (`mprotect`) before running it – never both at once. Or two mappings of the same frame: one writable, one executable (at different addresses).
+
+</details>

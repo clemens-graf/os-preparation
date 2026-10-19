@@ -60,7 +60,28 @@ physical page then.
 
 ## Questions a tutor might ask
 
-- What is the ident mapping and why can the kernel write to a page that is not mapped in user space?
-- First access is a write – walk through both page faults.
-- Why is no TLB flush needed after clearing the writable bit here, but in ex04 it is?
-- How would you make the content different for every thread (e.g. the thread id)?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What is the ident mapping and why can the kernel write to a page that is not mapped in user space?</summary>
+
+The kernel half of every address space maps **all physical memory** at `IDENT_MAPPING_START + ppn * PAGE_SIZE`. `ArchMemory::getIdentAddressOfPPN(ppn)` gives that kernel address – so the kernel can read and write any frame, also one that is not (yet) mapped in any process.
+
+</details>
+
+<details><summary>First access is a write – walk through both page faults.</summary>
+
+1st fault: not present + write → magic branch: allocate, fill via the ident mapping, map **read-only** → return; the write is repeated. 2nd fault: **present** + write → `checkPageFaultIsValid`: "pagefault even though the address is mapped" → exit 9999.
+
+</details>
+
+<details><summary>Why is no TLB flush needed after clearing the writable bit here, but in ex04 it is?</summary>
+
+Here the entry was **not present** before – non-present entries are never in the TLB, so nothing stale can be cached. In ex04 a present, writable entry is made read-only: the TLB may still hold the writable version → flush.
+
+</details>
+
+<details><summary>How would you make the content different for every thread (e.g. the thread id)?</summary>
+
+Fill the frame per fault with `currentThread->getTID()` – but the page is shared by all threads of the process (one page table). For really per-thread content you need one page per thread at a different address (e.g. derived from the thread's stack slot), or the content must be computed when read.
+
+</details>

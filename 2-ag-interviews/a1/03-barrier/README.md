@@ -52,7 +52,28 @@ of other barriers wake too – the generation check sends them back to sleep.
 
 ## Questions a tutor might ask
 
-- Why the generation counter? Draw the round where `waiting == 0` breaks.
-- Why is there no lost wake-up between incrementing `waiting` and sleeping?
-- Which thread gets the serial value, and why is that fine?
-- Could you implement the barrier in user space with the syscalls you have?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why the generation counter? Draw the round where <code>waiting == 0</code> breaks.</summary>
+
+With `while (waiting != 0) wait();`: n = 2, round 1: A waits (waiting = 1). B arrives, sets `waiting = 0`, broadcasts, returns – and runs on to the barrier of **round 2**: `waiting = 1`, sleeps. Now A wakes, checks `waiting != 0` → true, sleeps again. Both sleep forever. The generation belongs to one round and only grows: A waits for "generation changed" – which stays true no matter what round 2 does.
+
+</details>
+
+<details><summary>Why is there no lost wake-up between incrementing <code>waiting</code> and sleeping?</summary>
+
+Incrementing `waiting`, checking it and going to sleep happen under the same Mutex, and `Condition::wait` releases the Mutex and sleeps **in one step**. The last thread can only increment the generation and broadcast after it got the Mutex – i.e. after every earlier thread is really asleep (or has not arrived yet). No broadcast can fall into the gap.
+
+</details>
+
+<details><summary>Which thread gets the serial value, and why is that fine?</summary>
+
+The **last** one to arrive – it opens the barrier (`waiting == count`). POSIX only demands that exactly one thread per round gets `PTHREAD_BARRIER_SERIAL_THREAD`, not which one; the last one is the natural choice because it is the only one that knows the round is complete.
+
+</details>
+
+<details><summary>Could you implement the barrier in user space with the syscalls you have?</summary>
+
+Yes: a counter + generation in shared user memory, protected by your A1-15 lock, waiters yield in a loop until the generation changes (or use the A1-17 condition variables). It works, but waiting threads keep getting scheduled just to check – the kernel version sleeps on a Condition and costs nothing while waiting.
+
+</details>

@@ -41,6 +41,22 @@ A 512-byte struct with a magic number: a fresh (all zero) disk has no magic → 
 
 ## Questions a tutor might ask
 
-- Why can't the disk be read in startup()?
-- Your swap slots and this record share the partition – how do you keep them apart?
-- Two processes call setmotd at once – what does your lock guarantee?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why can't the disk be read in startup()?</summary>
+
+`readData` waits for the IDE interrupt by **yielding** – that needs a running thread with interrupts on and a working scheduler. In `startup()` the scheduler isn't running yet, there's no thread to switch to. `ProcessRegistry::Run()` is the first kernel thread – the earliest safe place.
+
+</details>
+
+<details><summary>Your swap slots and this record share the partition – how do you keep them apart?</summary>
+
+Reserve the first block/page for the record: the swap slot area starts after it (slot 0 = the record's page is never handed out), or the `SwapManager` knows an offset. Both must agree on the layout – put it in one place (a constant used by both).
+
+</details>
+
+<details><summary>Two processes call setmotd at once – what does your lock guarantee?</summary>
+
+One Mutex around "copy the message into the record + write the block": the two calls run one after the other – the record and the disk contain exactly one of the two messages, never a mix, and the in-memory record and the disk agree.
+
+</details>

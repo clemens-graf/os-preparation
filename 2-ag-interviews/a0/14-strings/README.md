@@ -49,7 +49,22 @@ may be signed, and `'\xe4' < 'a'` would be wrong.
 
 ## Questions a tutor might ask
 
-- Why is this not a syscall? What would be different if the kernel had to copy a user string?
-  (`copyUserString`: check every address against `USER_BREAK`)
-- What can go wrong with `strcpy` – and why does `strncpy` not fully fix it?
-- Why compare as `unsigned char`?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why is this not a syscall? What would be different if the kernel had to copy a user string? (<code>copyUserString</code>: check every address against <code>USER_BREAK</code>)</summary>
+
+The function only reads and writes the process's own memory – nothing only the kernel has. If the **kernel** had to copy a user string, it couldn't use `strcpy`: the length is unknown and every byte must be checked against `USER_BREAK` (`copyUserString`), or an unterminated string would make the kernel read kernel memory.
+
+</details>
+
+<details><summary>What can go wrong with <code>strcpy</code> – and why does <code>strncpy</code> not fully fix it?</summary>
+
+`strcpy` writes until the source's `'\0'` – a longer source overflows the destination (buffer overflow). `strncpy(d, s, n)` limits the bytes, but when `s` has `n` or more characters it writes **no** `'\0'` – the result is not a string, and the next string function reads on past the end.
+
+</details>
+
+<details><summary>Why compare as <code>unsigned char</code>?</summary>
+
+Characters above 127 are negative in a plain (signed) `char` on x86. Comparing them as signed would sort `'é'` *before* `'a'`. POSIX says the difference is computed as `unsigned char` – then byte values 0–255 compare like the numbers they are.
+
+</details>

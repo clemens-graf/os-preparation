@@ -42,6 +42,22 @@ destructor still has the counter).
 
 ## Questions a tutor might ask
 
-- Why is counting in the timer interrupt only an approximation?
-- Reading a 64-bit counter without a lock while the timer writes it – safe on x86-64? On 32-bit?
-- Why does SWEB's timer run at 18.2 Hz, and what does that mean for `sched_yield`?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why is counting in the timer interrupt only an approximation?</summary>
+
+The tick is counted for whichever thread was running **when the timer fired** – a thread that ran 54 ms and yielded just before the tick gets 0, the next one gets the full tick. Over many ticks it averages out, but short-running threads are under- or overcounted. Exact would need a time stamp (e.g. `rdtsc`) at every switch.
+
+</details>
+
+<details><summary>Reading a 64-bit counter without a lock while the timer writes it – safe on x86-64? On 32-bit?</summary>
+
+On x86-64 an aligned 8-byte load or store is atomic: you read the old or the new value, never a mix. On 32-bit x86 a 64-bit counter takes two 32-bit accesses – you could read the low half after it wrapped and the high half before the carry, a value off by 2³². There you'd need a lock with interrupts off, or read high-low-high until it's consistent.
+
+</details>
+
+<details><summary>Why does SWEB's timer run at 18.2 Hz, and what does that mean for <code>sched_yield</code>?</summary>
+
+It's the PIT's default: base frequency 1193180 Hz divided by 65536 (divisor 0) ≈ 18.2 Hz, i.e. one tick ≈ 55 ms, and SWEB's main sets `IRQ0_TIMER_FREQUENCY` 0. For `sched_yield`: a thread that yields gives up the rest of its slice at once; a busy thread without yield runs a full 55 ms before anyone else gets the CPU.
+
+</details>

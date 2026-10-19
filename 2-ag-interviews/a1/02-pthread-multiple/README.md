@@ -59,7 +59,28 @@ no → -1; yes → wait. All under `thread_lock_`.
 
 ## Questions a tutor might ask
 
-- Why may you delete the threads in the rollback yourself, but never a thread that has run?
-- Why copy the args array into the kernel before creating anything?
-- join_any with ids of threads that are all joined already – why must it not wait?
-- What does 'all or nothing' cost you if the scheduler were added to in the loop instead?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>Why may you delete the threads in the rollback yourself, but never a thread that has run?</summary>
+
+A thread that was never added to the scheduler has never run: it holds no lock, is in no waiters list, nothing else points to it – undoing `createThread` (free its stack, remove + delete its record, `running_threads_--`) and `delete` is safe. A thread that ran may be anywhere (holding a lock, sleeping on a Condition, inside the scheduler's list) – it can only end itself (`kill()` → CleanupThread).
+
+</details>
+
+<details><summary>Why copy the args array into the kernel before creating anything?</summary>
+
+The user's array may change while you create threads (another thread of the process writes it – TOCTOU), and the user memory may page-fault while you hold `thread_lock_`. Copy once into a kernel array, check the copy, then work only with it.
+
+</details>
+
+<details><summary>join_any with ids of threads that are all joined already – why must it not wait?</summary>
+
+Waiting only makes sense if one of them can still end and be joined. If all are already joined (unknown records) or being joined by others, nobody will ever broadcast for them – waiting would block forever. Return -1 instead.
+
+</details>
+
+<details><summary>What does 'all or nothing' cost you if the scheduler were added to in the loop instead?</summary>
+
+If each thread is added to the scheduler right after it's created, the first threads already **run** when creation number k fails – they can't be undone any more (see the first question). "All or nothing" then becomes "some started, some not". Creating all first and scheduling them only at the end makes the rollback possible.
+
+</details>

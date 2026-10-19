@@ -64,8 +64,34 @@ and give it back with `freePPN` if the region is full.
 
 ## Questions a tutor might ask
 
-- What happens to the physical page in `freepage`? Who frees the page-table pages?
-- Why is the TLB flush needed? Would your test notice a missing flush?
-- What does `mapPage` return if the slot is already mapped, and what must the caller do then?
-- Your lock protects what exactly? Show the critical section.
-- What happens to pages the program never freed when it exits?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What happens to the physical page in <code>freepage</code>? Who frees the page-table pages?</summary>
+
+`unmapPage(vpn)` frees the physical page itself (`freePPN`) – don't free it again ("Double free PPN"). Page-table pages that become empty are freed by `unmapPage` too (`checkAndRemove`); the rest go when the process exits (`~ArchMemory`).
+
+</details>
+
+<details><summary>Why is the TLB flush needed? Would your test notice a missing flush?</summary>
+
+The CPU caches translations in the **TLB**. After `unmapPage` the old entry may still be cached, so the process could keep using a frame that is already free – and maybe handed to someone else. `flushTlb()` (reloads `cr3`) drops them. The test usually doesn't notice a missing flush on a single CPU – a context switch to another process flushes too – which is exactly why you must argue, not test.
+
+</details>
+
+<details><summary>What does <code>mapPage</code> return if the slot is already mapped, and what must the caller do then?</summary>
+
+`false` – nothing was changed. The caller still owns the `ppn` it allocated and must give it back (`freePPN`) or use another slot. Ignoring it = a leak of one frame.
+
+</details>
+
+<details><summary>Your lock protects what exactly? Show the critical section.</summary>
+
+`thread_lock_` protects the page tables: **"find a free slot" and "map it" in one critical section**. Otherwise two threads both see slot 7 free, both map it – one `mapPage` fails, but its caller already returned slot 7 as its own. `allocPPN` can stay outside (keeps the section short).
+
+</details>
+
+<details><summary>What happens to pages the program never freed when it exits?</summary>
+
+Nothing special is needed: at exit `~ArchMemory` walks the whole lower half and frees every present page and every page-table page. The leak check (`exit` at the end of `task test`) would report anything that stays.
+
+</details>

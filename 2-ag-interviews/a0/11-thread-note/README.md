@@ -92,11 +92,46 @@ debug dump of all threads) – be ready to say exactly that.
 
 ## Questions a tutor might ask
 
-- What did the tutorial version return for `NULL`, and why?
-- Why does `strncpy(temp, string, 15)` not produce a valid string? What does `temp` contain then?
-- Why can't you check the string's range before copying, like a buffer?
-- What happens in the kernel when the user string lies on a page that was not loaded yet?
-  And on an address no segment covers?
-- Why copy into a kernel buffer before using it – what could another thread do otherwise?
-- Do you need a lock for `note_`? When would you?
-- How do you add a debug flag, and how do you switch it off again?
+Answer each one out loud first – then open it to compare.
+
+<details><summary>What did the tutorial version return for <code>NULL</code>, and why?</summary>
+
+0 – always. The tutorial's `case` called the function but forgot `return_value = ...`, so the result was dropped and every call looked successful; the error path for `NULL` was invisible.
+
+</details>
+
+<details><summary>Why does <code>strncpy(temp, string, 15)</code> not produce a valid string? What does <code>temp</code> contain then?</summary>
+
+`strncpy(temp, string, 15)` copies at most 15 characters and writes **no** `'\0'` if the source has 15 or more – `temp[15]` is then whatever was on the stack, and using `temp` as a string reads on past its end.
+
+</details>
+
+<details><summary>Why can't you check the string's range before copying, like a buffer?</summary>
+
+A buffer has a known size, so you check `[buffer, buffer + size)` once. A string's length is unknown until you've found its `'\0'` – so you check every address **while** reading, byte by byte, against `USER_BREAK`.
+
+</details>
+
+<details><summary>What happens in the kernel when the user string lies on a page that was not loaded yet? And on an address no segment covers?</summary>
+
+The kernel's read page-faults on a user address – that's legal: the page fault handler maps it (`loadPage`) and the read is repeated. If no segment covers the address, the process is killed (666) – the same as if user code had read it.
+
+</details>
+
+<details><summary>Why copy into a kernel buffer before using it – what could another thread do otherwise?</summary>
+
+Another thread of the process could change (or unmap) the user string between your check and your use (TOCTOU). After copying into a kernel buffer, only the copy is used – nobody else can touch it.
+
+</details>
+
+<details><summary>Do you need a lock for <code>note_</code>? When would you?</summary>
+
+Not as long as only the thread itself reads and writes `note_` in its own syscalls – a thread is never in two syscalls at once. You'd need one (a Mutex in the thread, held while copying in/out) as soon as another thread or kernel path accesses it, e.g. `getnote(tid)` for another thread or a debug dump of all threads.
+
+</details>
+
+<details><summary>How do you add a debug flag, and how do you switch it off again?</summary>
+
+One line in `common/include/console/debug.h`: `const size_t NOTE = Ansi_Cyan | OUTPUT_ENABLED;`, then `debug(NOTE, ...)`. To silence it, remove `| OUTPUT_ENABLED`.
+
+</details>
