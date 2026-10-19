@@ -179,6 +179,34 @@ program that reserves 100\,MiB but uses 1\,MiB only costs 1\,MiB.
 \textbf{Shrinking.} \code{sbrk(-n)}: pages that now lie completely above the break are unmapped
 (their frames freed) and the TLB is flushed --- otherwise the CPU could still use the old mapping.
 
+\begin{center}
+\begin{tikzpicture}[x=1.15cm,y=1cm,font=\footnotesize]
+  \foreach \row/\y/\brk/\mapped/\lab in {0/0/3/{0,1}/{heap of 3 pages,\\ 2 of them touched}, 1/-1.7/6/{0,1,3}/{after \code{sbrk(3*4096)},\\ page 3 touched}} {
+    \node[anchor=east,align=right] at (-0.15,\y+0.4) {\lab};
+    \foreach \i in {0,...,8} {
+      \ifnum\i<\brk \draw[thin,draw=black!50,fill=white] (\i,\y) rectangle ++(0.9,0.8);
+      \else \draw[thin,draw=black!30,fill=black!8] (\i,\y) rectangle ++(0.9,0.8); \fi
+      \node[font=\scriptsize,text=black!60] at (\i+0.45,\y+0.4) {page \i};
+    }
+    \foreach \i in \mapped {
+      \draw[thin,draw=teal!70!black,fill=teal!15] (\i,\y) rectangle ++(0.9,0.8);
+      \node[font=\scriptsize] at (\i+0.45,\y+0.4) {page \i};
+    }
+    \draw[very thick,red!70!black] (\brk-0.05,\y-0.15) -- (\brk-0.05,\y+0.95);
+    \node[font=\scriptsize,text=red!70!black,anchor=south] at (\brk-0.05,\y+0.95) {break};
+  }
+  \node[font=\scriptsize,anchor=north] at (0,-1.95) {heap start};
+  \draw[-{Stealth[length=4pt]},thin] (3.45,-2.6) -- (3.45,-1.75);
+  \node[font=\scriptsize,anchor=north,align=center] at (3.45,-2.6) {first touch: page fault\\$\to$ map a zeroed frame};
+  \draw[-{Stealth[length=4pt]},thin] (7.45,-2.6) -- (7.45,-1.75);
+  \node[font=\scriptsize,anchor=north,align=center] at (7.45,-2.6) {touch above the break:\\page fault $\to$ kill};
+  \foreach \c/\t/\x in {teal!15/mapped (has a frame)/0, white/{below the break, not touched yet}/3.2, black!8/not part of the heap/8.0} {
+    \draw[thin,draw=black!50,fill=\c] (\x,-4.0) rectangle ++(0.35,0.3);
+    \node[anchor=west,font=\scriptsize] at (\x+0.4,-3.85) {\t};
+  }
+\end{tikzpicture}
+\end{center}
+
 \inteam Per-process state belongs into \code{UserProcess} (\code{brk\_}); the page fault handler's
 new case goes \emph{first} in the valid branch of \code{handlePageFault}, before it takes
 \code{thread\_lock\_}. The libc \code{sbrk} stub is in \file{unistd.c}. A0-03 (heaplimit) is the
@@ -220,6 +248,35 @@ code (present? write? user mode? instruction fetch?). The handler can:
   (copy-on-write) --- then return; the same instruction runs again and now succeeds;
 \item \textbf{kill the process:} null pointer, kernel address, outside every region.
 \end{itemize}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=4pt},
+  g/.style={b,draw=teal!70!black,fill=teal!10},
+  o/.style={b,draw=orange!70!black,fill=orange!10},
+  r/.style={b,draw=red!60!black,fill=red!6},
+  a/.style={-{Stealth[length=4pt]},thin}]
+  \node[b] (a) at (0,0) {an instruction uses an address};
+  \node[b] (q) at (0,-1.2) {page present and\\access allowed?};
+  \node[g] (ok) at (4.6,-1.2) {the CPU uses the frame};
+  \node[o] (pf) at (0,-2.65) {page fault: \code{cr2} = address,\\error code = present / write / user};
+  \node[b] (h) at (0,-4.0) {\code{PageFaultHandler::handlePageFault}};
+  \node[r] (k) at (-4.6,-5.5) {invalid: null page, kernel\\address, already present\\$\to$ exit 9999};
+  \node[g] (m) at (0,-5.5) {stack / heap / sbrk / mmap:\\map a zeroed frame};
+  \node[g] (l) at (4.6,-5.5) {code / data: \code{loadPage}\\(no segment $\to$ exit 666)};
+  \node[b] (ret) at (2.3,-7.0) {return from the handler: the same instruction runs again};
+  \draw[a] (a) -- (q);
+  \draw[a] (q) -- node[above,font=\scriptsize] {yes} (ok);
+  \draw[a] (q) -- node[right,font=\scriptsize] {no} (pf);
+  \draw[a] (pf) -- (h);
+  \draw[a] (h.south) -- ++(0,-0.35) -| (k.north);
+  \draw[a] (h) -- (m);
+  \draw[a] (h.south) -- ++(0,-0.35) -| (l.north);
+  \draw[a] (m.south) -- (m.south |- ret.north);
+  \draw[a] (l.south) -- (l.south |- ret.north);
+  \draw[a] (ret.east) -- ++(1.6,0) |- (a.east);
+\end{tikzpicture}
+\end{center}
 
 \inteam \code{pageFaultHandler} (\file{InterruptUtils.cpp}) $\to$ \code{PageFaultHandler::handlePageFault}:
 \code{checkPageFaultIsValid} (null page, kernel address, present page $\to$ exit 9999); then stack
@@ -267,6 +324,29 @@ Returning from \code{main} is the same as calling \code{exit}: the start code ca
 counter in the libc, filled by \code{atexit}, run by \code{exit}. A handler that itself calls
 \code{exit} must not run the same handlers again --- take each one off the list before calling it.
 
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=4pt,text width=2.35cm},
+  p/.style={b,draw=purple!60!black,fill=purple!8},
+  o/.style={b,draw=orange!70!black,fill=orange!10},
+  a/.style={-{Stealth[length=4pt]},thin}]
+  \node[anchor=west] at (-1.4,1.25) {\code{atexit(a); atexit(b); atexit(c);} fills a list in the libc:};
+  \foreach \i/\t in {0/a,1/b,2/c,3/{},4/{}} {
+    \draw[thin,draw=purple!60!black,fill=purple!8] (-1.4+\i*0.8,0.3) rectangle ++(0.8,0.55);
+    \node at (-1.4+\i*0.8+0.4,0.575) {\code{\t}};
+  }
+  \node[anchor=west,font=\scriptsize] at (2.7,0.575) {\code{count = 3} \quad (libc, user space --- the kernel knows nothing of it)};
+  \node[b] (m) at (0,-1.1) {\code{main} returns 0};
+  \node[b] (s) at (3.1,-1.1) {\code{\_start}:\\\code{exit(0)}};
+  \node[p] (h) at (6.2,-1.1) {\code{c()}, \code{b()}, \code{a()}\\reverse order};
+  \node[b] (sy) at (9.3,-1.1) {exit syscall};
+  \node[o] (k) at (12.4,-1.1) {kernel: end all threads, free memory, keep the exit code};
+  \node[b] (x) at (3.1,-2.7) {\code{\_exit(0)}};
+  \draw[a] (m) -- (s); \draw[a] (s) -- (h); \draw[a] (h) -- (sy); \draw[a] (sy) -- (k);
+  \draw[a] (x.east) -- node[below,font=\scriptsize] {handlers skipped} (x.east -| sy.south) -- (sy.south);
+\end{tikzpicture}
+\end{center}
+
 \inteam \code{\_start} in \file{nonstd.c}: \code{exit(main())}; \code{exit} and \code{\_exit} in
 \file{exec.c} (both only make the syscall today); \code{atexit} stub in \file{stdlib.c}. Kernel:
 \code{Syscall::exit} $\to$ \code{UserProcess::exitProcess} (kills all threads) $\to$ the last
@@ -310,6 +390,30 @@ until the parent asks for it. A process that has ended but has not been waited f
 until the child has ended, takes the code, and removes the record. A child whose parent ends first
 is an \emph{orphan}; nobody can wait for it any more.
 
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=4pt,text width=2.3cm},
+  p/.style={b,draw=purple!60!black,fill=purple!8},
+  t/.style={b,draw=teal!70!black,fill=teal!10},
+  o/.style={b,draw=orange!70!black,fill=orange!10},
+  a/.style={-{Stealth[length=4pt]},thin}]
+  \node[anchor=east] at (-1.4,0) {parent};
+  \node[anchor=east] at (-1.4,-1.9) {child};
+  \node[p] (p1) at (0,0) {runs};
+  \node[p] (p2) at (2.8,0) {\code{pid = fork()}\\returns the child's pid};
+  \node[p] (p3) at (7.0,0) {\code{waitpid(pid, \&st, 0)}\\sleeps};
+  \node[p] (p4) at (11.6,0) {wakes up,\\\code{st} = 3};
+  \node[t,text width=2.7cm] (c1) at (2.8,-1.9) {a copy: same memory,\\\code{fork()} returns 0};
+  \node[t] (c2) at (5.6,-1.9) {\code{exec("prog")}:\\new program, same pid};
+  \node[t] (c3) at (8.4,-1.9) {\code{exit(3)}};
+  \node[o] (c4) at (11.6,-1.9) {zombie: only\\pid + exit code left};
+  \draw[a] (p1) -- (p2); \draw[a] (p2) -- (p3); \draw[a] (p3) -- (p4);
+  \draw[a] (p2) -- (c1);
+  \draw[a] (c1) -- (c2); \draw[a] (c2) -- (c3); \draw[a] (c3) -- (c4);
+  \draw[a] (c4) -- node[left,font=\scriptsize,align=right] {collected,\\record removed} (p4);
+\end{tikzpicture}
+\end{center}
+
 \inteam \code{UserProcess::fork} (deep copy via the \code{ArchMemory} copy constructor, child thread
 with \code{rax = 0}), \code{UserProcess::exec}; pids from \code{ProcessRegistry}. \code{waitpid} is a
 stub in \file{wait.c} (Felix is working on it); the course task A1-19 keeps the exit codes in a fixed
@@ -352,6 +456,25 @@ until it finds the 0. Consequences:
 \textbf{Strings and the kernel.} A user string passed to a syscall has an unknown length: the kernel
 must copy it byte by byte and check every address against \code{USER\_BREAK}
 (\code{Syscall::copyUserString}) --- a plain \code{strcpy} could read kernel memory.
+
+\begin{center}
+\begin{tikzpicture}[x=0.75cm,y=1cm,font=\footnotesize]
+  \foreach \y/\lab/\cells/\note in {
+      0/{\code{"hello"}}/{h,e,l,l,o,\textbackslash 0}/{6 bytes: the 0 ends it},
+      -1.2/{\code{strncpy(buf, "hello", 3)}}/{h,e,l,?,?,?}/{no 0 written --- not a string!},
+      -2.4/{\code{strncpy(buf, "hi", 5)}}/{h,i,\textbackslash 0,\textbackslash 0,\textbackslash 0,?}/{padded with zeros up to 5}} {
+    \node[anchor=east] at (-0.2,\y+0.3) {\lab};
+    \foreach \c [count=\i from 0] in \cells {
+      \draw[thin,draw=black!55,fill=black!4] (\i,\y) rectangle ++(1,0.6);
+      \node[font=\footnotesize\ttfamily] at (\i+0.5,\y+0.3) {\c};
+    }
+    \node[anchor=west,font=\scriptsize] at (6.3,\y+0.3) {\note};
+  }
+  \foreach \i in {0,...,5} \node[font=\scriptsize,text=black!55] at (\i+0.5,0.85) {\i};
+  \draw[thin,red!70!black] (5,-1.2) rectangle ++(1,0.6);
+  \draw[thin,red!70!black] (3,-1.2) rectangle ++(3,0.6);
+\end{tikzpicture}
+\end{center}
 
 \inteam \file{userspace/libc/src/string.c} has \code{memcmp}, \code{memcpy}, \code{memset},
 \code{strlen}, \code{strcmp}, \code{strstr} --- \code{strcpy}, \code{strncpy}, \code{strcat},
@@ -400,6 +523,25 @@ a user stack, it skips those 128 bytes first. At a call, \code{rsp} is 16-byte a
 the arguments in \code{rbx rcx rdx rsi rdi} --- five values. More arguments (A1-13: fifteen)
 must go into user memory, with their address in one register.
 
+\begin{center}
+\begin{tikzpicture}[x=1cm,y=0.62cm,font=\footnotesize]
+  \foreach \y/\t/\c in {0/{the caller's frame}/black!6, -1/{argument 8}/purple!8, -2/{argument 7}/purple!8,
+      -3/{return address (pushed by \code{call})}/orange!12, -4/{saved \code{rbp}}/black!6,
+      -5/{locals of the function}/teal!10, -6/{locals of the function}/teal!10} {
+    \draw[thin,draw=black!55,fill=\c] (0,\y) rectangle ++(5.2,0.9);
+    \node at (2.6,\y+0.45) {\t};
+  }
+  \draw[thin,dashed,draw=black!55] (0,-8.2) rectangle ++(5.2,2.1);
+  \node[align=center,font=\scriptsize] at (2.6,-7.15) {red zone: 128 bytes below \code{rsp} ---\\a function may use them\\without moving \code{rsp}};
+  \draw[-{Stealth[length=4pt]},thin] (6.6,-4+0.45) -- (5.25,-4+0.45); \node[anchor=west] at (6.65,-4+0.45) {\code{rbp}: start of this frame};
+  \draw[-{Stealth[length=4pt]},thin] (6.6,-6.1) -- (5.25,-6.1); \node[anchor=west] at (6.65,-6.1) {\code{rsp}: top of the stack};
+  \node[anchor=east,font=\scriptsize] at (-0.2,0.45) {higher addresses};
+  \draw[-{Stealth[length=4pt]},thick,black!50] (-0.7,-0.3) -- (-0.7,-7.8);
+  \node[anchor=east,font=\scriptsize,align=right] at (-0.85,-4) {the stack\\grows down};
+  \node[anchor=west,font=\scriptsize,align=left] at (6.65,-1.5) {arguments 1--6 are in\\\code{rdi rsi rdx rcx r8 r9},\\only 7+ are on the stack};
+\end{tikzpicture}
+\end{center}
+
 \inteam When a thread enters the kernel, all its user registers are saved into
 \code{currentThread->user\_registers\_} (\code{ArchThreadRegisters}); when it returns, they are
 loaded again. A syscall's return value is written into the saved \code{rax}.
@@ -440,6 +582,27 @@ memory --- change \code{rip}, and the thread continues somewhere else when it re
 \textbf{Writing to the user stack from the kernel.} Check that the page is mapped
 (\code{checkAddressValid}), skip the red zone, keep 16-byte alignment.
 
+\begin{center}
+\begin{tikzpicture}[x=1cm,y=0.62cm,font=\footnotesize,a/.style={-{Stealth[length=4pt]},thin}]
+  \node[font=\footnotesize\bfseries] at (2.4,1.3) {the user stack};
+  \draw[thin,draw=black!55,fill=black!6] (0,-0.5) rectangle ++(4.8,1.4); \node at (2.4,0.2) {used by the program};
+  \draw[thin,dashed,draw=black!55] (0,-2.5) rectangle ++(4.8,2.0); \node[align=center] at (2.4,-1.5) {red zone: 128 bytes\\skipped};
+  \draw[thin,draw=black!55] (0,-3.3) rectangle ++(4.8,0.8); \node[font=\scriptsize] at (2.4,-2.9) {padding to 16-byte alignment};
+  \draw[thin,draw=orange!70!black,fill=orange!12] (0,-4.3) rectangle ++(4.8,1.0); \node at (2.4,-3.8) {return address};
+  \node[font=\footnotesize\bfseries] at (-3.6,1.3) {before (saved registers)};
+  \foreach \y/\t in {0/{\code{rip}: after the syscall}, -1.2/{\code{rsp}: old top}, -2.4/{\code{rdi}: anything}} {
+    \draw[thin,draw=black!55,fill=black!4] (-5.6,\y-0.4) rectangle ++(4,0.9); \node at (-3.6,\y+0.05) {\t};
+  }
+  \node[font=\footnotesize\bfseries] at (8.6,1.3) {after (what the kernel writes)};
+  \foreach \y/\t in {0/{\code{rip} = function}, -1.2/{\code{rsp} = new top}, -2.4/{\code{rdi} = argument}} {
+    \draw[thin,draw=purple!60!black,fill=purple!8] (6.6,\y-0.4) rectangle ++(4,0.9); \node at (8.6,\y+0.05) {\t};
+  }
+  \draw[a] (-1.6,-1.15) -- (-0.05,-0.45);
+  \draw[a] (6.6,-1.15) -- (4.85,-3.8);
+  \node[anchor=north,align=center,font=\scriptsize] at (2.4,-4.6) {back in user mode the thread runs the function with \code{rdi} as argument;\\its \code{ret} jumps to the return address};
+\end{tikzpicture}
+\end{center}
+
 \inteam \code{currentThread->user\_registers\_->rip / rsp / rdi / rax}; a thread's stack top:
 \code{((UserThread*) currentThread)->getUserStackTop()}.
 
@@ -473,6 +636,29 @@ and jumps to the entry. SWEB's assembly stub saves all other registers, calls th
 
 For a page fault, the CPU writes the faulting address into register \code{cr2}; the stub passes it
 to the C handler.
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=3pt,minimum height=0.6cm},
+  p/.style={b,draw=purple!60!black,fill=purple!8},
+  t/.style={b,draw=teal!70!black,fill=teal!10},
+  a/.style={-{Stealth[length=4pt]},thin}]
+  \node[font=\footnotesize\bfseries] at (0,0.75) {what happens};
+  \node[font=\footnotesize\bfseries] at (3.6,0.75) {IDT vector};
+  \node[font=\footnotesize\bfseries] at (10.4,0.75) {C handler (\file{InterruptUtils.cpp})};
+  \foreach \y/\s/\v/\h in {0/timer tick/32/\code{irqHandler\_0}, -0.85/key pressed/33/\code{irqHandler\_1},
+      -1.7/page fault (CPU)/14/\code{pageFaultHandler}, -2.55/\code{int 0x80} (syscall)/0x80/\code{syscallHandler}} {
+    \node[b,text width=2.6cm] (s\v) at (0,\y) {\s};
+    \node[p,text width=1.2cm] (v\v) at (3.6,\y) {\v};
+    \node[t,text width=3.4cm] (h\v) at (10.4,\y) {\h};
+    \draw[a] (s\v) -- (v\v);
+  }
+  \node[b,text width=2.4cm,minimum height=3.1cm] (stub) at (6.6,-1.275) {assembly stub\\(\file{arch\_interrupts.S}):\\save all registers};
+  \foreach \v in {32,33,14,0x80} { \draw[a] (v\v.east) -- (v\v.east -| stub.west); \draw[a] (h\v.west -| stub.east) -- (h\v.west); }
+  \node[b,text width=8cm] (r) at (8.2,-3.75) {back: restore the registers (maybe of another thread) and \code{iretq}};
+  \draw[a] (h0x80.south) -- (h0x80.south |- r.north);
+\end{tikzpicture}
+\end{center}
 
 \inteam \file{arch/x86/64/source/arch\_interrupts.S} (stubs), \file{InterruptUtils.cpp}
 (\code{syscallHandler}, \code{pageFaultHandler}, \code{irqHandler\_0} timer, \code{irqHandler\_1}
@@ -516,6 +702,25 @@ that can run (round robin: the first schedulable one in the list, then rotate th
   \code{new}/\code{delete}, only single-word reads/writes.
 \end{itemize}
 
+\begin{center}
+\begin{tikzpicture}[x=1.45cm,y=1cm,font=\footnotesize]
+  \foreach \x/\w/\t/\c in {0/1/A/purple!10, 1/1/B/teal!12, 2/1/C/orange!12, 3/1/A/purple!10, 4/0.45/B/teal!12, 4.45/0.55/C/orange!12, 5/1/A/purple!10} {
+    \draw[thin,draw=black!55,fill=\c] (\x,0) rectangle ++(\w,0.7);
+    \node at (\x+\w/2,0.35) {\t};
+  }
+  \foreach \x in {0,1,2,3,4,5,6} {
+    \draw[thick,red!70!black] (\x,-0.15) -- (\x,0.85);
+  }
+  \node[font=\scriptsize,text=red!70!black,anchor=south] at (3,0.85) {timer tick: every $\approx$55\,ms (18.2 per second)};
+  \draw[-{Stealth[length=4pt]},thin] (4.45,-0.6) -- (4.45,-0.05);
+  \node[font=\scriptsize,anchor=north,align=center] at (4.45,-0.6) {B calls \code{sched\_yield}: its slice ends early,\\C gets only the rest until the next tick};
+  \draw[-{Stealth[length=4pt]},thin] (0,-1.5) -- (6.6,-1.5); \node[anchor=west,font=\scriptsize] at (6.6,-1.5) {time};
+  \node[anchor=north west,align=left,font=\scriptsize,text width=14.5cm] at (-0.5,-2.0) {on every tick: \code{irqHandler\_0} $\to$ \code{incTicks()} $\to$ \code{schedule()}:
+  take the \textbf{first schedulable} thread of the list, then rotate the list:\\
+  \code{threads\_ = [A, B, C]} \;$\to$\; picks A \;$\to$\; \code{[B, C, A]} \;$\to$\; picks B \;$\to$\; \code{[C, A, B]} \ldots\ (round robin)};
+\end{tikzpicture}
+\end{center}
+
 \begin{selfcheck}
 \item How long is one tick in SWEB?
 \item Why may \code{schedule()} not take a lock?
@@ -552,6 +757,29 @@ __sync_lock_release(&lock);                  // lock = 0
 puts the waiting thread to sleep and the unlocker wakes it --- that needs the kernel (the scheduler).
 SWEB's kernel has both (\code{SpinLock}, \code{Mutex}); in user space, your libc's
 \code{pthread\_mutex\_*} and \code{pthread\_spin\_*} are stubs (A1-15).
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=3pt,text width=2.4cm},
+  p/.style={b,draw=purple!60!black,fill=purple!8},
+  t/.style={b,draw=teal!70!black,fill=teal!10},
+  r/.style={b,draw=red!60!black,fill=red!6},
+  a/.style={-{Stealth[length=4pt]},thin,dashed}]
+  \node[anchor=east] at (-1.5,0) {thread 1};
+  \node[anchor=east] at (-1.5,-1.3) {thread 2};
+  \node[p] (a1) at (0,0) {reads \code{lock}: 0\\(free)};
+  \node[t] (b1) at (3,-1.3) {reads \code{lock}: 0\\(free)};
+  \node[t] (b2) at (6,-1.3) {\code{lock = 1},\\enters};
+  \node[p] (a2) at (9,0) {\code{lock = 1},\\enters};
+  \node[r] (both) at (12,-0.65) {both in the\\critical section!};
+  \draw[a] (a1) -- node[above,sloped,font=\scriptsize] {timer} (b1);
+  \draw[-{Stealth[length=4pt]},thin] (b1) -- (b2);
+  \draw[a] (b2) -- node[above,sloped,font=\scriptsize] {timer} (a2);
+  \draw[-{Stealth[length=4pt]},thin] (a2) -- (both);
+  \node[anchor=north west,align=left,font=\scriptsize,text width=15.5cm] at (-2.6,-2.2) {the fix: \code{\_\_sync\_lock\_test\_and\_set(\&lock, 1)} (\code{xchg}) reads the old value \emph{and} writes 1 in one
+  instruction --- the timer cannot come in between. Old value 0: you have the lock; 1: someone else has it, yield and try again.};
+\end{tikzpicture}
+\end{center}
 
 \textbf{Deeper:} handbook chapter 4.
 
@@ -595,6 +823,29 @@ then started waiting, a signal in between would be lost --- it would sleep forev
 \code{cond\_wait} releases the mutex and starts waiting \emph{as one step} (or, in a counter-based
 implementation, remembers the counter before releasing).
 
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize,
+  b/.style={draw=black!55,fill=black!4,rounded corners=1.5pt,thin,align=center,inner sep=3pt,text width=2.6cm},
+  p/.style={b,draw=purple!60!black,fill=purple!8},
+  t/.style={b,draw=teal!70!black,fill=teal!10},
+  r/.style={b,draw=red!60!black,fill=red!6},
+  a/.style={-{Stealth[length=4pt]},thin,dashed}]
+  \node[anchor=east] at (-1.6,0) {waiter};
+  \node[anchor=east] at (-1.6,-1.3) {signaller};
+  \node[p] (w1) at (0,0) {checks \code{ready}: 0\\$\to$ will wait};
+  \node[t] (s1) at (3.3,-1.3) {\code{ready = 1;}\\\code{signal()}};
+  \node[t] (s2) at (6.6,-1.3) {nobody waits yet:\\the signal is lost};
+  \node[p] (w2) at (9.9,0) {\code{wait()}: sleeps};
+  \node[r] (f) at (12.9,0) {sleeps forever};
+  \draw[a] (w1) -- node[above,sloped,font=\scriptsize] {timer} (s1);
+  \draw[-{Stealth[length=4pt]},thin] (s1) -- (s2);
+  \draw[a] (s2) -- node[above,sloped,font=\scriptsize] {timer} (w2);
+  \draw[-{Stealth[length=4pt]},thin] (w2) -- (f);
+  \node[anchor=north west,align=left,font=\scriptsize,text width=15.5cm] at (-2.7,-2.2) {the fix: check and change \code{ready} only while holding the mutex, and \code{cond\_wait(\&c, \&m)} releases the mutex and starts
+  waiting \emph{as one step} --- the signaller cannot get in between, so it signals only once the waiter really waits (or \code{ready} is already 1).};
+\end{tikzpicture}
+\end{center}
+
 \inteam The kernel: \code{Condition} (\code{wait}, \code{signal}, \code{broadcast}) with a
 \code{Mutex}; \code{thread\_exited\_} in \code{joinThread} is exactly this pattern. User space:
 \code{sem\_*} and \code{pthread\_cond\_*} are stubs (A1-16, A1-17).
@@ -634,6 +885,23 @@ if (++arrived == n) { arrived = 0; generation++; broadcast(c); serial = 1; }
 else while (generation == my_round) wait(c, m);
 unlock(m);
 \end{lstlisting}
+
+\begin{center}
+\begin{tikzpicture}[x=1cm,y=0.9cm,font=\footnotesize]
+  \foreach \y/\n/\t/\lab in {0/1/1.5/{arrives: \code{arrived = 1}, waits}, -1/2/3.5/{arrives: \code{arrived = 2}, waits}, -2/3/6.2/{arrives: \code{arrived = 3 = n}}} {
+    \node[anchor=east] at (-0.2,\y) {thread \n};
+    \draw[thick,purple!60!black] (0,\y) -- (\t,\y);
+    \fill[purple!60!black] (\t,\y) circle (2pt);
+    \node[anchor=south east,font=\scriptsize] at (\t+0.1,\y+0.05) {\lab};
+    \draw[thick,dashed,black!40] (\t,\y) -- (7.6,\y);
+    \draw[thick,teal!70!black,-{Stealth[length=4pt]}] (7.6,\y) -- (10.8,\y);
+  }
+  \draw[very thick,red!70!black] (7.6,0.6) -- (7.6,-2.4);
+  \node[anchor=north west,font=\scriptsize,align=left] at (7.75,-2.1) {the last one: \code{arrived = 0}, \code{generation++},\\\code{broadcast()} --- all continue};
+  \node[anchor=west,font=\scriptsize] at (8.2,0.4) {round 2 \ldots};
+  \node[anchor=north west,font=\scriptsize,align=left,text width=14cm] at (-1.2,-3.3) {dashed = sleeping in \code{wait()}. A woken thread checks ``has \code{generation} changed?'', not ``\code{arrived == 0}?''\\-- a fast thread may already be counting the next round.};
+\end{tikzpicture}
+\end{center}
 
 \begin{selfcheck}
 \item Why broadcast, not signal?
@@ -780,16 +1048,68 @@ offset 2.
   \draw[arr] (320,197) -- (338,197);
   \draw[arr] (420,277) -- (438,277);
   \draw[arr] (520,237) -- (538,237);
-  % the PTE in detail
-  \draw[dashed,thin,draw=black!50] (480,400) -- (480,428);
-  \foreach \x/\w/\t in {70/90/present 1, 170/120/{\textbf{writeable 1$\to$0}}, 300/120/user\_access 1,
-      430/80/dirty 1, 520/90/page\_ppn} {
-    \draw[bxc] (\x,430) rectangle ++(\w,40);
-    \node[font=\scriptsize] at (\x+\w/2,450) {\t};
+  % the PTE in detail: ONE entry of 8 bytes, cut into its fields
+  \draw[dashed,thin,draw=black!50] (480,400) -- (480,414);
+  \node[anchor=west,font=\scriptsize\bfseries] at (40,428) {entry [7] of the PT = the PTE: one 64-bit number, cut into fields (bit numbers above)};
+  \foreach \x/\w/\t/\bits in {40/62/present/0, 102/72/writeable/1, 174/82/user\_access/2, 256/34/\ldots/3--4,
+      290/62/accessed/5, 352/44/dirty/6, 396/34/\ldots/7--11, 430/110/page\_ppn/12--39, 540/52/\ldots/40--62, 592/48/NX/63} {
+    \draw[thin,draw=orange!70!black,fill=orange!10] (\x,446) rectangle ++(\w,24);
+    \node[font=\scriptsize] at (\x+\w/2,458) {\t};
+    \node[font=\tiny,text=black!60] at (\x+\w/2,440) {\bits};
   }
-  \node[anchor=west,font=\scriptsize\ttfamily] at (70,488) {m.pt[m.pti] --- the page table entry of 0x8007000, ex04 changes its writeable bit};
+  \foreach \x/\w/\v in {40/62/1, 102/72/{\textbf{1 $\to$ 0}}, 174/82/1, 290/62/1, 352/44/1, 430/110/the frame, 592/48/0} {
+    \node[font=\scriptsize] at (\x+\w/2,482) {\v};
+  }
+  \node[anchor=west,font=\scriptsize] at (40,500) {values for our page; \code{m.pt[m.pti].writeable} is bit 1 --- the one ex04 changes};
 \end{tikzpicture}
 \end{center}
+
+\textbf{The names} are history: 32-bit x86 had two levels, a \emph{page directory} pointing to
+\emph{page tables}. Every extension added a level on top, so the names grow from the bottom:
+\begin{center}
+\small
+\begin{tabular}{L{1.6cm}L{5.2cm}L{2.4cm}L{5.6cm}}
+\toprule
+\textbf{Level} & \textbf{Name} & \textbf{One entry covers} & \textbf{Index = bits of the address} \\
+\midrule
+PML4 & page map level 4 (the root) & 512\,GiB & 47--39 (\code{pml4i}) \\
+PDPT & page directory pointer table & 1\,GiB & 38--30 (\code{pdpti}) \\
+PD & page directory & 2\,MiB & 29--21 (\code{pdi}) \\
+PT & page table & 4\,KiB = one page & 20--12 (\code{pti}) \\
+--- & the byte inside the page & 1 byte & 11--0 (offset) \\
+\bottomrule
+\end{tabular}
+\end{center}
+Each level multiplies by 512: $4\,\text{KiB} \cdot 512 = 2\,\text{MiB}$, $\cdot 512 = 1\,\text{GiB}$,
+$\cdot 512 = 512\,\text{GiB}$.
+
+\textbf{Where the numbers in the drawing come from.} Nothing is random --- they are the address,
+cut into pieces:
+\begin{center}
+\small
+\begin{tabular}{L{4.4cm}L{10.4cm}}
+\toprule
+offset $= 2$ & \code{0x8007002 \% 4096} $= 2$: the test writes \code{page[2]}, the third byte of the page \\
+vpn $= \code{0x8007} = 32775$ & \code{0x8007002 / 4096} \\
+\code{pti} $= 7$ & $32775 \bmod 512 = 7$ \\
+\code{pdi} $= 64$ & $(32775 / 512) \bmod 512 = 64$ \\
+\code{pdpti} $=$ \code{pml4i} $= 0$ & $32775 / 512^2 = 0$: the address is below 1\,GiB \\
+\bottomrule
+\end{tabular}
+\end{center}
+And \emph{why} the address is \code{0x8007002}: SWEB links every user program to start at
+\code{0x8000000} = 128\,MiB (\code{-Ttext=0x8000000}), and $128\,\text{MiB} / 2\,\text{MiB} = 64$ ---
+so \textbf{every} user program's code and data use PD entry 64. Inside that 2\,MiB block,
+\code{pti} counts the pages from the start of the program: \code{.text} fills pages 0--3,
+\code{.rodata} page 4, \code{.data} and \code{.bss} start in page 6, and the test's
+\code{buffer} (at \code{0x8006100}) contains page 7 as its first complete page --- the page the test
+calls \code{page}. (\code{readelf -SW} on the \code{.sweb} file shows these addresses.)
+
+\textbf{cr3} is \emph{control register 3} of the CPU. Control registers are not for computing but
+switch CPU features: \code{cr0} turns paging on, \code{cr2} receives the faulting address of a page
+fault (A1-11), \code{cr3} holds the \textbf{physical address of the PML4} --- the start of every
+walk. One \code{cr3} value = one address space: whoever writes \code{cr3} switches the whole
+virtual memory at once.
 
 \textbf{The walk, step by step} (the CPU does it in hardware on every memory access, SWEB's
 \code{resolveMapping} in software):
