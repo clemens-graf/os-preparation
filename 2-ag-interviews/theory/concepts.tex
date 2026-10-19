@@ -692,12 +692,142 @@ CleanupThread deletes it at an unknown time; join may come later. 3. a member of
 \end{taskex}
 
 % =====================================================================================
-\conceptsection{Physical pages, reverse lookups and shared pages}
+\conceptsection{Page tables, physical pages and shared pages}
 \label{c:frames}
 
 \textbf{In one sentence:} a virtual page number (vpn) is mapped to a physical frame number (ppn);
 going from vpn to ppn is one page-table walk, the other direction needs a search --- and a frame can
 be mapped more than once.
+
+\subsection*{How a virtual address becomes a physical one}
+
+\textbf{The words.}
+\begin{center}
+\small
+\begin{tabular}{L{3.4cm}L{11.6cm}}
+\toprule
+\textbf{page} & memory is cut into blocks of 4096 bytes (4\,KiB). An address belongs to the virtual page number
+  $\text{vpn} = \text{address} / 4096$; $\text{offset} = \text{address} \bmod 4096$ is the byte inside the page. \\
+\textbf{frame}, ppn & the same in physical RAM: a 4\,KiB block with a physical page number (ppn). \\
+\textbf{page table} & an array of \textbf{512 entries} of 8 bytes each --- exactly one 4\,KiB page itself.
+  It answers ``which frame belongs to this virtual page?'' \\
+\textbf{page table entry} (PTE) & one element of that array: the \textbf{frame number} (\code{page\_ppn}) and
+  \textbf{flag bits} --- \code{present} (mapped at all?), \code{writeable}, \code{user\_access} (may user
+  mode touch it?), \code{accessed}, \code{dirty} (written to?), \code{execution\_disabled} (NX). \\
+\textbf{index} & which of the 512 entries to use. $512 = 2^9$, so an index is \textbf{9 bits} of the address. \\
+\code{cr3} & a CPU register: the physical address of the top table of the \emph{running} process. \\
+\textbf{TLB} & a cache in the CPU of recent translations --- why a changed entry needs a TLB flush. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Why four levels instead of one big table.} One flat table for the whole user space would
+need $2^{36}$ entries --- 512\,GiB per process. So the tables form a \textbf{tree} of four levels, and a
+table on a lower level only exists where the process actually uses memory. The address itself says
+which way to go: it is cut into four 9-bit indices and the 12-bit offset. The drawing follows one
+real address from the ex04 test, \code{0x8007002} (\code{page[2] = 'z'}): $\text{vpn} = \code{0x8007}$,
+offset 2.
+
+\begin{center}
+\begin{tikzpicture}[x=0.0225cm,y=-0.0225cm,font=\footnotesize,
+  arr/.style={-{Stealth[length=4pt]},thin},
+  bxp/.style={draw=purple!60!black,fill=purple!8,rounded corners=1.5pt,thin},
+  bxt/.style={draw=teal!70!black,fill=teal!8,rounded corners=1.5pt,thin},
+  bxc/.style={draw=orange!70!black,fill=orange!10,rounded corners=1.5pt,thin},
+  bxg/.style={draw=black!55,fill=black!5,rounded corners=1.5pt,thin}]
+  % the address
+  \foreach \x/\w/\t/\s/\st in {40/80/unused/16 bit/bxg, 140/80/pml4i 0/9 bit/bxp, 240/80/pdpti 0/9 bit/bxp,
+      340/80/pdi 64/9 bit/bxp, 440/80/pti 7/9 bit/bxp, 540/100/offset 2/12 bit/bxt} {
+    \draw[\st] (\x,40) rectangle ++(\w,50);
+    \node[font=\footnotesize\bfseries] at (\x+\w/2,58) {\t};
+    \node[font=\scriptsize,text=black!60] at (\x+\w/2,77) {\s};
+  }
+  \node[anchor=east,font=\scriptsize\ttfamily] at (640,25) {virtual address 0x8007002 = bits 63 \ldots\ 0};
+  \foreach \x in {180,280,380,480,590} \draw[arr] (\x,90) -- (\x,138);
+  % cr3
+  \draw[bxg] (40,140) rectangle ++(80,50);
+  \node[font=\footnotesize\bfseries] at (80,158) {cr3};
+  \node[font=\scriptsize,text=black!60] at (80,177) {start};
+  \draw[arr] (120,165) -- (138,165);
+  % the four tables + the frame
+  \foreach \x/\t/\m in {140/PML4/m.pml4, 240/PDPT/m.pdpt, 340/PD/m.pd, 440/PT/m.pt} {
+    \draw[bxg] (\x,140) rectangle ++(80,40);
+    \node[font=\footnotesize\bfseries] at (\x+40,154) {\t};
+    \node[font=\scriptsize\ttfamily,text=black!60] at (\x+40,170) {\m};
+    \draw[thin,draw=black!45] (\x,180) rectangle ++(80,220);
+    \node[font=\scriptsize] at (\x+40,388) {[511]};
+  }
+  \draw[bxt] (540,140) rectangle ++(100,40);
+  \node[font=\footnotesize\bfseries] at (590,154) {frame};
+  \node[font=\scriptsize\ttfamily,text=black!60] at (590,170) {m.page\_ppn};
+  \draw[thin,draw=black!45] (540,180) rectangle ++(100,220);
+  % rows
+  \foreach \x in {140,240} {
+    \draw[bxp,rounded corners=0] (\x+1,186) rectangle ++(78,22); \node[font=\scriptsize] at (\x+40,197) {[0]};
+    \node[font=\scriptsize] at (\x+40,230) {[1]}; \node[font=\scriptsize] at (\x+40,290) {\ldots};
+  }
+  \node[font=\scriptsize] at (380,197) {[0]}; \node[font=\scriptsize] at (380,236) {\ldots};
+  \draw[bxp,rounded corners=0] (341,266) rectangle ++(78,22); \node[font=\scriptsize] at (380,277) {[64]};
+  \node[font=\scriptsize] at (380,330) {\ldots};
+  \node[font=\scriptsize] at (480,197) {[0]};
+  \draw[bxc,rounded corners=0] (441,226) rectangle ++(78,22); \node[font=\scriptsize\bfseries] at (480,237) {[7] PTE};
+  \node[font=\scriptsize] at (480,310) {\ldots};
+  \node[font=\scriptsize] at (590,197) {byte 0};
+  \draw[bxt,rounded corners=0] (541,226) rectangle ++(98,22); \node[font=\scriptsize] at (590,237) {byte 2};
+  \node[font=\scriptsize] at (590,310) {\ldots}; \node[font=\scriptsize] at (590,388) {byte 4095};
+  % entry -> next table
+  \draw[arr] (220,197) -- (238,197);
+  \draw[arr] (320,197) -- (338,197);
+  \draw[arr] (420,277) -- (438,277);
+  \draw[arr] (520,237) -- (538,237);
+  % the PTE in detail
+  \draw[dashed,thin,draw=black!50] (480,400) -- (480,428);
+  \foreach \x/\w/\t in {70/90/present 1, 170/120/{\textbf{writeable 1$\to$0}}, 300/120/user\_access 1,
+      430/80/dirty 1, 520/90/page\_ppn} {
+    \draw[bxc] (\x,430) rectangle ++(\w,40);
+    \node[font=\scriptsize] at (\x+\w/2,450) {\t};
+  }
+  \node[anchor=west,font=\scriptsize\ttfamily] at (70,488) {m.pt[m.pti] --- the page table entry of 0x8007000, ex04 changes its writeable bit};
+\end{tikzpicture}
+\end{center}
+
+\textbf{The walk, step by step} (the CPU does it in hardware on every memory access, SWEB's
+\code{resolveMapping} in software):
+\begin{enumerate}[leftmargin=1.4em,itemsep=1pt]
+\item \code{cr3} gives the PML4 table of the running process.
+\item \code{pml4i} = 0 selects its entry 0 --- it holds the frame number of the next table, the PDPT.
+\item \code{pdpti} = 0 selects PDPT entry 0 $\to$ the page directory (PD).
+\item \code{pdi} = 64 selects PD entry 64 $\to$ the page table (PT).
+\item \code{pti} = 7 selects PT entry 7: \textbf{the PTE of our page}. If \code{present} = 0, the walk
+  stops here: page fault. Otherwise \code{page\_ppn} is the frame.
+\item The offset 2 selects the byte inside the frame: physical address $= \text{ppn} \cdot 4096 + 2$.
+\end{enumerate}
+Then the CPU checks the flags: a write with \code{writeable} = 0, or a user access with
+\code{user\_access} = 0, is a page fault with ``present'' set --- the kill in ex04.
+
+\textbf{Each process has its own tree.} \code{cr3} points to the PML4 of the running process; at a
+thread switch SWEB loads the \code{cr3} saved in the new thread's registers (\code{registers->cr3} =
+\code{page\_map\_level\_4\_} $\cdot$ \code{PAGE\_SIZE} of its process; the context switch writes it into the CPU), so the same
+virtual address leads to a different frame. The upper half of every PML4 (the kernel above
+\code{USER\_BREAK}) is the same in all processes.
+
+\textbf{In the code.} \code{resolveMapping(vpn)} returns an \code{ArchMemoryMapping m} with every step of
+the walk: the tables \code{m.pml4}, \code{m.pdpt}, \code{m.pd}, \code{m.pt} (kernel pointers via the ident
+mapping), the indices \code{m.pml4i}, \code{m.pdpti}, \code{m.pdi}, \code{m.pti}, the frame
+\code{m.page\_ppn} and \code{m.page\_size} (\code{PAGE\_SIZE} only if the 4\,KiB page is present). A level
+that does not exist is a null pointer --- that is why you check \code{m.page\_size} \emph{before} touching
+\code{m.pt}. So ex04's line reads:
+\begin{lstlisting}[style=cpp]
+m.pt[m.pti].writeable = writable ? 1 : 0;
+//  |    |       \- one flag bit of that entry
+//  |    \- index 7: which of the 512 entries (bits 20..12 of the address)
+//  \- the page table on level 4
+\end{lstlisting}
+Mapping a page (\code{mapPage}) is the same walk, creating missing tables on the way and filling in
+the PTE; unmapping clears \code{present} --- plus a \code{flushTlb()}, because the TLB may still hold
+the old translation (SWEB's \code{flushTlb} simply writes \code{cr3} again, which empties the TLB).
+
+\subsection*{The other direction, and frames used twice}
 
 \textbf{vpn $\to$ ppn} (\code{vtop}): \code{resolveMapping(vpn)} walks the four levels of the page
 table and returns the ppn (or ``not mapped''). \textbf{ppn $\to$ vpn} (\code{ptov}): page tables
@@ -716,10 +846,14 @@ frees every present frame at exit --- a frame mapped twice is freed twice (``Dou
 \item Why is ppn $\to$ vpn more expensive than vpn $\to$ ppn?
 \item Two processes share a frame; one exits. What must not happen?
 \item What does the ident mapping let the kernel do?
+\item Which four indices and which offset does the address \code{0x8007002} have?
+\item The PTE has \code{present} = 1 and \code{writeable} = 0. What happens on a read, what on a write?
 \end{selfcheck}
 \answers{1. page tables are a tree from vpn to ppn -- the other way needs a search over all entries.
 2. its exit must not free the frame while the other process still maps it. 3. read and write any
-physical frame directly, without mapping it into a process.}
+physical frame directly, without mapping it into a process. 4. vpn = 0x8007: pml4i 0, pdpti 0, pdi 64
+(= 0x8007 / 512), pti 7 (= 0x8007 \% 512), offset 2. 5. the read works; the write is a page fault with
+``present'' set -- in SWEB the process is killed (9999).}
 \begin{taskex}
   A1-09 vtop/ptov & ex12 tutorial 2 (\code{resolveMapping}), ex04 PTE flags (reading a page-table entry) \\
   A1-10 shared page & ex02 map a page (\code{allocPPN} + \code{mapPage}), ex12 tutorial 2 (a frame mapped twice) \\
