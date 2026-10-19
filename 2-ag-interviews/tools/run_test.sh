@@ -69,7 +69,8 @@ else
 fi
 pass=$(grep -a -c 'Syscall::write: \[PASS\]' "$BUILD/run.log")
 fail=$(grep -a -c 'Syscall::write: \[FAIL\]' "$BUILD/run.log")
-echo "== $pass passed, $fail failed, sweb_run status $status (0 ok, 1 timeout/hang, 2 panic, 3 no boot, 4 leak, 5 no panic although expected)"
+total=""; [ -n "$want_pass" ] && total=" of $want_pass"
+echo "== $pass$total passed, $fail failed, sweb_run status $status (0 ok, 1 timeout/hang, 2 panic, 3 no boot, 4 leak, 5 no panic although expected)"
 echo "== full kernel log: $BUILD/run.log"
 if [ -n "$want_pass" ] && [ "$pass" -lt "$want_pass" ]; then
   echo "== expected $want_pass [PASS] lines, got $pass - did a test program die half-way? (see EXIT: called above)"
