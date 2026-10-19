@@ -26,7 +26,7 @@
 8. **A0, 14 Oct 2026 (our own interview): implement `atexit`** – no syscall at all: the stub in
    `userspace/libc/src/stdlib.c` and `exit()` in `exec.c`. Not every task is "add a syscall":
    classify it first ([TRIAGE.md](../TRIAGE.md)). It is task [A0-13](13-atexit/) here; [A0-14](14-strings/) is another
-   one of that kind, the other libc stubs are A1-14 … A1-20.
+   one of that kind, the other libc stubs are A1-14 … A1-19.
 
 ## The tasks
 

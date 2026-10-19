@@ -1,18 +1,18 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..454c0f82 100644
+index 3b55c7a6..e3bc3b26 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -32,6 +32,8 @@ class Syscall
- 
+@@ -37,6 +37,8 @@ class Syscall
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
 +    static size_t pthreadMultiple(size_t ids, size_t count, size_t start_routine, size_t args, size_t entry); // A1-02
 +    static size_t pthreadJoinAny(size_t ids, size_t count, size_t index_ptr, size_t value_ptr);           // A1-02
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..772391a9 100644
+index bc32c487..692e0176 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -13,6 +13,7 @@
@@ -21,9 +21,9 @@ index ec56f120..772391a9 100644
  #define USER_BREAK_VPN USER_BREAK / PAGE_SIZE
 +#define MAX_USER_THREADS 64 // A1-02: threads of a process that are not joined yet (the main thread too)
  
- class UserThread;
- 
-@@ -157,6 +158,17 @@ class UserProcess
+ // min. one stack page is left for the program itself
+ #define EXEC_MAX_PATH_LENGTH 4096
+@@ -171,6 +172,17 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -42,20 +42,20 @@ index ec56f120..772391a9 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..a0af5c93 100644
+index db84270e..67946a2c 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,8 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,8 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_pthread_multiple 1601   // A1-02
 +#define sc_pthread_join_any 1602   // A1-02
  #define sc_thread_count 1998
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..4f69f34c 100644
+index 178fc3a2..2fe2fff1 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -66,7 +66,7 @@ index 86cf85a2..4f69f34c 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -88,6 +89,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -79,7 +79,7 @@ index 86cf85a2..4f69f34c 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -448,3 +455,59 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +547,59 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -140,7 +140,7 @@ index 86cf85a2..4f69f34c 100644
 +  return 0;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..b5a17093 100644
+index e32f2cda..94133d16 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,6 +10,7 @@
@@ -164,7 +164,7 @@ index f37eb7ef..b5a17093 100644
    void* stack_top = 0;
    if (!allocateNewStack(&stack_top))
    {
-@@ -550,3 +557,47 @@ void UserProcess::exitProcess()
+@@ -600,3 +607,47 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -213,10 +213,10 @@ index f37eb7ef..b5a17093 100644
 +  }
 +}
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index 746aed2b..6d0cfad5 100644
+index c40fcbe2..bf592dfc 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -37,6 +37,12 @@ extern void pthread_testcancel(void);
+@@ -39,6 +39,12 @@ extern void pthread_testcancel(void);
  
  extern int pthread_join(pthread_t thread, void **value_ptr);
  
@@ -230,10 +230,10 @@ index 746aed2b..6d0cfad5 100644
  
  extern int pthread_mutex_init(pthread_mutex_t *mutex,
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 7e3369e6..d0c9c4ff 100644
+index 8b8448e4..4caabc25 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -221,3 +221,15 @@ int pthread_setcanceltype(int type, int *oldtype)
+@@ -231,3 +231,15 @@ int pthread_setcanceltype(int type, int *oldtype)
  {
    return -1;
  }

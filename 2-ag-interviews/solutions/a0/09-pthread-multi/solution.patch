@@ -1,17 +1,17 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..5adbe73b 100644
+index 3b55c7a6..1dc2f396 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -30,6 +30,9 @@ class Syscall
-     static void pthreadExit(void* value_ptr);
+@@ -34,6 +34,9 @@ class Syscall
      static size_t pthreadSelf();
+     static size_t pthreadEqual(size_t thread_1, size_t thread_2);
  
 +    // A0-09
 +    static size_t pthreadMulti(size_t thread_id, size_t functions, size_t arguments, size_t count, size_t entry);
 +
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
- 
+     static size_t pthreadDetach(size_t thread);
 diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
 index d3bb979d..331e30bd 100644
 --- a/common/include/kernel/UserThread.h
@@ -31,19 +31,19 @@ index d3bb979d..331e30bd 100644
  
    /**
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..7ab03212 100644
+index db84270e..38cde8f0 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,7 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,7 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_pthread_multi 1552     // A0-09
  #define sc_thread_count 1998
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..5e323657 100644
+index 178fc3a2..06e4b150 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -1,5 +1,6 @@
@@ -61,7 +61,7 @@ index 86cf85a2..5e323657 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -88,6 +90,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +94,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -71,7 +71,7 @@ index 86cf85a2..5e323657 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -448,3 +453,40 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +545,40 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -149,10 +149,10 @@ index 53def8c4..dfb26374 100644
 +  return user_address;
 +}
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index 746aed2b..4c2c47bb 100644
+index c40fcbe2..cb9d8685 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -62,6 +62,9 @@ extern int pthread_setcancelstate(int state, int *oldstate);
+@@ -64,6 +64,9 @@ extern int pthread_setcancelstate(int state, int *oldstate);
  
  extern int pthread_setcanceltype(int type, int *oldtype);
  
@@ -163,7 +163,7 @@ index 746aed2b..4c2c47bb 100644
  }
  #endif
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 7e3369e6..cdf0357c 100644
+index 8b8448e4..8e933f64 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
 @@ -12,6 +12,20 @@ static void pthread_start(void* (*start_routine)(void*), void* arg)

@@ -4,10 +4,10 @@
 
 Your team's `main` already has `pthread_create` (Michael), so the team version of this task is a
 **study task**: `task start a0-08` / `task solution a0-08` give you `main` plus the course tests,
-and `task test` runs them against your team's implementation – 8 of 9 pass. The missing check
-("thread finished after main returned") is a different, POSIX-like design: in your team's code
-`exit` / returning from `main` ends the whole process (`UserProcess::exitProcess` kills all
-threads).
+and `task test` runs them against your team's implementation – all 9 pass. Returning from `main`
+is `exit()` and ends the whole process (`UserProcess::exitProcess` kills all threads, as POSIX
+says); `pthread_exit` in `main` ends only the main thread – the process lives on until its last
+thread has exited (the last `UserThread`'s destructor deletes the process).
 
 Where things are in your team's code:
 

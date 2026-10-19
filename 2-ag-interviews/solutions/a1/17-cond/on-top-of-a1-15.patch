@@ -1,8 +1,8 @@
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index f46d5b7a..cd03352d 100644
+index f29a0d77..e55baf40 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -116,13 +116,22 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex)
+@@ -126,13 +126,22 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex)
    return pthread_spin_unlock(mutex);
  }
  
@@ -26,7 +26,7 @@ index f46d5b7a..cd03352d 100644
  }
  
  /**
-@@ -131,7 +140,7 @@ int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
+@@ -141,7 +150,7 @@ int pthread_cond_init(pthread_cond_t *cond, const pthread_condattr_t *attr)
   */
  int pthread_cond_destroy(pthread_cond_t *cond)
  {
@@ -35,7 +35,7 @@ index f46d5b7a..cd03352d 100644
  }
  
  /**
-@@ -140,7 +149,10 @@ int pthread_cond_destroy(pthread_cond_t *cond)
+@@ -150,7 +159,10 @@ int pthread_cond_destroy(pthread_cond_t *cond)
   */
  int pthread_cond_signal(pthread_cond_t *cond)
  {
@@ -47,7 +47,7 @@ index f46d5b7a..cd03352d 100644
  }
  
  /**
-@@ -149,7 +161,7 @@ int pthread_cond_signal(pthread_cond_t *cond)
+@@ -159,7 +171,7 @@ int pthread_cond_signal(pthread_cond_t *cond)
   */
  int pthread_cond_broadcast(pthread_cond_t *cond)
  {
@@ -56,7 +56,7 @@ index f46d5b7a..cd03352d 100644
  }
  
  /**
-@@ -158,7 +170,14 @@ int pthread_cond_broadcast(pthread_cond_t *cond)
+@@ -168,7 +180,14 @@ int pthread_cond_broadcast(pthread_cond_t *cond)
   */
  int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
  {

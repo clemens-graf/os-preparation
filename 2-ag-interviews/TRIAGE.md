@@ -37,7 +37,7 @@ File details: [ATLAS.md](ATLAS.md).
    only the kernel has?* (other processes, page tables, physical pages, devices, the
    scheduler, the time). No → U.
 3. **Find the starting point** – one search:
-   - U: `git grep -n "atexit" userspace/libc` → the stub
+   - U: `git grep -n "malloc" userspace/libc` → the stub
    - S: `syscall-definitions.h` (pick a free number in your block)
    - E: the handler from the table
    - A: `arch_interrupts.S` / `ArchThreads.h`
@@ -142,6 +142,8 @@ through `checkAddressValid` (it returns the kernel address of that byte), not th
 | A1-18 sleep + uptime | S + E (timer) | the ticks of the timer interrupt |
 | A1-19 waitpid | S | processes: exit codes that outlive the process |
 | A1-20 pthread_detach | S | threads: free the record at the end |
+| A1-21 forkall | S | processes + threads: copy every thread record and thread |
+| A1-22 pthread_switch | **A** + U | registers: the context switch itself, in user space |
 | A2-01 swap | S + E (page fault) | block device, swap-out/in |
 | A2-02 page backup | S | copy a page to the disk and back |
 | A2-03 heap swap | E (page fault) | swap to the kernel heap |

@@ -1,12 +1,12 @@
 # A1-20 · pthread_detach
 
-**Time box 25 min · ★★☆ · type S (syscall + kernel) · builds on your team's join**
+**Time box 25 min · ★★☆ · type S (syscall + kernel) · study task: your own `pthread_detach`, merged 18 Oct**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life
 
 ```
-Name:         pthread_detach (POSIX, pthread.h - the stub exists)
-Nr:           1718 (sc_pthread_detach)
+Name:         pthread_detach (POSIX, pthread.h)
+Nr:           1504 (sc_pthread_detach - your team's number)
 Description:  Marks a thread as detached: nobody will join it, so everything that is kept
               for a join (its exit value, its record) is freed as soon as it ends. If it has
               ended already, free it now. A detached thread cannot be joined.
@@ -20,9 +20,15 @@ Return Value: 0, or -1 (unknown thread, already detached, or another thread join
 
 ## Your team's code
 
-What a join needs is your team's `UserThreadData` in `UserProcess::threads_` (`tid_`,
-`exit_value_`, `exited_`, `joined_`): it stays after the thread ended until `joinThread` removes
-it. `exitThread` frees the stack and sets `exited_`; the libc stub is in `pthread.c`.
+**Your team has it – your own `feature/pthread-detach`**, so this is a **study task**: `task start
+a1-20` gives you `main`, `task test` runs the 6 course checks against it (all pass). Explain:
+`Syscall::pthreadDetach` → `UserProcess::detachThread(tid)` (under `thread_lock_`: refuse unknown,
+already detached or `joined_`; an exited thread's record is deleted at once, otherwise
+`detached_ = true`), and `exitThread`, which deletes the record of a detached thread instead of
+keeping it for a join. A join sees no record → -1.
+
+**To write it again from scratch:** on your task branch, make `detachThread` return -1 and remove
+the `detached_` branch in `exitThread`, commit, then rebuild it in the time box.
 
 ## Hints
 

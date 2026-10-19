@@ -1,8 +1,8 @@
 diff --git a/userspace/libc/include/stdlib.h b/userspace/libc/include/stdlib.h
-index 4e6e2606..b831e543 100644
+index 11127047..0df65f44 100644
 --- a/userspace/libc/include/stdlib.h
 +++ b/userspace/libc/include/stdlib.h
-@@ -83,6 +83,13 @@ extern void *realloc(void *ptr, size_t size);
+@@ -85,6 +85,13 @@ extern void *realloc(void *ptr, size_t size);
  
  extern void free(void *ptr);
  

@@ -26,7 +26,7 @@ will ask yourself every time: **which file do I have to touch for this?**
 
 Every task and example was implemented and run on your team's code: all of them pass their tests
 with the reference solution (checked end to end through `task.sh`) – except the study tasks A1-01
-and A1-06, whose tests show two bugs in your team's `pthread_join`/`pthread_cancel` (see their notes).
+A1-06 and A1-20, whose tests run against your team's `pthread_join`/`pthread_cancel`/`pthread_detach` (A1-01 still shows a bug, see its notes).
 
 ## Where you work: the training copy `repos/sweb-ag`
 

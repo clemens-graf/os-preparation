@@ -1,5 +1,9 @@
 # A0-13 atexit – solution notes
 
+**Your team's `main` has this now (your own `feature/atexit`, 18 Oct)** – the solution patch is
+empty, `task test` checks your team's code. The code below is the same idea; your team's version
+keeps `atexit_count` as `size_t` and calls the list from `__runAtexitFunctions()` in `exit()`.
+
 Patch: [`solution.patch`](solution.patch) – only libc, nothing in the kernel. Type U (see
 [TRIAGE.md](../../../TRIAGE.md)).
 

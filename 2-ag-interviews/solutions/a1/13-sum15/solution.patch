@@ -1,29 +1,29 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..3963871c 100644
+index 3b55c7a6..5ce262d9 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -32,6 +32,7 @@ class Syscall
- 
+@@ -37,6 +37,7 @@ class Syscall
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
 +    static size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t rest);   // A1-13
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..c6a5cb96 100644
+index db84270e..756e857b 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,7 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,7 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_sum15 1710   // A1-13
  #define sc_thread_count 1998
  #define sc_process_count 1999
  
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..93b16228 100644
+index 178fc3a2..e0a5a166 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -34,7 +34,7 @@ index 86cf85a2..93b16228 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -88,6 +89,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -44,7 +44,7 @@ index 86cf85a2..93b16228 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -448,3 +452,18 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +544,18 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }

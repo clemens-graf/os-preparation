@@ -1,8 +1,8 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..7cb26f7d 100644
+index bc32c487..34e9a10e 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -58,6 +58,12 @@ class UserProcess
+@@ -64,6 +64,12 @@ class UserProcess
      ustl::string getFileName(){return filename_;}
  
  
@@ -16,7 +16,7 @@ index ec56f120..7cb26f7d 100644
       * Tries to create the process with its address space.
       * If this fails to create (invalid executable etc.) then it does not create one!
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..c0d7b320 100644
+index e32f2cda..0e96831e 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -9,6 +9,7 @@
@@ -27,7 +27,7 @@ index f37eb7ef..c0d7b320 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -550,3 +551,15 @@ void UserProcess::exitProcess()
+@@ -600,3 +601,15 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }

@@ -11,11 +11,12 @@ the first file ([ATLAS.md](ATLAS.md)). Say both out loud. Then start the timer.
 
 ## 14-day plan: A1 + the A0 tasks that matter for A1 (19 Oct – 1 Nov 2026)
 
-23 tasks: all 17 A1 tasks that are not study tasks or done (A1-01, A1-06 are your team's own code,
-A1-20 you wrote yourself), plus the 6 A0 tasks whose content comes back in A1:
+23 tasks: all 17 A1 tasks up to A1-19 that are not study tasks (A1-01, A1-06, A1-20 are your own,
+merged code), plus the 6 A0 tasks whose content comes back in A1:
 A0-03 (page fault handler → A1-12), A0-07 (registers → A1-08, A1-13), A0-09 (threads on your team's
 `createThread`), A0-11 (per-thread state), A0-13 `atexit` and A0-14 (libc-only – like A1-14 … A1-17;
-`atexit` was the real A0 task – do it again from scratch, without your branch).
+`atexit` was the real A0 task – your team's `main` has your version now: replace it by a stub on
+the task branch and write it again, see the card).
 Not needed for A1: A0-04, A0-05 (A2 material), A0-12 (A1-10 covers it); A0-06 only if time is left.
 
 About **1–1.5 h a day**:
@@ -45,12 +46,20 @@ About **1–1.5 h a day**:
 
 Time left on days 8–13? Optional: A0-06 segv handler (40, K + page fault).
 
-After day 14: the week before the AG (16–20 Nov) – see section 7 below.
+After day 14 – the two new tasks from the list of earlier years, then section 7:
+
+| ✓ | When | Task (time box) | Type |
+|---|---|---|---|
+| [ ] | Mon 2 Nov | A1-22 pthread_switch: the context switch itself (40) | A + U |
+| [ ] | Tue 3 Nov | A1-21 forkall (45) | S |
+
+Then 2–15 Nov: a second round of the hardest tasks without hints, 2–3 mock interviews, and the
+week before the AG (16–20 Nov) – section 7.
 
 ## 0 · Orientation (once, ~2 h)
 
 - [ ] [TRIAGE.md](TRIAGE.md) and [ATLAS.md](ATLAS.md) sections 1–2 read
-- [ ] `task quiz 20` – twice, on different days (44 questions: places in the code + "which type?")
+- [ ] `task quiz 20` – twice, on different days (47 questions: places in the code + "which type?")
 - [ ] the Anki deck imported ([anki/](anki/README.md)) – then a few minutes every day until the interview
 - [ ] guide chapters 2–4 (map, recipes, locking)
 - [ ] examples ex01 (syscall), ex02 (map a page), ex03 (your stack growth), ex07 (F-key), ex11, ex12 (tutorials), ex13 (timer + scheduler – before day 3), ex14 (libc only – before day 1)
@@ -59,7 +68,8 @@ After day 14: the week before the AG (16–20 Nov) – see section 7 below.
 
 | ✓ | Task | Time | What you practise |
 |---|---|---|---|
-| [ ] | A0-13 atexit | 20 min | the real A0 task of 2026: stub in `stdlib.c`, hook in `exit()` |
+| [ ] | A0-13 atexit | 20 min | the real A0 task of 2026: your team has it now – write it again from a stub |
+| [ ] | A1-22 pthread_switch | 40 min | the context switch in assembly: callee-saved registers, `rsp`, `ret` |
 | [ ] | A0-14 string functions | 20 min | missing declarations, `strncpy` semantics |
 | [ ] | A1-14 malloc | 30 min | a heap on a static pool, block headers |
 | [ ] | A1-15 spinlock + mutex | 25 min | why a lock needs one atomic instruction |
@@ -78,7 +88,7 @@ After day 14: the week before the AG (16–20 Nov) – see section 7 below.
 | [ ] | A1-03 barrier | 40 min | Mutex + Condition in the process |
 | [ ] | A1-09 vtop / ptov | 25 min | page tables both ways |
 | [ ] | A1-19 waitpid | 40 min | state that outlives a process |
-| [ ] | A1-20 pthread_detach | 25 min | state that outlives a thread – or not |
+| [ ] | A1-21 forkall | 45 min | copy every thread: registers + stack + record |
 | [ ] | A2-02 page backup | 40 min | the block device |
 
 ## 3 · Type E – the kernel reacts to an event
@@ -118,12 +128,14 @@ After day 14: the week before the AG (16–20 Nov) – see section 7 below.
 |---|---|---|
 | [ ] | A0-08 pthread_create | every step of your team's thread creation |
 | [ ] | A1-01 pthread_join | your join – and the panic when the process exits (fix it in the team repo!) |
-| [ ] | A1-06 pthread_cancel | your cancel – and the joiner that cannot be cancelled (fix it!) |
+| [ ] | A1-06 pthread_cancel | your cancel – the cancellation point in `pthread_join` you fixed on 18 Oct |
+| [ ] | A0-13 atexit | your `atexit` – explain it, then write it again from a stub |
+| [ ] | A1-20 pthread_detach | your detach – explain it, then write it again from a stub |
 
 ## 6 · The remaining tasks (when everything above is ticked)
 
 A0-04 magic page (E), A1-10 shared page (S + E), A2-03 heap swap, A2-04 XOR swap, A2-05 dirty swap (E,
-on top of A2-01), A2-07 mprotect (S + E). With these, every one of the 46 tasks is done once.
+on top of A2-01), A2-07 mprotect (S + E). With these, every one of the 48 tasks is done once.
 
 ## 7 · The week before each interview
 
@@ -131,4 +143,5 @@ on top of A2-01), A2-07 mprotect (S + E). With these, every one of the 46 tasks 
 - [ ] one task of every type U, S, E, A/K – in the time box
 - [ ] `task quiz 20`, the Anki deck due cards
 - [ ] the cheat sheet ([a0/cheatsheet.pdf](a0/cheatsheet.pdf)) once more
-- [ ] 15 minutes in the team repo itself: `git pull`, what changed since `team/BASE`?
+- [ ] 15 minutes in the team repo itself: `git pull`, what changed since `team/BASE`? (pinned:
+  `f78faff3`, 19 Oct – if a lot changed, ask Claude to re-pin)

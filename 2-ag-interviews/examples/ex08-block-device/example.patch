@@ -1,5 +1,5 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..ac4a0827 100644
+index 3b55c7a6..4375cf0b 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
 @@ -3,6 +3,8 @@
@@ -11,9 +11,9 @@ index a996aca5..ac4a0827 100644
  class Syscall
  {
    public:
-@@ -33,6 +35,10 @@ class Syscall
-     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+@@ -38,6 +40,10 @@ class Syscall
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
  
 +    // EX08
 +    static size_t diskNote(size_t write, size_t user_buffer);
@@ -23,7 +23,7 @@ index a996aca5..ac4a0827 100644
      static size_t getProcessCount();
  
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..4b807e59 100644
+index db84270e..4ea70a55 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,9 @@
@@ -37,7 +37,7 @@ index 51f0de2a..4b807e59 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..c4b1aac5 100644
+index 178fc3a2..aecb6f6f 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,11 @@
@@ -52,7 +52,7 @@ index 86cf85a2..c4b1aac5 100644
  #include "UserProcess.h"
  #include "UserThread.h"
  
-@@ -105,6 +110,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -112,6 +117,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_getppid:
        return_value = getppid();
        break;
@@ -62,7 +62,7 @@ index 86cf85a2..c4b1aac5 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -411,6 +419,38 @@ void Syscall::trace()
+@@ -503,6 +511,38 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  

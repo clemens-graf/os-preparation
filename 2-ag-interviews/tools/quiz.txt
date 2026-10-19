@@ -15,14 +15,14 @@ Where is a process deleted, and what frees its pages?|~UserProcess (last thread 
 Where does pthread_join wait, and who wakes it?|joinThread: thread_exited_.wait(); exitThread broadcasts|common/source/kernel/UserProcess.cpp
 How do you get a thread of your process by id?|process->findThreadDataByTid(tid)->thread_ (hold thread_lock_)|common/source/kernel/UserProcess.cpp
 Where are malloc, free, calloc, realloc - and what do they do now?|stdlib.c - stubs, they return 0|userspace/libc/src/stdlib.c
-Which pthread functions are stubs?|mutex_*, cond_*, spin_*, detach, setcancelstate/type|userspace/libc/src/pthread.c
+Which pthread functions are stubs?|mutex_*, cond_*, spin_*, setcancelstate/type (detach and equal work now)|userspace/libc/src/pthread.c
 Where is the "check pointer + copy string from user space" helper?|Syscall::copyUserString|common/source/kernel/Syscall.cpp
 Where are the bits of a page-table entry (present, writeable, NX, free bits)?|PageTableEntry|arch/x86/64/include/paging-definitions.h
 How do you read a physical page from the kernel?|(char*) ArchMemory::getIdentAddressOfPPN(ppn)|arch/x86/64/include/ArchMemory.h
 Where are the swap partition and the other disks found?|BDManager::getInstance()->getDeviceByName("idea2")|common/source/fs/BDManager.cpp
 Where is USER_BREAK defined, and what is it?|offsets.h: 0x800000000000, end of user space|arch/x86/64/include/offsets.h
 Where do you add your own debug flag?|const size_t NAME = Ansi_Cyan | OUTPUT_ENABLED;|common/include/console/debug.h
-TASK: "implement atexit" - which type, where do you start?|U: libc only - stub in stdlib.c, call the handlers in exit() (exec.c)|TRIAGE.md, A0-13
+TASK: "implement atexit" - which type, where do you start?|U: libc only - stdlib.c, the handlers are called in exit() (exec.c); your team has your version now|TRIAGE.md, A0-13
 TASK: "malloc and free should work" - type, start?|U: stdlib.c - a static pool + block headers, no syscall needed|A1-14
 TASK: "add strncpy to the libc" - type, start?|U: declare in string.h, implement in string.c|A0-14
 TASK: "pthread_mutex_lock must really lock" - type, start?|U: pthread.c - one atomic test-and-set + sched_yield|A1-15
@@ -41,4 +41,7 @@ TASK: "pthread_join must work" - type, start?|S: UserProcess::joinThread - recor
 TASK: "never execute data or stack" - type, start?|E: execution_disabled bit in loadPage and mapStackPage|A2-08
 TASK: "mmap(MAP_ANONYMOUS) should work" - type, start?|S + E: regions in UserProcess, pages mapped on demand in the page fault handler|mman.c stub, A2-13
 TASK: "store a message on the disk that survives a reboot" - type, start?|E (boot) + S: BDManager getDeviceByName("idea2"), readData/writeData at boot|A2-11
-TASK: "pthread_detach" - type, start?|S: detached_ flag in UserThreadData, exitThread frees the record|pthread.c stub, A1-20
+TASK: "pthread_detach" - type, start?|S: detached_ flag in UserThreadData, exitThread frees the record (your team has it: detachThread)|UserProcess.cpp, A1-20
+Where does a cancelled thread that sleeps in pthread_join end?|joinThread returns JOIN_CANCELED, Syscall::pthreadJoin calls exitThread(PTHREAD_CANCELED_VALUE) outside the lock|UserProcess.cpp, Syscall.cpp
+TASK: "forkall" - type, where do you start?|S: next to UserProcess::fork - copy every UserThreadData + thread (registers, stack top), same tids|UserProcess.cpp, A1-21
+TASK: "pthread_switch / switch registers" - type?|A + U: save callee-saved regs + rsp, load the other rsp, ret - libc with __asm__|A1-22

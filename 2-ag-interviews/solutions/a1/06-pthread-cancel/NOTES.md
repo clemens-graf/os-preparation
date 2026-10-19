@@ -22,7 +22,15 @@ if (process && process->isCancelRequested(currentThread->getTID()))
 
 `pthread_testcancel` is an empty syscall: the check at the top of `syscallException` does the work.
 
-## What the course test shows: 2 pass, then it hangs
+## Status on `f78faff3` (19 Oct): all 9 checks pass
+
+Your `feature/pthread-cancel-points` (18 Oct) is exactly the fix sketched below: `cancelThread`
+broadcasts `thread_exited_` after setting the flag; `joinThread` checks the caller's own
+`requested_cancel_` in its wait loop, gives the target back (`joined_ = false`) and returns
+`JOIN_CANCELED`; `Syscall::pthreadJoin` then calls `exitThread(PTHREAD_CANCELED_VALUE)` –
+outside the lock. The rest of these notes is the analysis of the old code (`40140475`).
+
+## What the course test showed on 13 Oct: 2 pass, then it hangs
 
 Check 3: thread J sleeps in `pthread_join` (in `thread_exited_.wait()`), main cancels J and joins it.
 

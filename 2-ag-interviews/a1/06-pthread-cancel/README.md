@@ -24,16 +24,20 @@ computing thread that is only cancelled at its next syscall.
 ## Your team's code: a study task
 
 Your team already has deferred `pthread_cancel` (your own P2 work, numbers 1502/1503) –
-`task solution a1-06` is `main` plus the course test. On `40140475` the first 2 checks pass,
-then the test **hangs** at "a thread sleeping in pthread_join is cancelled": `pthread_join` is a
-cancellation point in POSIX, but your cancel never wakes a sleeping joiner. The
-[notes](../../solutions/a1/06-pthread-cancel/NOTES.md) explain it and show the fix.
+`task solution a1-06` is `main` plus the course test. **On `f78faff3` all 9 checks pass.** Until
+13 Oct (`40140475`) the test hung at "a thread sleeping in pthread_join is cancelled" – your
+`feature/pthread-cancel-points` (merged 18 Oct) fixed exactly that: `cancelThread` now broadcasts
+`thread_exited_`, the join loop checks the caller's own cancel flag and returns `JOIN_CANCELED`,
+and `Syscall::pthreadJoin` then ends the thread with `exitThread(PTHREAD_CANCELED_VALUE)` – after
+the lock is released. The [notes](../../solutions/a1/06-pthread-cancel/NOTES.md) explain the old
+bug and why the fix works – a tutor may well ask about both.
 
 Where to look:
 
 | What | Your team's code |
 |---|---|
-| syscall | `Syscall::pthreadCancel` → `UserProcess::cancelThread(tid)`: sets `requested_cancel_` under `thread_lock_` |
+| syscall | `Syscall::pthreadCancel` → `UserProcess::cancelThread(tid)`: sets `requested_cancel_` and broadcasts `thread_exited_`, under `thread_lock_` |
+| cancelled while joining | `joinThread`'s wait loop: own `requested_cancel_` → `joined_ = false`, return `JOIN_CANCELED`; `Syscall::pthreadJoin` → `exitThread(PTHREAD_CANCELED_VALUE)` |
 | cancellation point | top of `Syscall::syscallException` (every syscall) and `pthread_testcancel` → `isCancelRequested` |
 | ending | the thread calls `exitThread(PTHREAD_CANCELED)` itself – at a safe point, holding no lock |
 

@@ -1,8 +1,8 @@
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index 746aed2b..ffc79841 100644
+index c40fcbe2..a59a9d51 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -58,6 +58,17 @@ extern int pthread_cond_broadcast(pthread_cond_t *cond);
+@@ -60,6 +60,17 @@ extern int pthread_cond_broadcast(pthread_cond_t *cond);
  
  extern int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
  
@@ -21,7 +21,7 @@ index 746aed2b..ffc79841 100644
  
  extern int pthread_setcanceltype(int type, int *oldtype);
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 7e3369e6..f46d5b7a 100644
+index 8b8448e4..f29a0d77 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
 @@ -1,4 +1,5 @@
@@ -30,7 +30,7 @@ index 7e3369e6..f46d5b7a 100644
  #include "unistd.h"
  #include "sys/syscall.h"
  #include "../../../common/include/kernel/syscall-definitions.h"
-@@ -40,7 +41,8 @@ pthread_t pthread_self(void)
+@@ -50,7 +51,8 @@ int pthread_equal(pthread_t t1, pthread_t t2)
   */
  int pthread_mutex_init(pthread_mutex_t *mutex, const pthread_mutexattr_t *attr)
  {
@@ -40,7 +40,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -93,7 +95,7 @@ int pthread_detach(pthread_t thread)
+@@ -103,7 +105,7 @@ int pthread_detach(pthread_t thread)
   */
  int pthread_mutex_destroy(pthread_mutex_t *mutex)
  {
@@ -49,7 +49,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -102,7 +104,7 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
+@@ -112,7 +114,7 @@ int pthread_mutex_destroy(pthread_mutex_t *mutex)
   */
  int pthread_mutex_lock(pthread_mutex_t *mutex)
  {
@@ -58,7 +58,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -111,7 +113,7 @@ int pthread_mutex_lock(pthread_mutex_t *mutex)
+@@ -121,7 +123,7 @@ int pthread_mutex_lock(pthread_mutex_t *mutex)
   */
  int pthread_mutex_unlock(pthread_mutex_t *mutex)
  {
@@ -67,7 +67,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -159,13 +161,19 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
+@@ -169,13 +171,19 @@ int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex)
    return -1;
  }
  
@@ -88,7 +88,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -174,7 +182,11 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
+@@ -184,7 +192,11 @@ int pthread_spin_destroy(pthread_spinlock_t *lock)
   */
  int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
  {
@@ -101,7 +101,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -183,7 +195,11 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
+@@ -193,7 +205,11 @@ int pthread_spin_init(pthread_spinlock_t *lock, int pshared)
   */
  int pthread_spin_lock(pthread_spinlock_t *lock)
  {
@@ -114,7 +114,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -192,7 +208,9 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
+@@ -202,7 +218,9 @@ int pthread_spin_lock(pthread_spinlock_t *lock)
   */
  int pthread_spin_trylock(pthread_spinlock_t *lock)
  {
@@ -125,7 +125,7 @@ index 7e3369e6..f46d5b7a 100644
  }
  
  /**
-@@ -201,7 +219,10 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
+@@ -211,7 +229,10 @@ int pthread_spin_trylock(pthread_spinlock_t *lock)
   */
  int pthread_spin_unlock(pthread_spinlock_t *lock)
  {

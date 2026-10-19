@@ -74,7 +74,7 @@
 \begin{tcolorbox}[enhanced, colback=cBlue, colframe=cBlue, arc=3mm, boxrule=0pt,
   interior style={left color=cBlue, right color=cPurple}, left=8pt, top=5pt, bottom=5pt]
   \color{white}{\LARGE\bfseries A0 Cheat Sheet}\hfill{\small team osw26e3 \textbullet{} SWEB x86-64}\\[2pt]
-  {\small Your team's code (\texttt{main} of 13 Oct, \texttt{40140475}) \textbullet{} the API you need for the
+  {\small Your team's code (\texttt{main} of 19 Oct, \texttt{f78faff3}) \textbullet{} the API you need for the
   interview \textbullet{} read it once, keep it next to CLion}
 \end{tcolorbox}
 
@@ -195,7 +195,7 @@ PageManager::instance()->getTotalNumPages();
 \end{tab}
 
 \smallskip
-\cc{UserThreadData}: \cc{thread\_}, \cc{exit\_value\_}, \cc{tid\_}, \cc{exited\_}, \cc{joined\_}, \cc{requested\_cancel\_}\\
+\cc{UserThreadData}: \cc{thread\_}, \cc{exit\_value\_}, \cc{tid\_}, \cc{exited\_}, \cc{joined\_}, \cc{requested\_cancel\_}, \cc{detached\_}\\
 \cc{UserThread}: \cc{user\_stack\_top\_}, \cc{lowest\_mapped\_stack\_vpn\_}
 \end{csec}
 
@@ -227,7 +227,7 @@ exit \textbf{9999} & invalid fault (null pointer, kernel address) \\
 \end{tab}
 \begin{tip}[cPink]
   Kernel headers: \cc{common/include/kernel/}. Your block: \textbf{1500--1999}
-  (taken: 1500 mkdir, 1501 join, 1502 cancel, 1503 testcancel, 1998/1999).
+  (taken: 1500 mkdir, 1501 join, 1502 cancel, 1503 testcancel, 1504 detach, 1998/1999).
   Also taken: 1000--1002 pthread\_create/exit/self, 2000--2002 fork/getpid/getppid, 2500 execv.
   Free: 1505, 1510/1511, \dots{} Then a test \cc{userspace/tests/foo\_basic.c}.
 \end{tip}

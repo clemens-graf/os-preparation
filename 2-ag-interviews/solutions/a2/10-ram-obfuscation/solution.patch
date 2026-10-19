@@ -82,10 +82,10 @@ index 00000000..d95672f7
 +    size_t nextRandom();
 +};
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..e1740ef6 100644
+index bc32c487..06fe704b 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -157,6 +157,19 @@ class UserProcess
+@@ -171,6 +171,19 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -106,13 +106,13 @@ index ec56f120..e1740ef6 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..02bd295b 100644
+index db84270e..4c43cf59 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,7 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,7 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_relocations 1780   // A2-10 (testing)
  #define sc_thread_count 1998
  #define sc_process_count 1999
@@ -163,7 +163,7 @@ index 00000000..87fdcfae
 +  }
 +}
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..5783e30d 100644
+index 178fc3a2..948ce88a 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -174,7 +174,7 @@ index 86cf85a2..5783e30d 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -88,6 +89,13 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,13 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -189,7 +189,7 @@ index 86cf85a2..5783e30d 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..a5fed960 100644
+index e32f2cda..3f0bdd07 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,13 +10,23 @@
@@ -232,7 +232,7 @@ index f37eb7ef..a5fed960 100644
  
    if (fd_ >= 0)
      VfsSyscall::close(fd_);
-@@ -550,3 +569,38 @@ void UserProcess::exitProcess()
+@@ -600,3 +619,38 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }

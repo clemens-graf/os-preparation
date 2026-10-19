@@ -114,12 +114,12 @@ index 6aff17ae..4b297982 100644
  {
    if (vaddress_to_check >= USER_BREAK && vaddress_to_check < KERNEL_START)
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..b0647343 100644
+index 3b55c7a6..15679ad4 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -33,6 +33,9 @@ class Syscall
-     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+@@ -38,6 +38,9 @@ class Syscall
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
  
 +    // A2-06: set by the Console thread on F3, consumed by the next syscall of any process
 +    static size_t f3_pending_;
@@ -128,10 +128,10 @@ index a996aca5..b0647343 100644
      static size_t getProcessCount();
  
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..b0054248 100644
+index bc32c487..f39d286c 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -157,6 +157,18 @@ class UserProcess
+@@ -171,6 +171,18 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -151,13 +151,13 @@ index ec56f120..b0054248 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..b0396edf 100644
+index db84270e..33a85f17 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,8 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,8 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_swapout 1720   // A2-01 (A2 tasks use 1720-1799)
 +#define sc_swapinfo 1721
  #define sc_thread_count 1998
@@ -231,10 +231,10 @@ index 6df1da55..96269fef 100644
        PageManager::instance()->printBitmap();
        kprintfd("Used kernel memory: %zu\n", KernelMemoryManager::instance()->getUsedKernelMemory(true));
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..6134be82 100644
+index 178fc3a2..cf225eff 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -9,15 +9,26 @@
+@@ -9,6 +9,8 @@
  #include "Scheduler.h"
  #include "UserProcess.h"
  #include "UserThread.h"
@@ -243,8 +243,9 @@ index 86cf85a2..6134be82 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
- #define PTHREAD_CANCELED_VALUE ((void*) -1)
+@@ -16,9 +18,18 @@
  #define PTHREAD_CANCEL_ERROR -1
+ #define PTHREAD_DETACH_ERROR -1
  
 +size_t Syscall::f3_pending_ = 0;   // A2-06
 +
@@ -261,7 +262,7 @@ index 86cf85a2..6134be82 100644
    if ((syscall_number != sc_sched_yield) && (syscall_number != sc_outline)) // no debug print because these might occur very often
    {
      debug(SYSCALL, "Syscall %zd called with arguments %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx)\n",
-@@ -88,6 +99,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +103,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -275,7 +276,7 @@ index 86cf85a2..6134be82 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..804ff896 100644
+index e32f2cda..96b3965f 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,7 +10,9 @@
@@ -296,7 +297,7 @@ index f37eb7ef..804ff896 100644
    delete arch_memory_;
  
    debug(USERPROCESS, "signaling ProcessRegistry the deletion for process with ppid: %zu, pid: %zu filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
-@@ -550,3 +553,68 @@ void UserProcess::exitProcess()
+@@ -600,3 +603,68 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }

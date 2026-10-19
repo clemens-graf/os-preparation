@@ -36,22 +36,22 @@ index c67def30..3b67e17a 100644
  };
  
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..8f700d29 100644
+index 3b55c7a6..36143762 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -32,6 +32,7 @@ class Syscall
- 
+@@ -37,6 +37,7 @@ class Syscall
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
 +    static size_t waitpid(size_t pid, size_t status);   // A1-19
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..705a83e7 100644
+index bc32c487..b1b1a520 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -157,6 +157,8 @@ class UserProcess
+@@ -171,6 +171,8 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -61,13 +61,13 @@ index ec56f120..705a83e7 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..74b83c52 100644
+index db84270e..6d4396a7 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,7 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,7 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_waitpid 1717   // A1-19
  #define sc_thread_count 1998
  #define sc_process_count 1999
@@ -158,10 +158,10 @@ index 94f2a4e0..ea5704b2 100644
 +  }
 +}
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..6da7ddf3 100644
+index 178fc3a2..99c78688 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -88,6 +88,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +92,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -171,7 +171,7 @@ index 86cf85a2..6da7ddf3 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -291,6 +294,7 @@ void Syscall::exit(size_t exit_code)
+@@ -383,6 +386,7 @@ void Syscall::exit(size_t exit_code)
    UserProcess* process = currentThread->getProcess();
    assert(process && "current Thread has no process\n");
  
@@ -179,7 +179,7 @@ index 86cf85a2..6da7ddf3 100644
    process->exitProcess();
  
    delete process->findThreadData(caller);
-@@ -448,3 +452,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +544,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -197,7 +197,7 @@ index 86cf85a2..6da7ddf3 100644
 +  return pid;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..a1b68b1e 100644
+index e32f2cda..3e85ff72 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -17,6 +17,7 @@ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info,

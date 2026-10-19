@@ -1,20 +1,20 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..a94f22bb 100644
+index 3b55c7a6..d4cbaef1 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -32,6 +32,7 @@ class Syscall
- 
+@@ -37,6 +37,7 @@ class Syscall
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
 +    static size_t swapPeek(size_t address, size_t user_buffer);   // A2-04
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 7c564a65..3775a878 100644
+index 9bbdeff6..907ad688 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -166,6 +166,9 @@ class UserProcess
+@@ -180,6 +180,9 @@ class UserProcess
       */
      bool swapIn(size_t vpn);
  
@@ -25,13 +25,13 @@ index 7c564a65..3775a878 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index b0396edf..4052512f 100644
+index 33a85f17..5daccf7f 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,7 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,7 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_swappeek 1740   // A2-04 (testing)
  #define sc_swapout 1720   // A2-01 (A2 tasks use 1720-1799)
  #define sc_swapinfo 1721
@@ -59,7 +59,7 @@ index 801f850a..33266369 100644
 +    void crypt(char* page);  // A2-04: XOR with the key - encrypts and decrypts
  };
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index be6e68e9..2aa6950f 100644
+index 98826faf..71d86189 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -70,7 +70,7 @@ index be6e68e9..2aa6950f 100644
  #include "SwapManager.h"
  
  #define PTHREAD_CREATE_ERROR -1
-@@ -95,6 +96,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -99,6 +100,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_swapinfo:
        return_value = SwapManager::instance()->usedSlots();
        break;
@@ -80,7 +80,7 @@ index be6e68e9..2aa6950f 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -455,3 +459,15 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -547,3 +551,15 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -97,10 +97,10 @@ index be6e68e9..2aa6950f 100644
 +  return 0;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 42479e1c..9530be40 100644
+index 90f56e71..c1b14e8f 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -601,3 +601,14 @@ bool UserProcess::swapIn(size_t vpn)
+@@ -651,3 +651,14 @@ bool UserProcess::swapIn(size_t vpn)
    pte.present = 1;                            // last: only now may the process use it again
    return true;
  }

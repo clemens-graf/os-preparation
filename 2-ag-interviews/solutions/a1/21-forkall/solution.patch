@@ -1,0 +1,205 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 3b55c7a6..fb55ddb4 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -22,6 +22,7 @@ class Syscall
+ 
+     // process stuff
+     static size_t fork();
++    static size_t forkall();   // A1-21
+     static size_t getpid();
+     static size_t getppid();
+     // checks the length of a userspace string without reading past USER_BREAK or past max_size bytes.
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index bc32c487..54acc40f 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -85,6 +85,15 @@ class UserProcess
+      */
+     size_t fork(UserThread* thread_to_clone_from);
+ 
++    /**
++     * A1-21: like fork, but the child gets a copy of EVERY thread (and every thread record).
++     * The caller's copy returns 0, copies of threads that were inside a syscall see -1,
++     * all others continue exactly where they were.
++     *
++     * @return the pid of the child, or -1
++     */
++    size_t forkall(UserThread* caller);
++
+     UserThread* createThread(void* entry, bool start_with_args, void* start_routine, void* arg);
+ 
+     void threadExited();
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index d3bb979d..c363d76e 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -45,6 +45,9 @@ public:
+   size_t getUserStackLowestMappedVpn() {return lowest_mapped_stack_vpn_;}
+   void setUserStackLowestMappedVpn(size_t new_lowest) {lowest_mapped_stack_vpn_ = new_lowest;}
+ 
++  // A1-21: true while the thread is inside a syscall (set/cleared in Syscall::syscallException)
++  bool in_syscall_ = false;
++
+ private:
+   bool registered_in_process_ = false;
+   void* user_stack_top_ = 0;
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..7b48bb83 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,7 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_forkall 1720   // A1-21
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..84647be1 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -19,6 +19,7 @@
+ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2, size_t arg3, size_t arg4, size_t arg5)
+ {
+   size_t return_value = 0;
++  static_cast<UserThread*>(currentThread)->in_syscall_ = true;   // A1-21: forkall must know this
+   if ((syscall_number != sc_sched_yield) && (syscall_number != sc_outline)) // no debug print because these might occur very often
+   {
+     debug(SYSCALL, "Syscall %zd called with arguments %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx) %zd(=%zx)\n",
+@@ -106,6 +107,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_fork:
+       return_value = fork();
+       break;
++    case sc_forkall:
++      return_value = forkall();
++      break;
+     case sc_getpid:
+       return_value = getpid();
+       break;
+@@ -117,6 +121,7 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+       debug(WARN, "unimplemented syscall %zd\n", syscall_number);
+       kprintf("Syscall::syscallException: Unimplemented Syscall Number %zd\n", syscall_number);
+   }
++  static_cast<UserThread*>(currentThread)->in_syscall_ = false;   // A1-21
+   return return_value;
+ }
+ 
+@@ -355,6 +360,14 @@ size_t Syscall::fork()
+   return child_pid;
+ }
+ 
++// A1-21
++size_t Syscall::forkall()
++{
++  UserProcess* process = currentThread->getProcess();
++  assert(process && "current process has to exist");
++  return process->forkall(static_cast<UserThread*>(currentThread));   // child pid, or -1
++}
++
+ size_t Syscall::getpid()
+ {
+   UserProcess* current_process = currentThread->getProcess();
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index e32f2cda..ad98f6f2 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -168,6 +168,65 @@ size_t UserProcess::fork(UserThread* thread_to_clone_from)
+   return child_pid;
+ }
+ 
++// A1-21
++size_t UserProcess::forkall(UserThread* caller)
++{
++  int child_fd = -1;
++  Loader* child_loader = loadExecutable(filename_.c_str(), child_fd);   // disk i/o: before taking the lock
++  if (!child_loader)
++    return (size_t) -1;
++
++  ustl::vector<UserThread*> copies;
++  UserThread* caller_copy = nullptr;
++  UserProcess* child = nullptr;
++  {
++    // the thread list, the stack slots and the page tables must not change while we copy them
++    ScopeLock lock(thread_lock_);
++
++    child = new UserProcess(filename_, new FileSystemInfo(*working_dir_), terminal_number_,
++                            child_loader, child_fd, getPID(), new ArchMemory(*arch_memory_));
++    child->next_stack_slot_ = next_stack_slot_;      // the copied stacks keep their slots
++
++    for (size_t i = 0; i < threads_.size(); i++)
++    {
++      UserThreadData* data = threads_[i];
++      if (!data)
++        continue;
++      UserThreadData* data_copy = new UserThreadData(*data);   // tid, exit value, exited, detached, ...
++      data_copy->joined_ = false;                              // nobody in the child is joining yet
++      UserThread* original = data->thread_;
++      if (original)                                            // still running: copy the thread too
++      {
++        UserThread* copy = new UserThread(child, original);    // registers copied, rax = 0
++        copy->setTID(data->tid_);                              // same tid: pthread_t values in memory stay valid
++        copy->setUserStackTop(original->getUserStackTop());
++        copy->setUserStackLowestMappedVpn(original->getUserStackLowestMappedVpn());
++        if (original != caller)
++          copy->user_registers_->rax = original->in_syscall_ ? (size_t) -1    // its syscall "fails" in the child
++                                                              : original->user_registers_->rax;
++        copy->setRegisteredInProcess(true);
++        child->running_threads_++;
++        data_copy->thread_ = copy;
++        if (original == caller)
++          caller_copy = copy;
++        else
++          copies.push_back(copy);
++      }
++      child->threads_.push_back(data_copy);
++    }
++  }
++  assert(caller_copy && "the caller must be in its own thread list");
++
++  // hold the child's lock until every thread is known to the scheduler: if a copy calls exit()
++  // at once, exitProcess must not find threads that the scheduler does not know yet
++  ScopeLock child_lock(child->thread_lock_);
++  size_t child_pid = child->getPID();
++  child->startProcess(caller_copy);
++  for (size_t i = 0; i < copies.size(); i++)
++    Scheduler::instance()->addNewThread(copies[i]);
++  return child_pid;
++}
++
+ UserThread* UserProcess::createThread(void* entry, bool start_with_args, void* start_routine, void* arg)
+ {
+   debug(USERPROCESS, "new thread creation started\n");
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..f2397e74 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -26,6 +26,11 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++/**
++ * A1-21: like fork(), but the child gets a copy of every thread of the process
++ */
++extern int forkall(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..f8a4d342 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,9 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++int forkall(void)
++{
++  return __syscall(sc_forkall, 0x00, 0x00, 0x00, 0x00, 0x00);
++}

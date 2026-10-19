@@ -1,5 +1,5 @@
 diff --git a/userspace/libc/src/stdlib.c b/userspace/libc/src/stdlib.c
-index 5f07407c..589fe9a8 100644
+index 5f8ea361..ee74cd28 100644
 --- a/userspace/libc/src/stdlib.c
 +++ b/userspace/libc/src/stdlib.c
 @@ -1,12 +1,53 @@
@@ -56,8 +56,8 @@ index 5f07407c..589fe9a8 100644
 +  block->used = 0;
  }
  
- int atexit(void (*function)(void))
-@@ -16,10 +57,30 @@ int atexit(void (*function)(void))
+ static void (*atexit_functions[ATEXIT_MAX])(void);
+@@ -33,10 +74,30 @@ void __runAtexitFunctions(void)
  
  void *calloc(size_t nmemb, size_t size)
  {

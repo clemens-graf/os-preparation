@@ -348,7 +348,9 @@ counter in the libc, filled by \code{atexit}, run by \code{exit}. A handler that
 \end{center}
 
 \inteam \code{\_start} in \file{nonstd.c}: \code{exit(main())}; \code{exit} and \code{\_exit} in
-\file{exec.c} (both only make the syscall today); \code{atexit} stub in \file{stdlib.c}. Kernel:
+\file{exec.c}: \code{exit} first calls \code{\_\_runAtexitFunctions()}, \code{\_exit} only the
+syscall; \code{atexit} itself (\code{atexit\_functions[ATEXIT\_MAX]} + \code{atexit\_count}) in
+\file{stdlib.c} --- your own A0 version, merged on 18 Oct. Kernel:
 \code{Syscall::exit} $\to$ \code{UserProcess::exitProcess} (kills all threads) $\to$ the last
 thread's destructor deletes the process.
 
@@ -415,11 +417,12 @@ is an \emph{orphan}; nobody can wait for it any more.
 \end{center}
 
 \inteam \code{UserProcess::fork} (deep copy via the \code{ArchMemory} copy constructor, child thread
-with \code{rax = 0}), \code{UserProcess::exec}; pids from \code{ProcessRegistry}. \code{waitpid} is a
-stub in \file{wait.c} (Felix is working on it); the course task A1-19 keeps the exit codes in a fixed
+with \code{rax = 0}), \code{UserProcess::exec}; pids from \code{ProcessRegistry}. \code{waitpid} is still a stub in \file{wait.c} (19 Oct); the course task A1-19 keeps the exit codes in a fixed
 table in the \code{ProcessRegistry}, filled in \code{\textasciitilde UserProcess}.
 
-\pitfalls Keeping the exit code in the process object (it is deleted). Copying all threads in fork.
+\pitfalls Keeping the exit code in the process object (it is deleted). Copying all threads in fork
+(POSIX copies only the caller --- copying all of them is \emph{forkall}, A1-21). Forgetting to copy a
+thread's stack bookkeeping: your team's \code{fork} child cannot grow its stack (666).
 Destroying the old address space in exec before the new program is loaded.
 
 \begin{selfcheck}
@@ -432,6 +435,7 @@ Destroying the old address space in exec before the new program is loaded.
 3. zombie: ended, parent has not waited yet; orphan: its parent has ended.}
 \begin{taskex}
   A1-19 waitpid & ex01 syscalls (the syscall), ex06 kernel thread (sleeping until another thread signals) \\
+  A1-21 forkall & ex06 kernel thread (object lifetime), ex05 registers (a thread = its saved registers + stack) \\
 \end{taskex}
 
 % =====================================================================================
@@ -616,6 +620,7 @@ saved \code{rsp} points into the stack -- frames written since then would be wro
 \code{rax} when the thread returns to user mode.}
 \begin{taskex}
   A0-07 upcall & ex05 registers (push the old \code{rip}, jump) \\
+  A1-22 pthread\_switch & ex05 registers, ex14 libc function (the switch in \code{\_\_asm\_\_}, libc only) \\
   A1-08 snapshot & ex05 registers (save / restore \code{user\_registers\_}) \\
   A0-06 segv handler & ex05 registers, ex03 stack growth (the page fault that triggers it) \\
 \end{taskex}

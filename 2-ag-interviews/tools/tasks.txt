@@ -59,3 +59,5 @@ a2-10|a2/10-ram-obfuscation|main|-n 2 --expect-pass 2|obfuscation_basic.sweb;mul
 a2-11|a2/11-boot-counter|main|-n 2 --keep-disk --expect-pass 4|bootcount_basic.sweb
 a2-12|a2/12-syscall-blacklist|main|--expect-pass 5|blacklist_basic.sweb;mult.sweb;exit
 a2-13|a2/13-mmap|main|--expect-pass 11|mmap_basic.sweb;exit
+a1-21|a1/21-forkall|main|--expect-pass 7|forkall_basic.sweb;exit
+a1-22|a1/22-pthread-switch|main|--expect-pass 7|switch_basic.sweb;switch_return.sweb;exit

@@ -14,7 +14,7 @@ Theory: [concepts.pdf](../../concepts.pdf) §7 C strings, §5 (atexit – the sa
 | 2 | `userspace/libc/src/qsort.c`, `strtok.c` | the implementation. New `.c` files are found by a glob, so cmake has to run again (`task test` always does) |
 | 3 | `userspace/tests/*.c` | a program that uses it |
 
-If the stub already exists (as `atexit`, `malloc` and `sem_*` do in your libc), you only fill
+If the stub already exists (as `malloc` and `sem_*` do in your libc), you only fill
 in place 2.
 
 The exact, complete change: `example.patch` in this folder, or `task example ex14` and then

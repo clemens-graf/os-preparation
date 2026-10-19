@@ -152,8 +152,8 @@ No TLB flush is needed after \code{mapPage}: the entry was not present before.
 \section{Not every task is a syscall: \code{atexit}}
 \label{sec:atexit}
 
-Our own A0 (14 Oct 2026) asked for \code{atexit} --- nothing in the kernel at all. The stub is in
-\file{userspace/libc/src/stdlib.c}; \code{exit()} is in \file{exec.c}; \code{\_start}
+Our own A0 (14 Oct 2026) asked for \code{atexit} --- nothing in the kernel at all. Since 18 Oct
+your version is in the team's \code{main} (\file{userspace/libc/src/stdlib.c}); \code{exit()} is in \file{exec.c}; \code{\_start}
 (\file{nonstd.c}) calls \code{exit(main())}. Task A0-13; more of that kind: A0-14 (string
 functions), A1-14 \ldots{} A1-17 (malloc, locks, semaphores, condition variables).
 

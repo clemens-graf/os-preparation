@@ -61,10 +61,10 @@ index e9c4233f..4e04fd08 100644
  }
  
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..85ba0e70 100644
+index e32f2cda..ae7c10d2 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -339,6 +339,8 @@ bool UserProcess::mapStackPage(size_t ppn, size_t vpn, size_t user_access)
+@@ -340,6 +340,8 @@ bool UserProcess::mapStackPage(size_t ppn, size_t vpn, size_t user_access)
  {
    bool vpn_mapped = arch_memory_->mapPage(vpn, ppn, user_access);
    assert(vpn_mapped && "Virtual page for stack was already mapped - this should never happen");

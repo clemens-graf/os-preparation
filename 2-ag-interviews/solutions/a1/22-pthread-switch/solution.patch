@@ -1,0 +1,96 @@
+diff --git a/userspace/libc/include/context.h b/userspace/libc/include/context.h
+new file mode 100644
+index 00000000..61065943
+--- /dev/null
++++ b/userspace/libc/include/context.h
+@@ -0,0 +1,32 @@
++#pragma once
++
++#include "types.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++/**
++ * A1-22: a saved execution context. Only the stack pointer is stored here -
++ * the callee-saved registers and the return address are on that stack.
++ */
++typedef struct
++{
++  size_t rsp;
++} context_t;
++
++/**
++ * Prepares ctx so that the first context_switch to it calls function(arg) on the given stack.
++ * If function returns, the process exits with 0.
++ */
++extern void context_make(context_t* ctx, void* stack, size_t stack_size, void (*function)(void*), void* arg);
++
++/**
++ * Saves the running context in *from and continues with *to.
++ * Returns only when some code switches back to *from.
++ */
++extern void context_switch(context_t* from, context_t* to);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/userspace/libc/src/context.c b/userspace/libc/src/context.c
+new file mode 100644
+index 00000000..a806d4ec
+--- /dev/null
++++ b/userspace/libc/src/context.c
+@@ -0,0 +1,52 @@
++#include "context.h"
++#include "stdlib.h"
++
++// A1-22: context_switch(from = rdi, to = rsi)
++// Only the callee-saved registers have to survive a function call (System V ABI) - everything
++// else the caller of context_switch has saved itself. rip is the return address: already on
++// the stack, pushed by the call.
++__asm__(
++  ".globl context_switch\n"
++  "context_switch:\n"
++  "  pushq %rbp\n"
++  "  pushq %rbx\n"
++  "  pushq %r12\n"
++  "  pushq %r13\n"
++  "  pushq %r14\n"
++  "  pushq %r15\n"
++  "  movq %rsp, (%rdi)\n"       // from->rsp = rsp: the whole old context is now saved
++  "  movq (%rsi), %rsp\n"       // rsp = to->rsp: from here on we are on the other stack
++  "  popq %r15\n"
++  "  popq %r14\n"
++  "  popq %r13\n"
++  "  popq %r12\n"
++  "  popq %rbx\n"
++  "  popq %rbp\n"
++  "  ret\n"                     // pops the return address of the other context
++);
++
++// A1-22: the first "return" into a new context lands here, with r12 = function, r13 = arg
++__asm__(
++  ".globl __context_trampoline\n"
++  "__context_trampoline:\n"
++  "  movq %r13, %rdi\n"         // first argument
++  "  callq *%r12\n"             // function(arg)
++  "  xorl %edi, %edi\n"
++  "  call exit\n"               // function returned: nothing to return to
++);
++extern void __context_trampoline(void);
++
++void context_make(context_t* ctx, void* stack, size_t stack_size, void (*function)(void*), void* arg)
++{
++  // the top of the stack, 16-byte aligned: after the final ret of context_switch rsp is
++  // exactly here, and the call in the trampoline then gives function the aligned stack it expects
++  size_t* sp = (size_t*) (((size_t) stack + stack_size) & ~0xFUL);
++  *--sp = (size_t) __context_trampoline;   // popped by ret
++  *--sp = 0;                               // rbp
++  *--sp = 0;                               // rbx
++  *--sp = (size_t) function;               // r12
++  *--sp = (size_t) arg;                    // r13
++  *--sp = 0;                               // r14
++  *--sp = 0;                               // r15
++  ctx->rsp = (size_t) sp;                  // exactly what context_switch saves for a running context
++}

@@ -69,7 +69,7 @@ Plus **kernel threads** that run on their own: `Console` (keyboard input), `Proc
 ### A program ends
 ```
 main returns            → _start: exit(main())                      libc nonstd.c
-exit(status)            → (atexit functions would run HERE)          libc exec.c
+exit(status)            → __runAtexitFunctions(): atexit, backwards   libc exec.c, stdlib.c
                         → __syscall(sc_exit, status)                 libc exec.c
 _exit(status)           → __syscall(sc_exit, status)  (no atexit!)   libc exec.c
 Syscall::exit           → process->exitProcess()                     Syscall.cpp
@@ -126,8 +126,10 @@ UserThread constructor           → createUserRegisters(rip = pthread_start), s
 pthread_start (libc)             → pthread_exit(start_routine(arg))
 ```
 `pthread_exit` → `UserProcess::exitThread`; `pthread_join` → `joinThread` (waits on
-`thread_exited_`); `pthread_cancel` → `cancelThread` (sets `requested_cancel_`, checked at
-syscall entry / `pthread_testcancel`).
+`thread_exited_`); `pthread_cancel` → `cancelThread` (sets `requested_cancel_` + broadcasts,
+checked at syscall entry / `pthread_testcancel` / in join's wait loop → `JOIN_CANCELED`);
+`pthread_detach` → `detachThread` (`detached_`: `exitThread` deletes the record);
+`pthread_equal` → `pthreadEqual` (compares the tids).
 
 ### fork / exec
 `fork` → `Syscall::fork` → `UserProcess::fork`: `new ArchMemory(parent)` (copy constructor
@@ -149,9 +151,9 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 | `tests/shell.c` | the shell: reads a line, `createprocess(name)` |
 | `libc/include/nonstd.h` ★ | SWEB-only functions: `createprocess`, `getThreadCount`, `getProcessCount` – **your own syscall wrappers go here** |
 | `libc/src/nonstd.c` ★ | their implementations (`__syscall(...)`) and **`_start`** (`exit(main())`) – where every program starts |
-| `libc/include/stdlib.h` / `src/stdlib.c` ★ | `malloc`, `free`, `calloc`, `realloc`, `atexit` – **all STUBS**; `atoi`/`atol` are in `atoi.c` |
-| `libc/src/exec.c` ★ | `exit` (only the syscall – **atexit functions must be called here**), `_exit`, `fork`, `execv` |
-| `libc/include/pthread.h` / `src/pthread.c` ★ | `pthread_create` (+ the trampoline `pthread_start`), `pthread_exit`, `join`, `cancel`, `testcancel`, `self` work; **STUBS:** `pthread_mutex_*`, `pthread_cond_*`, `pthread_spin_*`, `pthread_detach`, `pthread_setcancelstate/type`. Types: `pthread_t` = `size_t`, `pthread_mutex_t`/`pthread_spinlock_t`/`pthread_cond_t` = `unsigned int` |
+| `libc/include/stdlib.h` / `src/stdlib.c` ★ | `atexit` (your A0 version: `atexit_functions[ATEXIT_MAX]`, `__runAtexitFunctions`); `malloc`, `free`, `calloc`, `realloc` – **STUBS**; `atoi`/`atol` are in `atoi.c` |
+| `libc/src/exec.c` ★ | `exit` (`__runAtexitFunctions()`, then the syscall), `_exit` (syscall only), `fork`, `execv` |
+| `libc/include/pthread.h` / `src/pthread.c` ★ | `pthread_create` (+ the trampoline `pthread_start`), `pthread_exit`, `join`, `cancel`, `testcancel`, `self`, `equal`, `detach` work; **STUBS:** `pthread_mutex_*`, `pthread_cond_*`, `pthread_spin_*`, `pthread_setcancelstate/type`. Types: `pthread_t` = `size_t`, `pthread_mutex_t`/`pthread_spinlock_t`/`pthread_cond_t` = `unsigned int` |
 | `libc/include/semaphore.h` / `src/semaphore.c` | `sem_init/wait/trywait/post/destroy` – **all STUBS**; `sem_t` = `unsigned int` |
 | `libc/src/unistd.c` | `getpid`, `getppid` work; **STUBS:** `brk`, `sbrk`, `sleep`, `ftruncate` |
 | `libc/src/time.c` | `clock` – **STUB** (`CLOCKS_PER_SEC` 1000000 in `time.h`) |
@@ -169,11 +171,11 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 
 | File | What is in it |
 |---|---|
-| `Syscall.cpp` ★ | `syscallException` (the switch) and every syscall: `exit`, `write`, `read`, `open`, `close`, `createprocess`, `pthreadCreate/Exit/Join/Cancel/Self`, `fork`, `execv`, `getpid`, `mkdir`, `getThreadCount`, `getProcessCount`; helper `copyUserString` (safe user-string copy) |
+| `Syscall.cpp` ★ | `syscallException` (the switch) and every syscall: `exit`, `write`, `read`, `open`, `close`, `createprocess`, `pthreadCreate/Exit/Join/Cancel/Self/Equal/Detach`, `fork`, `execv`, `getpid`, `mkdir`, `getThreadCount`, `getProcessCount`; helper `copyUserString` (safe user-string copy) |
 | `../include/kernel/syscall-definitions.h` ★ | every `sc_…` number – included by kernel **and** libc. Your block 1500–1999 |
 | `../include/kernel/Syscall.h` ★ | the declarations (`static size_t x(...)`) |
-| `UserProcess.cpp` ★ | **the process**: `create`, `startProcess`, `fork`, `exec`, `createThread`, `registerThread`, `threadExited`; stacks: `allocateNewStack`, `allocateStackPage`, `mapStackPage`, `isGuardPage`; threads: `exitThread`, `joinThread`, `cancelThread`, `isCancelRequested`, `findThreadData(ByTid)`, `exitProcess`; `getAddressSpace`, `getLoader`, `getThreadLock`; destructor frees loader + address space. **Per-process state goes here** |
-| `../include/kernel/UserProcess.h` ★ | `UserThreadData` (`thread_`, `exit_value_`, `tid_`, `exited_`, `joined_`, `requested_cancel_`), members: `arch_memory_`, `loader_`, `thread_lock_` (Mutex), `thread_exited_` (Condition), `threads_`, `USERSTACK_PAGES`, `GUARD_PAGE` |
+| `UserProcess.cpp` ★ | **the process**: `create`, `startProcess`, `fork`, `exec`, `createThread`, `registerThread`, `threadExited`; stacks: `allocateNewStack`, `allocateStackPage`, `mapStackPage`, `isGuardPage`; threads: `exitThread`, `joinThread`, `cancelThread`, `detachThread`, `isCancelRequested`, `findThreadData(ByTid)`, `exitProcess`; `getAddressSpace`, `getLoader`, `getThreadLock`; destructor frees loader + address space. **Per-process state goes here** |
+| `../include/kernel/UserProcess.h` ★ | `UserThreadData` (`thread_`, `exit_value_`, `tid_`, `exited_`, `joined_`, `requested_cancel_`, `detached_`), `JOIN_CANCELED`, `EXEC_MAX_*`, members: `arch_memory_`, `loader_`, `thread_lock_` (Mutex), `thread_exited_` (Condition), `threads_`, `USERSTACK_PAGES`, `GUARD_PAGE` |
 | `UserThread.cpp` ★ | **a user thread**: constructors (new thread / forked thread), `Run`, `resetForExec`, stack top/bottom vpn. **Per-thread state goes into `UserThread.h`**, reach it with `(UserThread*) currentThread` |
 | `Thread.cpp` | the base of every thread (kernel and user): kernel stack, `kill`, state, name, TID, terminal, `printBacktrace`; `user_registers_`, `kernel_registers_`, `switch_to_userspace_`, `getProcess()` |
 | `Scheduler.cpp` ★ | `schedule` (round robin over `threads_`), `addNewThread`, `yield`, `sleep`/`wake`, `cleanupDeadThreads`, `printThreadList`, `getTicks`/`incTicks`, `getThreadCount`, `getNextTid`. **Scheduling tasks change `schedule()`** |
@@ -269,19 +271,19 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 ## 5 · POSIX functions that are stubs in your libc
 
 They exist (header + function), but return an error or do nothing. A task like "implement
-`atexit`" means: fill in the stub. The **type** says where the work is ([TRIAGE.md](TRIAGE.md)):
+`malloc`" means: fill in the stub. The **type** says where the work is ([TRIAGE.md](TRIAGE.md)):
 **U** = only user space, **S** = needs a new syscall + kernel code.
 
 | Function(s) | File | Type | The simple, working way | Course task |
 |---|---|---|---|---|
-| `atexit` | `stdlib.c` + `exit` in `exec.c` | U | array of 32 function pointers + counter; `exit` calls them backwards, then the syscall | A0-13 |
+| `atexit` | `stdlib.c` + `exit` in `exec.c` | U | **done** – your A0 version is merged: array of 32 function pointers + counter; `exit` calls them backwards, then the syscall | A0-13 (study) |
 | `strcpy`, `strncpy`, `strcat`, `strncmp`, `strchr` | `string.c` (+ declarations in `string.h`) | U | **missing**, not even stubs – plain C loops | A0-14 |
 | `malloc`, `free`, `calloc`, `realloc` | `stdlib.c` | U | a big static array as pool, a small header (size + used) before every block, first fit; `free` sets used = 0 | A1-14 |
 | `pthread_spin_init/lock/trylock/unlock` | `pthread.c` | U | `while (__sync_lock_test_and_set(lock, 1)) sched_yield();` – the one place you need an atomic | A1-15 |
 | `pthread_mutex_*` | `pthread.c` | U | the same as the spinlock (a mutex that yields while it waits) | A1-15 |
 | `sem_init/wait/trywait/post` | `semaphore.c` | U | one global spinlock (A1-15) protects the counter; `sem_wait` loops: lock, value > 0 → value--, unlock, else unlock + `sched_yield` | A1-16 |
 | `pthread_cond_*` | `pthread.c` | U (simple) / S (real) | simple: a generation counter – `wait` unlocks, yields until the counter changed, locks again; `signal`/`broadcast` increment it | A1-17 |
-| `pthread_detach` | `pthread.c` | S | a `detached_` flag in `UserThreadData`; `exitThread` frees the data at once, `join` refuses | A1-20 |
+| `pthread_detach` | `pthread.c` | S | **done** – yours, merged: a `detached_` flag in `UserThreadData`; `exitThread` frees the data at once, `join` refuses | A1-20 (study) |
 | `sleep` | `unistd.c` | S | kernel: wait until `Scheduler::getTicks()` reached start + seconds × tick rate (yield in a loop) | A1-18 |
 | `clock` | `time.c` | S | a syscall that returns ticks of the process | A1-07 |
 | `sbrk`, `brk` | `unistd.c` | S | per-process break in `UserProcess`, pages mapped on demand in the page fault handler | A1-12 |

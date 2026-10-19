@@ -12,8 +12,9 @@ Description:  pthread_create starts a new thread in the calling process that run
               When start_routine returns, the thread ends (libc calls pthread_exit).
               pthread_exit ends the calling thread; called by the main thread it behaves
               like exit().
-              The process (its address space) must stay alive until all its threads are
-              gone: when main returns while threads still run, the process waits for them.
+              Returning from main is exit(): the whole process ends. If main calls
+              pthread_exit instead, the process (its address space) stays alive until
+              all its other threads are gone.
 Parameters:   pthread_t* thread (receives an id > 0, unique in the process),
               const pthread_attr_t* attr (ignored), void* (*start_routine)(void*), void* arg
 Return Value: 0, or -1 (bad pointers, no more threads possible)
@@ -25,7 +26,7 @@ Notes:        Simplifications for A0: no pthread_join, exit() from a thread othe
 ## Test
 
 `task start a0-08`, implement, `task test` (runs `pthread_create_basic.sweb`, `pthread_create_exit.sweb`, then `exit`).
-Done when 9 checks pass, *"thread finished after main returned"* appears, and after
+Done when 9 checks pass, *"thread finished after main called pthread_exit"* appears, and after
 `exit` there is no `leaking` warning (all stacks and page tables freed).
 
 ## Your team's code
@@ -34,10 +35,10 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 
 **In your team's code `pthread_create` already exists** (Michael's work, merged), so here the
 task is to **read and explain it**, not to build it. `task start a0-08` gives you `main` plus the
-course tests, and `task test` runs them against your team's implementation: 8 of the 9 checks pass.
-The 9th, *"thread finished after main returned"*, is a different design: in your team's code the
-process ends when `main` returns (`exitProcess` kills all threads – that is what POSIX does); the
-course's A0 version waited for the threads.
+course tests, and `task test` runs them against your team's implementation: all 9 checks pass.
+Note the two ways a main thread can end: returning from `main` calls `exit()` (`_start`), and
+`exitProcess` kills all threads – POSIX; `pthread_exit` in `main` ends only the main thread, and
+the process lives on until its last thread is gone (`pthread_create_exit.sweb` checks that).
 
 Find and explain, as if the tutor asked:
 - `Syscall::pthreadCreate` → `UserProcess::createThread(entry, true, start_routine, arg)`: which

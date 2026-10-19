@@ -39,8 +39,9 @@ DECKS["1 Triage"] = [
      "4. where does the state live? · 5. who touches it at the same time (lock)? · "
      "6. write the 3–6 files down, then plumbing → build → logic → test. Say it out loud.", "triage"),
     ("Task: \"implement atexit\" – type, first file?",
-     "U – " + c("userspace/libc/src/stdlib.c") + " (the stub), hook in " + c("exit()") +
-     " in " + c("exec.c") + ". No syscall. (A0-13 – the real A0 task of 14 Oct 2026)", "triage U"),
+     "U – " + c("userspace/libc/src/stdlib.c") + ", hook in " + c("exit()") +
+     " in " + c("exec.c") + ". No syscall. (A0-13 – the real A0 task of 14 Oct 2026; your version is "
+     "in the team's main since 18 Oct: " + c("__runAtexitFunctions()") + ")", "triage U"),
     ("Task: \"malloc/free should work\" – type, first file?",
      "U – " + c("stdlib.c") + ": a static pool + block headers (A1-14).", "triage U"),
     ("Task: \"add strncpy to the libc\" – type, first step?",
@@ -96,9 +97,9 @@ DECKS["1 Triage"] = [
 DECKS["2 Where is what"] = [
     ("Where does every user program start?",
      c("_start") + " in " + c("userspace/libc/src/nonstd.c") + ": " + c("exit(main());"), "where libc"),
-    ("Where is exit() for user programs – and where would atexit handlers run?",
-     c("userspace/libc/src/exec.c") + ": " + c("exit()") + " – before " + c("__syscall(sc_exit, …)")
-     + ". " + c("_exit()") + " must not run them.", "where libc"),
+    ("Where is exit() for user programs – and where do the atexit handlers run?",
+     c("userspace/libc/src/exec.c") + ": " + c("exit()") + " calls " + c("__runAtexitFunctions()")
+     + " (stdlib.c) before " + c("__syscall(sc_exit, …)") + ". " + c("_exit()") + " does not.", "where libc"),
     ("Where are syscall numbers defined?",
      c("common/include/kernel/syscall-definitions.h") + " – included by kernel <b>and</b> libc.",
      "where syscall"),
@@ -163,8 +164,8 @@ DECKS["2 Where is what"] = [
      c('BDManager::getInstance()->getDeviceByName("idea2")') + " → " + c("readData/writeData(offset, size, buf)")
      + " (idea1 = /usr, idea2 = unused swap partition).", "where disk"),
     ("Which libc functions are only stubs in your team's code?",
-     c("malloc/free/calloc/realloc") + ", " + c("atexit") + ", " + c("sem_*") + ", "
-     + c("pthread_mutex_* / cond_* / spin_*") + ", " + c("pthread_detach") + ", " + c("sleep") + ", "
+     c("malloc/free/calloc/realloc") + ", " + c("sem_*") + ", "
+     + c("pthread_mutex_* / cond_* / spin_*") + ", " + c("pthread_setcancelstate/type") + ", " + c("sleep") + ", "
      + c("clock") + ", " + c("brk/sbrk") + ", " + c("waitpid") + ", " + c("mmap/munmap/shm_*/mprotect")
      + " – and " + c("strcpy/strncpy/strcat") + " are missing completely (ATLAS.md §5).", "where libc"),
 ]
@@ -200,7 +201,7 @@ DECKS["3 Team API"] = [
      + c("thread_lock_") + " → " + c("UserThreadData") + "; " + c("->thread_") + " is nullptr once it exited.",
      "api threads"),
     ("Fields of UserThreadData?", c("thread_") + ", " + c("exit_value_") + ", " + c("tid_") + ", "
-     + c("exited_") + ", " + c("joined_") + ", " + c("requested_cancel_"), "api threads"),
+     + c("exited_") + ", " + c("joined_") + ", " + c("requested_cancel_") + ", " + c("detached_"), "api threads"),
     ("How does pthread_join wait in your team's code?", c("while (!thread_data->exited_) thread_exited_.wait();")
      + " – " + c("exitThread") + " broadcasts " + c("thread_exited_") + ".", "api threads"),
     ("What does exitProcess do?", "kills every other thread of the process (" + c("kill()")
@@ -218,8 +219,8 @@ DECKS["3 Team API"] = [
      + c("rip, rsp, rax, rbx, rcx, rdx, rsi, rdi, r8–r15, rflags, cr3") + " (ArchThreads.h)", "api registers"),
     ("Timer ticks since boot? How fast?", c("Scheduler::instance()->getTicks()") + " – 18.2 per second "
      "(1193180 / 65536), one tick ≈ 55 ms.", "api timer"),
-    ("Syscall numbers your team uses?", "1000–1002 pthread_create/exit/self · 1500 mkdir · 1501–1503 "
-     "join/cancel/testcancel · 1998/1999 counts · 2000–2002 fork/getpid/getppid · 2500 execv", "api syscall"),
+    ("Syscall numbers your team uses?", "1000–1003 pthread_create/exit/self/equal · 1500 mkdir · 1501–1504 "
+     "join/cancel/testcancel/detach · 1998/1999 counts · 2000–2002 fork/getpid/getppid · 2500 execv", "api syscall"),
 ]
 
 # --------------------------------------------------------------------------------------------
@@ -323,7 +324,18 @@ DECKS["6 Tasks"] = [
      + " (fixed table) – " + c("~UserProcess") + " runs long after exit; " + c("Syscall::exit")
      + " stores " + c("exit_code_") + " first.", "task a1"),
     ("A1-20 pthread_detach – what is freed when?", "the UserThreadData: at once if the thread "
-     "already ended, else in " + c("exitThread") + "; join of a detached thread → -1.", "task a1"),
+     "already ended, else in " + c("exitThread") + "; join of a detached thread → -1 (your "
+     + c("detachThread") + ", syscall 1504).", "task a1"),
+    ("A1-21 forkall – what makes a thread, and what does the child copy?", "a thread = its saved registers "
+     "(" + c("user_registers_") + ") + its stack (in the address space). Copy every " + c("UserThreadData")
+     + " (same tid) and every live thread (" + c("UserThread(child, original)") + " + stack top), under "
+     + c("thread_lock_") + "; a thread inside a syscall gets rax = -1.", "task a1"),
+    ("A1-22 context switch – which registers, and where is rip?", "only the callee-saved " + c("rbx rbp r12–r15")
+     + " (+ " + c("rsp") + "): push them, save rsp, load the other rsp, pop, " + c("ret")
+     + ". rip is the return address on the stack.", "task a1"),
+    ("Bug in your team's fork (19 Oct)?", "the child's " + c("UserThread") + " copy does not get "
+     + c("user_stack_top_") + " / " + c("lowest_mapped_stack_vpn_") + " → a child that needs a new stack "
+     "page is killed with 666.", "api threads"),
     ("A2-01 swap – how does a PTE say 'swapped out'?", c("present = 0") + ", " + c("ignored_2 = PTE_SWAPPED")
      + ", " + c("page_ppn = slot") + " – the CPU ignores non-present entries.", "task a2"),
     ("A2-01 swap-out order?", "1. present = 0 + flushTlb (nobody writes meanwhile) · 2. write to disk "
@@ -340,8 +352,9 @@ DECKS["7 POSIX"] = [
      "posix"),
     ("pthread_join on yourself / a joined thread?", "error (−1 in SWEB) – EDEADLK / EINVAL in POSIX.",
      "posix"),
-    ("Is pthread_join a cancellation point?", "yes – a cancelled thread sleeping in join must end "
-     "(your team's code: not yet, see A1-06).", "posix"),
+    ("Is pthread_join a cancellation point?", "yes – a cancelled thread sleeping in join must end. "
+     "Your team's code (since 18 Oct): " + c("cancelThread") + " broadcasts, the wait loop returns "
+     + c("JOIN_CANCELED") + ", " + c("Syscall::pthreadJoin") + " calls " + c("exitThread") + " outside the lock.", "posix"),
     ("Deferred cancellation?", "the target only ends at a cancellation point (syscalls, "
      + c("pthread_testcancel") + ", join) – never in the middle of a critical section.", "posix"),
     ("What does pthread_detach mean?", "nobody will join the thread: its resources are freed when it "
@@ -462,9 +475,10 @@ FILES = [
     ("common/source/util/qsort.cpp + libgcc.cpp", c("qsort") + " (heapsort) for the kernel; 64-bit division helpers the compiler calls", None),
     # ---- user space
     ("userspace/libc/src/nonstd.c + include/nonstd.h", c("_start") + " (" + c("exit(main())") + "), " + c("createprocess, getThreadCount, getProcessCount") + " – your own syscall wrappers go here", None),
-    ("userspace/libc/src/stdlib.c", c("malloc, free, calloc, realloc, atexit") + " – all stubs", None),
-    ("userspace/libc/src/exec.c", c("exit") + " (atexit handlers go here), " + c("_exit, fork, execv"), None),
-    ("userspace/libc/src/pthread.c", c("pthread_create") + " (+ the trampoline " + c("pthread_start") + "), " + c("exit, join, cancel, testcancel, self") + "; stubs: " + c("mutex_*, cond_*, spin_*, detach, setcancelstate/type"), None),
+    ("userspace/libc/src/stdlib.c", c("atexit") + " (works: " + c("atexit_functions[], __runAtexitFunctions") + "); "
+     + c("malloc, free, calloc, realloc") + " – stubs", None),
+    ("userspace/libc/src/exec.c", c("exit") + " (runs the atexit handlers, then the syscall), " + c("_exit, fork, execv"), None),
+    ("userspace/libc/src/pthread.c", c("pthread_create") + " (+ the trampoline " + c("pthread_start") + "), " + c("exit, join, cancel, testcancel, self, equal, detach") + "; stubs: " + c("mutex_*, cond_*, spin_*, setcancelstate/type"), None),
     ("userspace/libc/src/semaphore.c", c("sem_init/wait/trywait/post/destroy") + " – all stubs", None),
     ("userspace/libc/src/unistd.c", c("getpid, getppid") + "; stubs " + c("brk, sbrk, sleep, ftruncate"), None),
     ("userspace/libc/src/time.c + wait.c + mman.c", c("clock") + ", " + c("waitpid") + ", " + c("mmap, munmap, shm_open, shm_unlink, mprotect") + " – all stubs", None),

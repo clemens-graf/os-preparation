@@ -12,7 +12,7 @@ index 2c8ceab6..09e4a9e2 100644
      Stabs2DebugInfo const* getDebugInfos() const;
  
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..3b5905b9 100644
+index 3b55c7a6..bfb94a57 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
 @@ -18,6 +18,9 @@ class Syscall
@@ -26,18 +26,18 @@ index a996aca5..3b5905b9 100644
  
      // process stuff
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..adb5202f 100644
+index bc32c487..c9ed5b26 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -15,6 +15,7 @@
- #define USER_BREAK_VPN USER_BREAK / PAGE_SIZE
+@@ -20,6 +20,7 @@
+ 
  
  class UserThread;
 +class ArchThreadRegisters;
  
  struct UserThreadData
  {
-@@ -210,6 +211,18 @@ class UserProcess
+@@ -233,6 +234,18 @@ class UserProcess
       */
      void freeUserThreadStack(UserThreadData* thread_data);
  
@@ -57,7 +57,7 @@ index ec56f120..adb5202f 100644
      /**
       * Opens the executable for the path, creates a Loader for it and loads /
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..7b4dbd9f 100644
+index db84270e..6d274800 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,9 @@
@@ -101,7 +101,7 @@ index e9c4233f..68e2a382 100644
  
  bool Loader::readFromBinary (char* buffer, l_off_t position, size_t length)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..3a417c8a 100644
+index 178fc3a2..c97245bd 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -114,7 +114,7 @@ index 86cf85a2..3a417c8a 100644
  #include "UserProcess.h"
  #include "UserThread.h"
  
-@@ -105,6 +108,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -112,6 +115,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_getppid:
        return_value = getppid();
        break;
@@ -124,7 +124,7 @@ index 86cf85a2..3a417c8a 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -411,6 +417,18 @@ void Syscall::trace()
+@@ -503,6 +509,18 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -144,7 +144,7 @@ index 86cf85a2..3a417c8a 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..da0ea875 100644
+index e32f2cda..fb447a79 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -9,6 +9,7 @@
@@ -155,7 +155,7 @@ index f37eb7ef..da0ea875 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -550,3 +551,26 @@ void UserProcess::exitProcess()
+@@ -600,3 +601,26 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }

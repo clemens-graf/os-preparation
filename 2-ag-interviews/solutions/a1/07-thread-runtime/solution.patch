@@ -1,11 +1,11 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index a996aca5..b26fa328 100644
+index 3b55c7a6..f50ce5a8 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -32,6 +32,7 @@ class Syscall
- 
+@@ -37,6 +37,7 @@ class Syscall
      static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
      static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
 +    static size_t threadRuntime(size_t thread_id);   // A1-07
  
      static size_t getThreadCount();
@@ -27,10 +27,10 @@ index bf822dfb..86ced263 100644
  
      //Loader* loader_; // loader now belongs to proc
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..891e840c 100644
+index bc32c487..6057301c 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -157,6 +157,9 @@ class UserProcess
+@@ -171,6 +171,9 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -40,7 +40,7 @@ index ec56f120..891e840c 100644
      /**
      * Checks whether cancellation was requested for the thread with the given tid.
      *
-@@ -257,4 +260,6 @@ class UserProcess
+@@ -280,4 +283,6 @@ class UserProcess
      size_t next_stack_slot_;
  
      ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
@@ -48,13 +48,13 @@ index ec56f120..891e840c 100644
 +    size_t finished_ticks_ = 0;    // A1-07: CPU ticks of threads that have exited (thread_lock_)
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..03b16436 100644
+index db84270e..93298c62 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,8 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,8 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_thread_runtime 1650   // A1-07
 +#define sc_process_ticks 1651
  #define sc_thread_count 1998
@@ -74,7 +74,7 @@ index 7e94ab12..3775f5b9 100644
  
  void Scheduler::printStackTraces()
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..0ad44a1e 100644
+index 178fc3a2..7bef02ad 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -9,6 +9,7 @@
@@ -85,7 +85,7 @@ index 86cf85a2..0ad44a1e 100644
  
  #define PTHREAD_CREATE_ERROR -1
  #define PTHREAD_JOIN_ERROR -1
-@@ -88,6 +89,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +93,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -98,7 +98,7 @@ index 86cf85a2..0ad44a1e 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -448,3 +455,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -540,3 +547,16 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
    }
    return false;
  }
@@ -116,7 +116,7 @@ index 86cf85a2..0ad44a1e 100644
 +  return thread_data->thread_->cpu_ticks_;
 +}
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..2e9d6329 100644
+index e32f2cda..f3efd8e7 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,6 +10,7 @@
@@ -127,15 +127,15 @@ index f37eb7ef..2e9d6329 100644
  #include "ArchMemory.h"
  
  UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
-@@ -410,6 +411,7 @@ void UserProcess::exitThread(void* exit_value)
-   freeUserThreadStack(thread_data);
+@@ -409,6 +410,7 @@ void UserProcess::exitThread(void* exit_value)
+     assert(false && "why does the current thread has no data struct?\n");
  
-   thread_data->exit_value_ = exit_value;
+   freeUserThreadStack(thread_data);
 +  finished_ticks_ += thread->cpu_ticks_;   // A1-07: keep its time after the object is gone
-   thread_data->thread_ = nullptr;
-   thread_data->exited_ = true;
-   thread_exited_.broadcast();
-@@ -550,3 +552,16 @@ void UserProcess::exitProcess()
+ 
+   if (thread_data->detached_)
+   {
+@@ -600,3 +602,16 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }
@@ -153,10 +153,10 @@ index f37eb7ef..2e9d6329 100644
 +  return ticks;
 +}
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index 746aed2b..0ed17bf8 100644
+index c40fcbe2..9fe98bb3 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -37,6 +37,9 @@ extern void pthread_testcancel(void);
+@@ -39,6 +39,9 @@ extern void pthread_testcancel(void);
  
  extern int pthread_join(pthread_t thread, void **value_ptr);
  
@@ -167,10 +167,10 @@ index 746aed2b..0ed17bf8 100644
  
  extern int pthread_mutex_init(pthread_mutex_t *mutex,
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 7e3369e6..3fe2e698 100644
+index 8b8448e4..95d50a4b 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -221,3 +221,9 @@ int pthread_setcanceltype(int type, int *oldtype)
+@@ -231,3 +231,9 @@ int pthread_setcanceltype(int type, int *oldtype)
  {
    return -1;
  }

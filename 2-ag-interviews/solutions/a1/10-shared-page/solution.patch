@@ -33,10 +33,10 @@ index 6aff17ae..e26ee123 100644
    bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
    if (empty)
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index ec56f120..78bf4dca 100644
+index bc32c487..4de41f64 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -157,6 +157,11 @@ class UserProcess
+@@ -171,6 +171,11 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -48,7 +48,7 @@ index ec56f120..78bf4dca 100644
      /**
      * Checks whether cancellation was requested for the thread with the given tid.
      *
-@@ -257,4 +262,6 @@ class UserProcess
+@@ -280,4 +285,6 @@ class UserProcess
      size_t next_stack_slot_;
  
      ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
@@ -56,13 +56,13 @@ index ec56f120..78bf4dca 100644
 +    size_t shm_attached_ = 0;      // A1-10: bit k = shared page k is mapped (thread_lock_)
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 51f0de2a..8c6117e6 100644
+index db84270e..18f7f966 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -32,6 +32,8 @@
- #define sc_pthread_join 1501
+@@ -34,6 +34,8 @@
  #define sc_pthread_cancel 1502
  #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
 +#define sc_shm_attach 1680   // A1-10
 +#define sc_shm_detach 1681
  #define sc_thread_count 1998
@@ -111,10 +111,10 @@ index 00000000..44216332
 +    Entry entries_[SHM_MAX_KEYS];
 +};
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 86cf85a2..eea0c30a 100644
+index 178fc3a2..572f99fa 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -88,6 +88,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -92,6 +92,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_execv:
        return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
@@ -128,7 +128,7 @@ index 86cf85a2..eea0c30a 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index f37eb7ef..1c24ea59 100644
+index e32f2cda..1d1117ec 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -10,7 +10,9 @@
@@ -158,7 +158,7 @@ index f37eb7ef..1c24ea59 100644
    delete arch_memory_;
  
    debug(USERPROCESS, "signaling ProcessRegistry the deletion for process with ppid: %zu, pid: %zu filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
-@@ -550,3 +562,45 @@ void UserProcess::exitProcess()
+@@ -600,3 +612,45 @@ void UserProcess::exitProcess()
    thread_lock_.release();
  
  }

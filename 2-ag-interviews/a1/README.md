@@ -3,9 +3,10 @@
 The A1 interview is about **threads, scheduling, processes and syscalls** – and the task
 list from earlier years (`AG - Potential Tasks.md`) says which kinds of tasks come up. Every task
 runs on **your team's code** (the commit in `team/BASE`) – the code you have in the interview.
-A1-01 and A1-06 are your team's own `pthread_join` / `pthread_cancel` (your P2 work): study tasks
-– the course tests run against your code (and find two bugs, see their notes). A1-14 … A1-20 cover every POSIX stub of your libc that
-an A1 task can ask for.
+A1-01, A1-06 and A1-20 are your team's own `pthread_join` / `pthread_cancel` / `pthread_detach` (your
+work): study tasks – the course tests run against your code (A1-01 still finds a bug, see its notes).
+A1-14 … A1-19 cover the POSIX stubs of your libc that an A1 task can ask for; A1-21 and A1-22 are
+the two remaining items of the list from earlier years.
 
 **Not every task is a syscall:** A1-14 … A1-17 are pure libc (type U) – like the `atexit` task in
 A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, classify it: [TRIAGE.md](../TRIAGE.md).
@@ -18,7 +19,7 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 02 | [pthread_multiple + pthread_join_any](02-pthread-multiple/) | S | `pthread_multiple` | 01 | 45 min | ★★★ |
 | 03 | [barriers](03-barrier/) | S | `pthread_barriers` | 01 | 40 min | ★★★ |
 | 04 | [thread flagging: twice as often](04-thread-flag/) | E + S | *thread-flagging* | 01 | 30 min | ★★☆ |
-| 05 | [pthread_invoke: directed yield](05-pthread-invoke/) | E + S | `pthread_invoke`, `pthread_switch` | 01 | 30 min | ★★☆ |
+| 05 | [pthread_invoke: directed yield](05-pthread-invoke/) | E + S | `pthread_invoke` (the switch itself: A1-22) | 01 | 30 min | ★★☆ |
 | 06 | [pthread_cancel (deferred)](06-pthread-cancel/) | S (study) | (mandatory A1) | 01 | 45 min | ★★★ |
 | 07 | [thread runtime + clock()](07-thread-runtime/) | E + S | `clock`-extension | 01 | 30 min | ★★☆ |
 | 08 | [snapshot & revive](08-snapshot/) | A + S | `pthread_snapshot & revive` | – | 40 min | ★★★ |
@@ -33,14 +34,13 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 17 | [condition variables in user space](17-cond/) | **U** | libc stub | 15 | 25 min | ★★☆ |
 | 18 | [sleep + uptime](18-sleep/) | S + E | libc stub | – | 25 min | ★★☆ |
 | 19 | [waitpid](19-waitpid/) | S | libc stub (processes) | – | 40 min | ★★★ |
-| 20 | [pthread_detach](20-detach/) | S | libc stub | – | 25 min | ★★☆ |
+| 20 | [pthread_detach](20-detach/) | S (study) | your own, merged 18 Oct | – | 25 min | ★★☆ |
+| 21 | [forkall](21-forkall/) | S | `forkall` | – | 45 min | ★★★ |
+| 22 | [pthread_switch: the context switch itself](22-pthread-switch/) | A + U | `pthread_switch` | – | 40 min | ★★★ |
 
 Not here, with the reason:
 - *Pagefault handler with special addresses* (`0xDEADBEEF`): that is A0-04 – do it again with a
   variant (kill only the thread, print its registers).
-- `forkall` (fork with all threads): your team's `fork` (`UserProcess::fork`) copies only the
-  calling thread. The mechanics: copy every thread's registers and stack slot into the child,
-  all under `thread_lock_` of the parent.
 
 ## How to work on a task
 
@@ -53,7 +53,7 @@ task reset a1-01        # start over - your attempt is kept in a backup branch
 task solution a1-01     # the reference solution on its own branch
 ```
 
-Syscall numbers 1600–1719 (your block 1500–1999; 1500–1503 and 1998/1999 are taken).
+Syscall numbers 1600–1720 (your block 1500–1999; 1500–1504 and 1998/1999 are taken by your team).
 
 ## What A1 interview questions are about
 

@@ -1,5 +1,8 @@
 # A1-20 pthread_detach – solution notes
 
+**Your team's `main` has this now (your own `feature/pthread-detach`)** – the solution patch is
+empty, `task test` checks your team's code, which is the same as the code below (syscall 1504).
+
 Patch: [`solution.patch`](solution.patch). Type S, on top of your team's join.
 
 ```cpp

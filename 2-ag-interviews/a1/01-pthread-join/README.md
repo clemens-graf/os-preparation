@@ -28,7 +28,7 @@ then `exit` for the leak check).
 
 Your team already has `pthread_join` (your own P2 work) – `task solution a1-01` is `main` plus the
 course tests, nothing else. **Run them against your code and explain every result.** On
-`40140475` the first 8 checks pass, then the kernel **panics** on the 9th
+`f78faff3` (19 Oct) the first 8 checks pass, then the kernel **panics** on the 9th
 ("a killed thread can be joined"): see [the notes](../../solutions/a1/01-pthread-join/NOTES.md) –
 that is a real bug in your code, and the notes say how to fix it.
 
@@ -38,7 +38,8 @@ Where to look:
 |---|---|
 | syscall | `Syscall::pthreadJoin` (`Syscall.cpp`): checks `value_ptr`, writes it after the join |
 | the join | `UserProcess::joinThread(tid, &value)` under `thread_lock_` |
-| per-thread record that outlives the thread | `UserThreadData` in `threads_`: `tid_`, `exit_value_`, `exited_`, `joined_` |
+| per-thread record that outlives the thread | `UserThreadData` in `threads_`: `tid_`, `exit_value_`, `exited_`, `joined_`, `detached_` |
+| cancelled while joining | the wait loop checks the caller's own `requested_cancel_` → `JOIN_CANCELED` (since 18 Oct) |
 | the end of a thread | `UserProcess::exitThread`: frees the stack, stores the value, `exited_ = true`, `thread_exited_.broadcast()` |
 | waiting | `while (!thread_data->exited_) thread_exited_.wait();` |
 | process end | `exitProcess` kills every other thread (`kill()`), deletes their `UserThreadData` |
