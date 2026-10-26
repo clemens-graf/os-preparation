@@ -9,6 +9,11 @@ saves thread A's registers and loads thread B's registers"*. The directed yield 
 A1-05; this task is the switch itself, written by you – in user space, where you can see every
 register (like user-level threads / coroutines).
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         context_make, context_switch (new header context.h, libc only)
 Description:  A context is a saved state of execution: registers + a stack.
@@ -32,14 +37,7 @@ Return Value: - (both void)
 own stack (deep recursion included), the stack is aligned, and a returning function ends the
 process.
 
-## Your team's code
-
-Nothing in the kernel. A new header `userspace/libc/include/context.h` and a new
-`userspace/libc/src/context.c` (the libc CMake globs `*.c`; `task test` re-runs cmake). Assembly in
-a C file: a top-level `__asm__(".globl context_switch\n" "context_switch:\n" ...)` block defines a
-function the C code can call.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – which registers must be saved?</summary>
 
@@ -71,6 +69,26 @@ At the first instruction of a function, `rsp % 16 == 8` (the `call` pushed 8 byt
 stack). So when the trampoline's `call` happens, `rsp` must be a multiple of 16: after the final
 `ret` of `context_switch`, `rsp` must be exactly the aligned top.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Create `userspace/libc/include/context.h` with the context struct (only `rsp`) and the two declarations.
+2. Create `userspace/libc/src/context.c`.
+3. `context_switch` in a top-level `__asm__` block: push the six callee-saved registers, store `rsp` into the first argument's struct, load `rsp` from the second argument's struct, pop the six registers in reverse order, `ret`.
+4. A trampoline in `__asm__`: move the argument register (r13) into `rdi`, call the function register (r12), then call `exit(0)`.
+5. `context_make`: compute the 16-byte aligned top of the given stack; below it write, from top to bottom: the trampoline's address, then six values for the registers (with the function and the argument at the places that are popped into r12 and r13); store the lowest address as the context's `rsp`.
+6. `task test` – check the alignment check and the `ababab` order.
+
+</details>
+
+## Your team's code
+
+Nothing in the kernel. A new header `userspace/libc/include/context.h` and a new
+`userspace/libc/src/context.c` (the libc CMake globs `*.c`; `task test` re-runs cmake). Assembly in
+a C file: a top-level `__asm__(".globl context_switch\n" "context_switch:\n" ...)` block defines a
+function the C code can call.
 
 ## Questions a tutor might ask
 

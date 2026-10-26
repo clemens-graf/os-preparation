@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pthread_multiple, pthread_join_any
 Nr:           1601, 1602
@@ -24,15 +29,7 @@ Return Value: 0 or -1
 `task.sh start a1-02` → `task.sh test`. Done when all 10 checks pass. The test fills 60 of the
 64 places with ended-but-unjoined threads, so that creating 8 must fail half-way.
 
-## Your team's code
-
-Your team's `createThread` has no limit, so the rollback could never happen. The team solution
-adds one: **`MAX_USER_THREADS 64`** threads per process that are not joined yet (`threads_.size()`
-in `createThread`, under `thread_lock_` – a finished thread's `UserThreadData` stays in `threads_`
-until it is joined). `createThread` does not schedule the thread – `pthreadCreate` calls
-`addNewThread` afterwards – which is exactly what all-or-nothing needs.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – all or nothing - how?</summary>
 
@@ -56,6 +53,28 @@ Same Condition as join (`thread_exited_`, broadcast in `exitThread`). Loop: look
 among the ids with `exited_` set; none → is any of them still joinable (known, not `joined_`)?
 no → -1; yes → wait. All under `thread_lock_`.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Give `createThread` a limit (64 not yet joined threads) so a failure can happen; add `discardThread` to `UserProcess` that undoes `createThread` for a thread that never ran (stack, record, counter, then delete it).
+2. Syscall `pthread_multiple(ids, count, start_routine, args)` (1601): check the pointers; copy the `args` array into the kernel first.
+3. Create **all** threads first with `createThread` – none of them goes to the scheduler yet.
+4. If creation number k fails: discard the k-1 already created ones, return -1.
+5. All created: write the ids to the user array, then add every thread to the scheduler.
+6. Syscall `pthread_join_any(ids, count, &index, &value)` (1602): copy the ids in; under `thread_lock_` loop: one of them exited → join it (value, record) and remember its position; none of them joinable any more → -1; else wait on `thread_exited_`.
+7. Write index and value to the user after releasing the lock. `task test`.
+
+</details>
+
+## Your team's code
+
+Your team's `createThread` has no limit, so the rollback could never happen. The team solution
+adds one: **`MAX_USER_THREADS 64`** threads per process that are not joined yet (`threads_.size()`
+in `createThread`, under `thread_lock_` – a finished thread's `UserThreadData` stays in `threads_`
+until it is joined). `createThread` does not schedule the thread – `pthreadCreate` calls
+`addNewThread` afterwards – which is exactly what all-or-nothing needs.
 
 ## Questions a tutor might ask
 

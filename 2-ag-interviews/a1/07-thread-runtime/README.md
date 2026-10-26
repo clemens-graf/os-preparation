@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §15 a thread's life · example: [ex13](../../examples/ex13-timer-scheduler/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         thread_runtime, clock
 Nr:           1650 (sc_thread_runtime), 1651 (sc_process_ticks)
@@ -21,11 +26,7 @@ Notes:        The timer runs at 1193180 / 65536 = 18.2 Hz: one tick = 54925 us.
 `task.sh start a1-07` → `task.sh test`. Done when 5 checks pass: a busy thread is charged
 many ticks, a yielding one almost none, `clock()` includes ended threads.
 
-## Your team's code
-
-Per thread → `Thread.h`: `volatile size_t cpu_ticks_ = 0;`, incremented in `Scheduler::incTicks()` (called from the timer interrupt). Per process → `UserProcess`: `finished_ticks_` (added in `exitThread`) + the running threads in `threads_`. `thread_runtime(0)` = the calling thread. `clock()` in `userspace/libc/src/time.c` is a stub – it calls the new syscall.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – where to count?</summary>
 
@@ -39,6 +40,24 @@ timer writes is fine.
 Their objects are gone. Add their ticks to a per-process total in `exitThread` (the
 destructor still has the counter).
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add a tick counter to `Thread` (start 0).
+2. In `Scheduler::incTicks()` (the timer interrupt): if there is a current thread, increase its counter. No lock.
+3. In `UserProcess`: a counter for the ticks of threads that already ended; in `exitThread` add the ending thread's ticks to it (under `thread_lock_`).
+4. Syscall `thread_runtime(id)` (1650): under `thread_lock_` find the thread object (0 = main thread); missing → -1; return its counter.
+5. Syscall for the process ticks (1651): under `thread_lock_` add the finished counter and the counters of all running threads.
+6. libc `clock()` in `time.c`: process ticks × 54925 (microseconds per tick).
+7. `task test`.
+
+</details>
+
+## Your team's code
+
+Per thread → `Thread.h`: `volatile size_t cpu_ticks_ = 0;`, incremented in `Scheduler::incTicks()` (called from the timer interrupt). Per process → `UserProcess`: `finished_ticks_` (added in `exitThread`) + the running threads in `threads_`. `thread_runtime(0)` = the calling thread. `clock()` in `userspace/libc/src/time.c` is a stub – it calls the new syscall.
 
 ## Questions a tutor might ask
 

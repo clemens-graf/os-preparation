@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §13 semaphores & condvars, §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         sem_init, sem_destroy, sem_wait, sem_trywait, sem_post (semaphore.h - stubs exist)
 Description:  A semaphore is a counter (sem_t = unsigned int). sem_init sets it.
@@ -18,12 +23,7 @@ Return Value: 0, or -1 (NULL; trywait: the counter is 0)
 `task start a1-16` → `task test` (`sem_basic.sweb` + `spinlock_basic.sweb` of A1-15).
 Done when 7 + 7 checks pass.
 
-## Your team's code
-
-The stubs are in `userspace/libc/src/semaphore.c`, declared in `semaphore.h`. Your spinlock
-from A1-15 is already there (the task starts from its solution).
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – where is the lock?</summary>
 
@@ -37,6 +37,24 @@ spinlock in `semaphore.c` for all semaphores: `static pthread_spinlock_t sem_loc
 in a loop and `sched_yield()` between the tries. Never wait while holding `sem_lock` – then
 `sem_post` could never get it.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Builds on A1-15: one global spinlock in `semaphore.c` protects every semaphore's counter.
+2. `sem_init(sem, pshared, value)`: NULL → -1; store `value`; return 0. `destroy`: NULL → -1, else 0.
+3. `sem_trywait`: lock; counter above 0 → decrease, unlock, return 0; else unlock, return -1.
+4. `sem_wait`: loop: lock; counter above 0 → decrease, unlock, return 0; else unlock and `sched_yield()` – **never wait while holding the lock**.
+5. `sem_post`: lock; increase; unlock; return 0.
+6. `task test`.
+
+</details>
+
+## Your team's code
+
+The stubs are in `userspace/libc/src/semaphore.c`, declared in `semaphore.h`. Your spinlock
+from A1-15 is already there (the task starts from its solution).
 
 ## Questions a tutor might ask
 

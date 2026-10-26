@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §8 registers & calling convention, §9 diverting a thread
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         upcall
 Nr:           1540 (sc_upcall)
@@ -21,16 +26,7 @@ Notes:        upcalls may be nested (function may call upcall again).
 
 `task start a0-07`, implement, `task test`. Done when all 6 checks pass.
 
-## Your team's code
-
-The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
-
-- The registers are per thread: `currentThread->user_registers_`.
-- The stack check: `process->getAddressSpace().checkAddressValid(rsp)` under
-  `process->getThreadLock()` (`UserProcess* process = currentThread->getProcess();`).
-
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – what would a "call" instruction do?</summary>
 
@@ -62,6 +58,29 @@ The kernel may write to user memory directly, but if the page is not mapped, the
 page-faults inside the kernel. Check the slot with `checkAddressValid` (under the
 page-table lock) and write through the returned kernel address.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Syscall plumbing for `upcall(function, argument)`.
+2. Refuse a function address of 0 or `>= USER_BREAK`.
+3. Take the calling thread's saved user registers (`currentThread->user_registers_`).
+4. Compute the new stack pointer: old `rsp` minus 128 (red zone), round down to a multiple of 16, minus 8 (room for the return address).
+5. Under `thread_lock_`: check that this stack address is mapped (`checkAddressValid`) – it gives you a kernel address for the slot; not mapped → return -1.
+6. Write the **old `rip`** into that slot (the return address: the instruction after the syscall).
+7. Set `rsp` to the new value, `rip` to the function, `rdi` to the argument. Return 0.
+8. `task test` – the function runs and returns into the program as if it had been called.
+
+</details>
+
+## Your team's code
+
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
+
+- The registers are per thread: `currentThread->user_registers_`.
+- The stack check: `process->getAddressSpace().checkAddressValid(rsp)` under
+  `process->getThreadLock()` (`UserProcess* process = currentThread->getProcess();`).
 
 ## Questions a tutor might ask
 

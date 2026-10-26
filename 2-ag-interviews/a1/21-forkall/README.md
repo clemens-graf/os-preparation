@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §6 processes, §15 a thread's life · example: [ex06](../../examples/ex06-kernel-thread/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         forkall
 Nr:           1720 (sc_forkall)
@@ -27,15 +32,7 @@ Return Value: the child's pid in the parent, 0 in the child, -1 on failure
 `pthread_join`), calls `forkall`, and checks in the child that the spinner keeps counting, that the
 joiner's join returned -1, and that the child can join the spinner's copy with the old `pthread_t`.
 
-## Your team's code
-
-`UserProcess::fork(thread_to_clone_from)` (Felix): loads the binary again (`loadExecutable`),
-creates the child with a **deep copy** of the address space (`new ArchMemory(*arch_memory_)` – all
-stacks included), copies `next_stack_slot_`, makes ONE thread with the copy constructor
-`UserThread(child, parent_thread)` (registers copied, `rax = 0`), `registerThread`, `startProcess`.
-`Syscall::fork` turns 0 into -1. forkall is the same with a loop over `threads_`.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – what has to be copied per thread?</summary>
 
@@ -71,6 +68,28 @@ must re-execute the faulting instruction with the original `rax`.)
 child the page fault handler then does not see a stack fault as one – a child that needs one more
 stack page is killed with 666. Copy both (`setUserStackTop`, `setUserStackLowestMappedVpn`).
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add a flag "inside a syscall" to `UserThread`; set it at the top of `Syscall::syscallException`, clear it before it returns.
+2. Syscall plumbing for `forkall` (1720) and a method `UserProcess::forkall(caller)` next to `fork`.
+3. Load the binary for the child **before** taking any lock (disk I/O).
+4. Under the parent's `thread_lock_`: create the child process with a deep copy of the address space; copy the stack slot counter.
+5. For every record of the parent: copy the record (same tid, value, flags; not "joined"). If its thread still runs: copy the thread with the copy constructor, give it the same tid, copy its stack top and lowest mapped stack page, set `rax` (caller: 0; a thread inside a syscall: -1; others: unchanged), register it in the child (counter, flag). Add the record to the child's list.
+6. Release the parent's lock. Take the **child's** lock, start the child with the caller's copy, add every other copy to the scheduler, release.
+7. Return the child's pid (the caller's copy gets 0 from its `rax`). `task test`.
+
+</details>
+
+## Your team's code
+
+`UserProcess::fork(thread_to_clone_from)` (Felix): loads the binary again (`loadExecutable`),
+creates the child with a **deep copy** of the address space (`new ArchMemory(*arch_memory_)` – all
+stacks included), copies `next_stack_slot_`, makes ONE thread with the copy constructor
+`UserThread(child, parent_thread)` (registers copied, `rax = 0`), `registerThread`, `startProcess`.
+`Syscall::fork` turns 0 into -1. forkall is the same with a loop over `threads_`.
 
 ## Questions a tutor might ask
 

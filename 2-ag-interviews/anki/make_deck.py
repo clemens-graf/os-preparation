@@ -330,6 +330,9 @@ DECKS["6 Tasks"] = [
      "(" + c("user_registers_") + ") + its stack (in the address space). Copy every " + c("UserThreadData")
      + " (same tid) and every live thread (" + c("UserThread(child, original)") + " + stack top), under "
      + c("thread_lock_") + "; a thread inside a syscall gets rax = -1.", "task a1"),
+    ("A1-23 pthread_switch(a, b) – what changes, under which lock?", "the ids swap in <b>two</b> places: the records ("
+     + c("UserThreadData::tid_") + ", searched by join/cancel/detach) and the thread objects (" + c("Thread::setTID")
+     + ", read by pthread_self) – all under " + c("thread_lock_") + "; refused for a == b, unknown ids, or while joined.", "task a1"),
     ("A1-22 context switch – which registers, and where is rip?", "only the callee-saved " + c("rbx rbp r12–r15")
      + " (+ " + c("rsp") + "): push them, save rsp, load the other rsp, pop, " + c("ret")
      + ". rip is the return address on the stack.", "task a1"),

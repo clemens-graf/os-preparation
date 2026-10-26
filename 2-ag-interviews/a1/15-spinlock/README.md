@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pthread_spin_init/destroy/lock/trylock/unlock,
               pthread_mutex_init/destroy/lock/unlock (pthread.h - the stubs exist)
@@ -19,15 +24,7 @@ Return Value: 0, or -1 (NULL; trylock: the lock is held)
 `task start a1-15` → `task test` (`spinlock_basic.sweb`: 4 threads × 20000 increments under
 each lock). Done when 7 checks pass.
 
-## Your team's code
-
-The stubs are in `userspace/libc/src/pthread.c`. **Trap:** `pthread_spin_*` exist there but
-are **not declared** in `userspace/libc/include/pthread.h` – a test that calls them does not
-compile until you add the five declarations. `pthread_mutex_*` are declared.
-Your team's `pthread_create`/`pthread_join` work, so the test can use threads.
-
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – why not just "if (*lock == 0) *lock = 1;"?</summary>
 
@@ -49,12 +46,33 @@ functions. (A real mutex would sleep in the kernel instead of yielding in a loop
 syscall and a wait queue.)
 </details>
 
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Declare the missing functions in `pthread.h` if the test does not compile.
+2. `pthread_spin_init` / `pthread_mutex_init`: NULL → -1; set the lock to 0; return 0. `destroy`: NULL → -1, else 0.
+3. `lock`: NULL → -1. Loop: atomically write 1 and get the old value (`__sync_lock_test_and_set`); while the old value was 1, `sched_yield()` and try again.
+4. `trylock`: one atomic attempt; old value 1 → return -1 (held), else 0.
+5. `unlock`: NULL → -1; set the lock back to 0 (`__sync_lock_release`); return 0.
+6. The mutex functions may simply call the spinlock functions.
+7. `task test` – the test counts with many threads; a non-atomic lock loses increments.
+
+</details>
+
 ## Honest note about the test
 
 A lock **without** the atomic step ("check, then set") usually **passes** this test too: the
 gap between check and set is a few instructions, and the timer rarely hits exactly there. That
 is why such bugs survive testing – and why the tutor will ask *why* your version is correct,
 not whether the test passed. Know the answer from hint 1.
+
+## Your team's code
+
+The stubs are in `userspace/libc/src/pthread.c`. **Trap:** `pthread_spin_*` exist there but
+are **not declared** in `userspace/libc/include/pthread.h` – a test that calls them does not
+compile until you add the five declarations. `pthread_mutex_*` are declared.
+Your team's `pthread_create`/`pthread_join` work, so the test can use threads.
 
 ## Questions a tutor might ask
 

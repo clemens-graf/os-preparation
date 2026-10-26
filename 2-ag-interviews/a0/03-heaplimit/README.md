@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         heaplimit
 Nr:           1520 (sc_heaplimit)
@@ -24,21 +29,7 @@ Notes:        Put HEAP_START into nonstd.h so that tests can use it.
 
 `task start a0-03`, implement, `task test`. Done when 5 checks pass and the last access above the limit kills the process.
 
-## Your team's code
-
-The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
-
-- The heap limit is **per-process state → `UserProcess`** (`currentThread->getProcess()`):
-  `heap_size_`, `mapHeapPage(vpn)` (check the limit and map, for the page fault handler) and
-  `setHeapLimit(size)` (unmap everything above the new limit). Inside `UserProcess`:
-  `arch_memory_->…` and `thread_lock_`.
-- Your page fault handler (`PageFaultHandler.cpp`) is longer now: in the valid branch it takes
-  `thread_lock_`, grows the stack (`isUserStackFault`), checks guard pages, and only then calls
-  `getLoader().loadPage(address, getAddressSpace())`. Put the heap case **first** in the valid
-  branch (before it takes the lock – `mapHeapPage` takes it itself) and `return` afterwards.
-
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – where does a heap access end up today?</summary>
 
@@ -60,6 +51,33 @@ the map are in two separate critical sections, `heaplimit()` can shrink the heap
 between → a page stays mapped above the limit. Check and map under the same lock (the one
 that also protects the page tables). And: never call `Syscall::exit` while holding a lock.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add the constants (`HEAP_START`, the maximum size) and a per-process `heap_size_` (start 0) to `UserProcess.h`.
+2. Add two methods to `UserProcess`: one that sets the limit, one that maps a heap page on demand.
+3. Syscall plumbing for `heaplimit(size)`: it rounds up to whole pages and calls the set-limit method.
+4. Set-limit: under `thread_lock_`: if the heap shrinks, unmap every heap page above the new limit and flush the TLB; store the new size.
+5. Map-on-demand: allocate a frame **before** the lock; under `thread_lock_`: check "below the limit?" and `mapPage` **in the same critical section**; after the lock free the frame if it was not used.
+6. Page fault handler: in the valid branch, **first** (before the stack check takes the lock): an address inside the heap region → call map-on-demand; outside the limit → kill the process (after releasing every lock); then `return`.
+7. `task test` – the test touches pages below and above the limit and shrinks it.
+
+</details>
+
+## Your team's code
+
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
+
+- The heap limit is **per-process state → `UserProcess`** (`currentThread->getProcess()`):
+  `heap_size_`, `mapHeapPage(vpn)` (check the limit and map, for the page fault handler) and
+  `setHeapLimit(size)` (unmap everything above the new limit). Inside `UserProcess`:
+  `arch_memory_->…` and `thread_lock_`.
+- Your page fault handler (`PageFaultHandler.cpp`) is longer now: in the valid branch it takes
+  `thread_lock_`, grows the stack (`isUserStackFault`), checks guard pages, and only then calls
+  `getLoader().loadPage(address, getAddressSpace())`. Put the heap case **first** in the valid
+  branch (before it takes the lock – `mapHeapPage` takes it itself) and `return` afterwards.
 
 ## Questions a tutor might ask
 

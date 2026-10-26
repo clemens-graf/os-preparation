@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         sbrk (POSIX, unistd.h - the stub exists)
 Nr:           1700
@@ -21,11 +26,7 @@ Return Value: old break, or (void*) -1 if the new break would be below the start
 `task.sh start a1-12` → `task.sh test`. Done when 7 checks pass and the last access above the
 shrunk break kills the process.
 
-## Your team's code
-
-Like A0-03: `brk_ = BRK_START`, `mapBrkPage(vpn)` and `sbrk(increment)` in `UserProcess` (under `thread_lock_`). The heap case goes **first** in the page fault handler's valid branch, before it takes `thread_lock_` (`mapBrkPage` takes it itself), then `return`. The libc `sbrk` stub is in `userspace/libc/src/unistd.c`.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – compare with A0-03</summary>
 
@@ -41,6 +42,24 @@ Unmap the pages from `roundup(new_break)` to `roundup(old_break)`, then flush th
 
 `old + increment` can wrap around – check the result against both ends of the region.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Same three pieces as A0-03: a per-process break `brk_` (starts at the heap start) in `UserProcess`, a syscall that moves it, and the page fault handler that maps on demand.
+2. Syscall `sbrk(increment)` (1700, the libc stub in `unistd.c` already exists): under `thread_lock_` remember the old break, compute the new one.
+3. Refuse a new break below the start or above the maximum (also for a negative increment that wraps around): return -1.
+4. Shrinking: unmap every page that is now completely above the new break, flush the TLB.
+5. Store the new break and return the **old** one.
+6. Page fault: an address in the heap region → under `thread_lock_` check "below the break?" and map a zeroed frame in the **same** critical section; above → kill (after the lock).
+7. `task test`.
+
+</details>
+
+## Your team's code
+
+Like A0-03: `brk_ = BRK_START`, `mapBrkPage(vpn)` and `sbrk(increment)` in `UserProcess` (under `thread_lock_`). The heap case goes **first** in the page fault handler's valid branch, before it takes `thread_lock_` (`mapBrkPage` takes it itself), then `return`. The libc `sbrk` stub is in `userspace/libc/src/unistd.c`.
 
 ## Questions a tutor might ask
 

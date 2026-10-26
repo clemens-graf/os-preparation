@@ -6,13 +6,13 @@ Patch: [`solution.patch`](solution.patch). Same mechanism as A0-03 (heaplimit), 
 size_t Syscall::sbrk(ssize_t increment)
 {
   ScopeLock lock(process->getThreadLock());
-  size_t old_brk = loader->brk_;
+  size_t old_brk = process->brk_;
   size_t new_brk = old_brk + increment;
   if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)   // also wrap-around
     return (size_t) -1;
   if (increment < 0)
     /* unmap pages [roundup(new), roundup(old)), flush TLB */;
-  loader->brk_ = new_brk;
+  process->brk_ = new_brk;
   return old_brk;
 }
 ```

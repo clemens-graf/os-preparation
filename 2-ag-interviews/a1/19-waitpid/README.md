@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §6 processes, waitpid, §5 exit & atexit
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         waitpid (POSIX, wait.h - the stub exists)
 Nr:           1717 (sc_waitpid)
@@ -21,17 +26,7 @@ Return Value: pid, or -1 (not a child of the caller, unknown, already waited for
 `task start a1-19` → `task test` (`waitpid_basic.sweb` – uses your team's `fork` – then
 `exit` for the leak check). Done when 7 checks pass and no `leaking` warning appears.
 
-## Your team's code
-
-- The libc stub: `userspace/libc/src/wait.c` (`wait.h`).
-- Processes: `UserProcess` has `getPID()`, `getPPID()` (`fork` passes the parent's pid). It is
-  deleted in the CleanupThread when its last thread is gone (`~UserProcess`), long after
-  `Syscall::exit(code)` ran – the exit code has to be remembered somewhere.
-- The `ProcessRegistry` (a kernel thread + singleton, `ProcessRegistry::instance()`) knows every
-  process start/end (`processStart`, `processExit`, a Mutex + Condition): the natural place for
-  "which pid is whose child, and how did it end".
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – where does the exit code survive the process?</summary>
 
@@ -52,6 +47,29 @@ Mutex + Condition in the registry: `while (child not finished) wait();`, broadca
 When a process ends, the records of **its** children can go (nobody can wait for them any
 more); a process started by the kernel (ppid 0) needs no record after it ended.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. In `ProcessRegistry`: a fixed array of records (pid, parent pid, used, finished, exit code), a Mutex and a Condition – created where the registry is set up, not as globals with constructors.
+2. `UserProcess`: an `exit_code_` member; `Syscall::exit` stores the code there before the process ends.
+3. When a process is created: write a record (pid, parent pid). When it is deleted (`~UserProcess`): mark the record finished with the exit code, broadcast; drop the records of its own children.
+4. Syscall `waitpid(pid, status, options)` (1717, libc `wait.c`): under the registry lock loop: find the child's record with this parent; none → -1; finished → take the code, free the record, return the pid; else wait on the Condition.
+5. After the lock is released: write the code to `*status` (user memory may page-fault).
+6. `task test`. (Note: your team merged its own waitpid after the pin – compare later.)
+
+</details>
+
+## Your team's code
+
+- The libc stub: `userspace/libc/src/wait.c` (`wait.h`).
+- Processes: `UserProcess` has `getPID()`, `getPPID()` (`fork` passes the parent's pid). It is
+  deleted in the CleanupThread when its last thread is gone (`~UserProcess`), long after
+  `Syscall::exit(code)` ran – the exit code has to be remembered somewhere.
+- The `ProcessRegistry` (a kernel thread + singleton, `ProcessRegistry::instance()`) knows every
+  process start/end (`processStart`, `processExit`, a Mutex + Condition): the natural place for
+  "which pid is whose child, and how did it end".
 
 ## Questions a tutor might ask
 

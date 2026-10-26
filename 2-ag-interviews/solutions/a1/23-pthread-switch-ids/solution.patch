@@ -1,0 +1,135 @@
+diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
+index 3b55c7a6..7eb0a674 100644
+--- a/common/include/kernel/Syscall.h
++++ b/common/include/kernel/Syscall.h
+@@ -37,6 +37,7 @@ class Syscall
+     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
+     static size_t pthreadCancel(size_t thread);
+     static size_t pthreadDetach(size_t thread);
++    static size_t pthreadSwitch(size_t thread_a, size_t thread_b);   // A1-23
+ 
+     static size_t getThreadCount();
+     static size_t getProcessCount();
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index bc32c487..94a36550 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -188,6 +188,14 @@ class UserProcess
+     */
+     size_t detachThread(size_t tid);
+ 
++    /**
++     * A1-23: the threads with the ids a and b exchange their ids (in their records and their
++     * thread objects). Afterwards pthread_self, join, cancel and detach follow the new ids.
++     *
++     * @return 0, or -1 if one of them does not exist, a == b, or one of them is being joined
++     */
++    size_t switchThreadIds(size_t a, size_t b);
++
+     /**
+      * Called if a thread calles exit, caller kills all still active theads, then frees the thread data structs and kills itself afterwards
+      *
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..5a7fdfe1 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,7 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_pthread_switch 1730   // A1-23
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..4aa28bfb 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -103,6 +103,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_detach:
+       return_value = pthreadDetach(arg1);
+       break;
++    case sc_pthread_switch:
++      return_value = pthreadSwitch(arg1, arg2);
++      break;
+     case sc_fork:
+       return_value = fork();
+       break;
+@@ -232,6 +235,15 @@ size_t Syscall::pthreadCancel(size_t thread)
+   return 0;
+ }
+ 
++// A1-23: the two threads exchange their ids
++size_t Syscall::pthreadSwitch(size_t thread_a, size_t thread_b)
++{
++  UserProcess* process = currentThread->getProcess();
++  if (!process)
++    return (size_t) -1;
++  return process->switchThreadIds(thread_a, thread_b);
++}
++
+ size_t Syscall::pthreadDetach(size_t thread)
+ {
+   debug(PTHREAD_DETACH, "Pthread detach called by thread id: %zu\n", currentThread->getTID());
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index e32f2cda..0d97ca6a 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -507,6 +507,29 @@ bool UserProcess::isCancelRequested(size_t tid)
+   return thread_data && thread_data->requested_cancel_;
+ }
+ 
++// A1-23
++size_t UserProcess::switchThreadIds(size_t a, size_t b)
++{
++  ScopeLock lock(thread_lock_);              // ids, records and thread objects change together
++
++  if (a == b)
++    return -1;
++  UserThreadData* data_a = findThreadDataByTid(a);
++  UserThreadData* data_b = findThreadDataByTid(b);
++  if (!data_a || !data_b)
++    return -1;                               // unknown (or already joined and deleted)
++  if (data_a->joined_ || data_b->joined_)
++    return -1;                               // someone waits for that id right now
++
++  data_a->tid_ = b;                          // the record follows the thread ...
++  data_b->tid_ = a;
++  if (data_a->thread_)                       // ... and so does the thread object, if it still runs
++    data_a->thread_->setTID(b);
++  if (data_b->thread_)
++    data_b->thread_->setTID(a);
++  return 0;
++}
++
+ size_t UserProcess::detachThread(size_t tid)
+ {
+   debug(PTHREAD_DETACH, "Thread id %zu wants to detach thread id %zu\n", currentThread->getTID(), tid);
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index c40fcbe2..9dd7f912 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -41,6 +41,9 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
+ 
+ extern int pthread_detach(pthread_t thread);
+ 
++// A1-23: the two threads exchange their ids
++extern int pthread_switch(pthread_t a, pthread_t b);
++
+ extern int pthread_mutex_init(pthread_mutex_t *mutex,
+                               const pthread_mutexattr_t *attr);
+ 
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 8b8448e4..3a16e180 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -231,3 +231,9 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
+   return -1;
+ }
++
++// A1-23
++int pthread_switch(pthread_t a, pthread_t b)
++{
++  return __syscall(sc_pthread_switch, (size_t)a, (size_t)b, 0x00, 0x00, 0x00);
++}

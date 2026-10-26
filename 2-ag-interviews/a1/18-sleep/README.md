@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler · example: [ex13](../../examples/ex13-timer-scheduler/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         sleep (POSIX, unistd.h - the stub exists), uptime
 Nr:           1715 (sc_sleep), 1716 (sc_uptime)
@@ -17,13 +22,7 @@ Return Value: sleep: 0 (seconds not slept); uptime: ticks
 
 `task start a1-18` → `task test` (`sleep_basic.sweb`, then `exit`). Done when 5 checks pass.
 
-## Your team's code
-
-The libc stub is in `userspace/libc/src/unistd.c` (declared in `unistd.h`). The time source
-is the timer interrupt: `irqHandler_0` (`InterruptUtils.cpp`) → `Scheduler::incTicks()`;
-read it with `Scheduler::instance()->getTicks()`. 1193180 / 65536 = 18.2 ticks per second.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – kernel or user space?</summary>
 
@@ -35,6 +34,26 @@ User space has no clock (`clock()` is a stub too) – the ticks are in the kerne
 `while (getTicks() < until) Scheduler::instance()->yield();` – every yield lets the other
 threads run. Never wait while holding a lock.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Syscall plumbing for `sleep` (1715 – the libc stub in `unistd.c` exists) and `uptime` (1716, new wrapper).
+2. `uptime`: return the scheduler's tick counter (`getTicks()`) – no lock needed.
+3. `sleep(seconds)`: compute the end tick = now + seconds × 18.2 (use integers: × 182 / 10); cap huge values so nothing overflows.
+4. Loop: while the tick counter is below the end tick, **yield** – the other threads run meanwhile.
+5. Return 0. `sleep(0)` must return at once (the loop does not run).
+6. Make sure you hold no lock while sleeping.
+7. `task test`. (Better design for the interview: a wake-up tick per thread + state Sleeping, woken by the scheduler – explain it, the yield loop is enough to pass.)
+
+</details>
+
+## Your team's code
+
+The libc stub is in `userspace/libc/src/unistd.c` (declared in `unistd.h`). The time source
+is the timer interrupt: `irqHandler_0` (`InterruptUtils.cpp`) → `Scheduler::incTicks()`;
+read it with `Scheduler::instance()->getTicks()`. 1193180 / 65536 = 18.2 ticks per second.
 
 ## Questions a tutor might ask
 

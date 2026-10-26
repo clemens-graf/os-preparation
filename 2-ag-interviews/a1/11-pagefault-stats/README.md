@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §10 interrupts, §4 page faults
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pfstats
 Nr:           1690
@@ -21,11 +26,7 @@ Return Value: 0 or -1
 `task.sh start a1-11` → `task.sh test`. Done when 6 checks pass, including a fault the
 *kernel* causes when the syscall writes into a not-yet-loaded user page.
 
-## Your team's code
-
-The counters are per process → `UserProcess::PageFaultStats pf_stats_` (public), updated in `pageFaultHandler` (`InterruptUtils.cpp`) with `ArchThreads::atomic_add` – interrupts are off there, no lock possible. `currentThread->getProcess()` is `nullptr` for kernel threads: check it.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – the path of interrupt 14</summary>
 
@@ -46,6 +47,23 @@ the counting after `enableInterrupts`.
 
 `asm volatile("mov %%cr2, %0" : "=r"(cr2));`
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add a stats struct to `UserProcess`: total, user, kernel, write, read, instruction fetch, and the last faulting address – plain counters.
+2. In `pageFaultHandler` (`InterruptUtils.cpp`, interrupts still off): read `cr2` with inline assembly and assert it equals the passed address.
+3. Count with **atomic** additions (`ArchThreads::atomic_add`) – no Mutex here.
+4. Decode the error code bits: user vs. kernel, write vs. read, present vs. not present.
+5. Syscall `pfstats(stats)` (1690): check the user pointer, copy the counters (and the last faulting address) into the user's struct.
+6. `task test`.
+
+</details>
+
+## Your team's code
+
+The counters are per process → `UserProcess::PageFaultStats pf_stats_` (public), updated in `pageFaultHandler` (`InterruptUtils.cpp`) with `ArchThreads::atomic_add` – interrupts are off there, no lock possible. `currentThread->getProcess()` is `nullptr` for kernel threads: check it.
 
 ## Questions a tutor might ask
 

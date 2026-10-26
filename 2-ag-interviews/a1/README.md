@@ -37,6 +37,7 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 20 | [pthread_detach](20-detach/) | S (study) | your own, merged 18 Oct | – | 25 min | ★★☆ |
 | 21 | [forkall](21-forkall/) | S | `forkall` | – | 45 min | ★★★ |
 | 22 | [pthread_switch: the context switch itself](22-pthread-switch/) | A + U | `pthread_switch` | – | 40 min | ★★★ |
+| 23 | [pthread_switch: two threads swap their ids](23-pthread-switch-ids/) | S | `pthread_switch` (variant) | – | 30 min | ★★☆ |
 
 Not here, with the reason:
 - *Pagefault handler with special addresses* (`0xDEADBEEF`): that is A0-04 – do it again with a
@@ -53,7 +54,7 @@ task reset a1-01        # start over - your attempt is kept in a backup branch
 task solution a1-01     # the reference solution on its own branch
 ```
 
-Syscall numbers 1600–1720 (your block 1500–1999; 1500–1504 and 1998/1999 are taken by your team).
+Syscall numbers 1600–1730 (your block 1500–1999; 1500–1504 and 1998/1999 are taken by your team).
 
 ## What A1 interview questions are about
 

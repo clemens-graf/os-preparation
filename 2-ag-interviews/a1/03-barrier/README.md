@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §14 barriers, §13 semaphores & condvars
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pthread_barrier_init, pthread_barrier_wait, pthread_barrier_destroy
 Nr:           1610, 1611, 1612
@@ -24,11 +29,7 @@ Notes:        SWEB convention: -1 means error, so PTHREAD_BARRIER_SERIAL_THREAD 
 `task.sh start a1-03` → `task.sh test` (3 runs). Done when all 6 checks pass in every run:
 4 threads, 20 rounds, nobody passes early, exactly one serial thread per round.
 
-## Your team's code
-
-Barriers are per process → `UserProcess`: `Barrier barriers_[16]`, their own `barriers_lock_` (Mutex) and `barrier_opened_` (Condition), initialised in the constructor's initializer list **after** the existing members (the order must match the declaration order). Syscalls 1610–1612 call `getProcess()->barrierInit/Wait/Destroy`.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – what does the kernel keep per barrier?</summary>
 
@@ -49,6 +50,23 @@ instead: remember it before sleeping, loop while it is the same.
 Broadcast: all waiters of the round must wake. With one Condition for all barriers, waiters
 of other barriers wake too – the generation check sends them back to sleep.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. In `UserProcess`: an array of barriers (used, count, waiting, generation), one Mutex for them and one Condition.
+2. `pthread_barrier_init(barrier, attr, count)`: count 0 → -1; under the lock take a free slot, store count; write its id (index + 1) into the user's barrier variable.
+3. `pthread_barrier_wait`: under the lock find the barrier; remember its current generation; increase `waiting`.
+4. If `waiting` equals `count`: reset `waiting` to 0, increase the generation, broadcast, return the serial value (1).
+5. Otherwise: wait on the Condition **while the generation is still the remembered one**; return 0.
+6. `destroy`: free the slot. `task test`.
+
+</details>
+
+## Your team's code
+
+Barriers are per process → `UserProcess`: `Barrier barriers_[16]`, their own `barriers_lock_` (Mutex) and `barrier_opened_` (Condition), initialised in the constructor's initializer list **after** the existing members (the order must match the declaration order). Syscalls 1610–1612 call `getProcess()->barrierInit/Wait/Destroy`.
 
 ## Questions a tutor might ask
 

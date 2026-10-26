@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §7 C strings
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         setnote, getnote
 Nr:           1570 (sc_setnote), 1571 (sc_getnote)
@@ -34,21 +39,7 @@ Done when all 23 checks pass (`task test` also fails if a test program dies half
 it counts the `[PASS]` lines). `note_basic` starts `note_child`: a second process – a second
 thread – must see its own, empty note.
 
-## Your team's code
-
-The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
-
-- The note is **per user thread → `UserThread`**: `char note_[16] = {};` (a default member
-  initializer – then neither of your two `UserThread` constructors, normal and fork, needs a change).
-- In the syscall: `UserThread* thread = (UserThread*) currentThread;` – fine, syscalls only come from
-  user threads.
-- Your team already has `Syscall::copyUserString(path, buffer, size)` (from `mkdir`). It is **not**
-  what setnote needs: it returns `false` when the string is longer than the buffer, setnote must cut
-  it after 15 characters. A tutor may ask why you did not reuse it.
-- 1570/1571 are free.
-
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – start from the tutorial</summary>
 
@@ -89,6 +80,32 @@ two syscalls at the same time. So: no lock. The tutorial's `Mutex` becomes neces
 another thread or kernel path touches the field (e.g. "getnote(tid)" for another thread, or a
 debug dump of all threads) – be ready to say exactly that.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add a debug flag `NOTE` in `debug.h` and a `char note_[16]` to `UserThread` (empty at start).
+2. Syscall plumbing for `setnote` (1570) and `getnote` (1571) – with `return_value =` in both `case`s.
+3. `setnote(string)`: refuse 0 and `>= USER_BREAK`. Copy byte by byte into a local 16-byte buffer: before each byte check that its address is below `USER_BREAK`; stop at the NUL or after 15 characters; write the NUL yourself.
+4. Copy the local buffer into the thread's `note_`; print it with your debug flag (the copy, not the user string); return the length.
+5. `getnote(buffer, size)`: check the buffer range (no overflow); copy at most `size - 1` characters plus a NUL; return the full length of the note.
+6. `task test`.
+
+</details>
+
+## Your team's code
+
+The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
+
+- The note is **per user thread → `UserThread`**: `char note_[16] = {};` (a default member
+  initializer – then neither of your two `UserThread` constructors, normal and fork, needs a change).
+- In the syscall: `UserThread* thread = (UserThread*) currentThread;` – fine, syscalls only come from
+  user threads.
+- Your team already has `Syscall::copyUserString(path, buffer, size)` (from `mkdir`). It is **not**
+  what setnote needs: it returns `false` when the string is longer than the buffer, setnote must cut
+  it after 15 characters. A tutor may ask why you did not reuse it.
+- 1570/1571 are free.
 
 ## Questions a tutor might ask
 

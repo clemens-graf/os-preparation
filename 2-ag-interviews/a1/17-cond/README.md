@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §13 semaphores & condvars, §12 locks & atomics · example: [ex14](../../examples/ex14-libc-function/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pthread_cond_init, pthread_cond_destroy, pthread_cond_wait,
               pthread_cond_signal, pthread_cond_broadcast (pthread.h - the stubs exist)
@@ -20,13 +25,7 @@ Return Value: 0, or -1 (NULL)
 `task start a1-17` → `task test` (`cond_basic.sweb` + A1-15's `spinlock_basic.sweb`).
 Done when 5 + 7 checks pass. If `cond_wait` keeps the mutex, the test hangs.
 
-## Your team's code
-
-The stubs are in `userspace/libc/src/pthread.c` (declared in `pthread.h`);
-`pthread_cond_t` is an `unsigned int`. The task starts from the A1-15 solution: your
-`pthread_mutex_*` work.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – what can one unsigned int remember?</summary>
 
@@ -45,6 +44,25 @@ unlock and your first check still changes the number you compare with.
 `while (generation unchanged) sched_yield();` – then `pthread_mutex_lock` again. The increment in
 `signal` must be atomic (`__sync_fetch_and_add`): two signallers at once must not lose one.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Builds on A1-15. A condition variable is a counter ("generation").
+2. `init`: NULL → -1; set to 0. `destroy`: NULL → -1, else 0.
+3. `pthread_cond_wait(cond, mutex)`: read the counter **while still holding the mutex**; unlock the mutex; yield in a loop until the counter is different; lock the mutex again; return 0.
+4. Read the counter through a `volatile` pointer, so the loop really reads memory each time.
+5. `signal` and `broadcast`: increase the counter **atomically** (`__sync_fetch_and_add`); return 0.
+6. `task test` – the producer/consumer check fails if you read the counter after unlocking (lost wake-up).
+
+</details>
+
+## Your team's code
+
+The stubs are in `userspace/libc/src/pthread.c` (declared in `pthread.h`);
+`pthread_cond_t` is an `unsigned int`. The task starts from the A1-15 solution: your
+`pthread_mutex_*` work.
 
 ## Questions a tutor might ask
 

@@ -43,7 +43,7 @@ task list
 ```
 
 Expected: first one line `importing your team's code …` (only the very first time), then a
-table with every example and task (`ex01 … ex14`, `a0-01 … a0-14`, `a1-01 … a1-22`,
+table with every example and task (`ex01 … ex14`, `a0-01 … a0-14`, `a1-01 … a1-23`,
 `a2-01 … a2-13`). The training repo exists already. Only on another laptop, or after deleting
 it, do you need (your team repo must be cloned to `repos/osw26e3` first):
 

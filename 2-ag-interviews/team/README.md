@@ -95,6 +95,7 @@ Types: **U** user space only · **S** syscall + kernel · **E** kernel event · 
 | A1-20 pthread_detach | S | **study task** – your own: `detached_` in `UserThreadData`, `detachThread`, `exitThread` frees the record: 6/6 |
 | A1-21 forkall | S | `UserProcess::forkall` next to `fork`; `in_syscall_` in `UserThread` |
 | A1-22 pthread_switch | A + U | libc: `context.h` + `context.c` (top-level `__asm__`) |
+| A1-23 pthread_switch (ids) | S | `UserProcess::switchThreadIds` (like `detachThread`): `UserThreadData::tid_` + `Thread::setTID` |
 | A2-01 swap | S + E | `SwapManager`; `swapOut/swapIn` in `UserProcess`; swap-in first in the page fault handler |
 | A2-02 … A2-06 | E (+ S) | on top of A2-01, state in `UserProcess`; A2-06: `Console::handleKey` + top of `syscallException` |
 | A2-07 mprotect | S + E | PTE bits under `getThreadLock()` |

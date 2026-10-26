@@ -146,6 +146,7 @@ through `checkAddressValid` (it returns the kernel address of that byte), not th
 | A1-20 pthread_detach | S | threads: free the record at the end |
 | A1-21 forkall | S | processes + threads: copy every thread record and thread |
 | A1-22 pthread_switch | **A** + U | registers: the context switch itself, in user space |
+| A1-23 pthread_switch (ids) | S | threads: swap the ids in record + thread object |
 | A2-01 swap | S + E (page fault) | block device, swap-out/in |
 | A2-02 page backup | S | copy a page to the disk and back |
 | A2-03 heap swap | E (page fault) | swap to the kernel heap |

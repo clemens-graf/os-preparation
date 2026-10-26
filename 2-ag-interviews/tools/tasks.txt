@@ -61,3 +61,4 @@ a2-12|a2/12-syscall-blacklist|main|--expect-pass 5|blacklist_basic.sweb;mult.swe
 a2-13|a2/13-mmap|main|--expect-pass 11|mmap_basic.sweb;exit
 a1-21|a1/21-forkall|main|--expect-pass 7|forkall_basic.sweb;exit
 a1-22|a1/22-pthread-switch|main|--expect-pass 7|switch_basic.sweb;switch_return.sweb;exit
+a1-23|a1/23-pthread-switch-ids|main|--expect-pass 9|switch_ids_basic.sweb;exit

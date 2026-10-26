@@ -44,7 +44,7 @@ frame[3] = (size_t) function;              // r12
 frame[4] = 0;                              // rbx
 frame[5] = 0;                              // rbp
 frame[6] = (size_t) __context_trampoline;  // popped by ret
-ctx->rsp = (size_t) sp;
+ctx->rsp = (size_t) frame;
 ```
 ```asm
 __context_trampoline:    # reached by ret, with r12 = function, r13 = arg

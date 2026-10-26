@@ -4,6 +4,11 @@
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §15 a thread's life · example: [ex13](../../examples/ex13-timer-scheduler/)
 
+**How to work:** start with level 1 only. Open level 2 when you are stuck, level 3 only after the
+hints did not help. Level 3 tells you *what* to do step by step – the code you write yourself.
+
+## Level 1 – the goal
+
 ```
 Name:         pthread_invoke
 Nr:           1630
@@ -19,11 +24,7 @@ Return Value: 0, or -1 if the thread does not exist or is the caller
 target runs first after `pthread_invoke` in at least 18 of 20 tries (with a plain `sched_yield`
 it is about 4/20).
 
-## Your team's code
-
-`Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadDataByTid(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
-
-## Hints
+## Level 2 – hints
 
 <details><summary>1 – how to tell the scheduler?</summary>
 
@@ -42,6 +43,23 @@ only list members are alive.
 
 Look the thread up under the process' thread lock, release the lock, then yield.
 </details>
+
+## Level 3 – step by step (no code)
+
+<details><summary>Open only if the hints were not enough</summary>
+
+1. Add a "preferred next thread" pointer to the `Scheduler` and a method that sets it and yields.
+2. Syscall `pthread_invoke(id)` (1630): under `thread_lock_` find the target's thread object; missing or the caller itself → -1; remember the pointer; **release the lock**, then call the method (never yield holding a lock).
+3. In `schedule()`: take the preferred pointer and clear it. Walk the thread list: if you find **that pointer** in the list and it is schedulable, choose it.
+4. If not found (ended meanwhile, sleeping): normal round robin.
+5. Compare the pointer only – never dereference it before you found it in the list.
+6. `task test`.
+
+</details>
+
+## Your team's code
+
+`Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadDataByTid(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
 
 ## Questions a tutor might ask
 
