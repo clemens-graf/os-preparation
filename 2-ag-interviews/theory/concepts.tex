@@ -36,6 +36,80 @@
 \end{titlepage}
 
 \tableofcontents
+
+% =====================================================================================
+\chapter*{Which sections for which task}
+\addcontentsline{toc}{chapter}{Which sections for which task}
+\markboth{Which sections for which task}{Which sections for which task}
+
+Find your task, read the section under \textbf{Read first} before you start, and the ones under
+\textbf{Also useful} when the task touches them. The section numbers are links. Every section ends
+with the reverse view: the tasks that need it and the example (\file{examples/}) to look at first.
+
+{\small
+\begin{longtable}{@{}L{5.2cm}L{4.3cm}L{6.4cm}@{}}
+\toprule
+\textbf{Task} & \textbf{Read first} & \textbf{Also useful}\\
+\endfirsthead
+\toprule
+\textbf{Task} & \textbf{Read first} & \textbf{Also useful}\\
+\endhead
+\bottomrule
+\endfoot
+\midrule\multicolumn{3}{@{}l}{\textbf{A0 -- the first interview}}\\\midrule
+A0-01 meminfo & \S\ref{c:frames} page tables \& frames & \S\ref{c:address-space} address space \\
+A0-02 allocpage / freepage & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A0-03 heaplimit & \S\ref{c:sbrk} sbrk \& demand paging & \S\ref{c:pagefault} page faults, \S\ref{c:address-space} address space \\
+A0-04 magic page & \S\ref{c:pagefault} page faults & \S\ref{c:frames} page tables \& frames \\
+A0-05 read-only code & \S\ref{c:pagefault} page faults & \S\ref{c:address-space} address space, \S\ref{c:frames} page tables \& frames \\
+A0-06 segv handler & \S\ref{c:divert} diverting a thread & \S\ref{c:pagefault} page faults, \S\ref{c:calling} registers \& calling conv. \\
+A0-07 upcall & \S\ref{c:divert} diverting a thread & \S\ref{c:calling} registers \& calling conv. \\
+A0-08 pthread\_create & \S\ref{c:thread} a thread's life & \S\ref{c:calling} registers \& calling conv. \\
+A0-09 pthread\_multi & \S\ref{c:thread} a thread's life & \S\ref{c:calling} registers \& calling conv. \\
+A0-11 thread note & \S\ref{c:thread} a thread's life & \S\ref{c:strings} C strings \\
+A0-12 alias page & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A0-13 atexit & \S\ref{c:exit} exit \& atexit &  \\
+A0-14 string functions & \S\ref{c:strings} C strings &  \\
+\midrule\multicolumn{3}{@{}l}{\textbf{A1 -- your next interview}}\\\midrule
+A1-01 pthread\_join & \S\ref{c:thread} a thread's life & \S\ref{c:sync} semaphores \& condvars \\
+A1-02 pthread\_multiple & \S\ref{c:thread} a thread's life & \S\ref{c:sync} semaphores \& condvars \\
+A1-03 barrier & \S\ref{c:barrier} barriers & \S\ref{c:sync} semaphores \& condvars, \S\ref{c:locks} locks \& atomics \\
+A1-04 thread flag & \S\ref{c:time} timer \& scheduler & \S\ref{c:thread} a thread's life \\
+A1-05 pthread\_invoke & \S\ref{c:time} timer \& scheduler & \S\ref{c:thread} a thread's life \\
+A1-06 pthread\_cancel & \S\ref{c:thread} a thread's life & \S\ref{c:sync} semaphores \& condvars \\
+A1-07 thread runtime & \S\ref{c:time} timer \& scheduler & \S\ref{c:thread} a thread's life, \S\ref{c:interrupts} interrupts \\
+A1-08 snapshot \& revive & \S\ref{c:divert} diverting a thread & \S\ref{c:calling} registers \& calling conv., \S\ref{c:thread} a thread's life \\
+A1-09 vtop / ptov & \S\ref{c:frames} page tables \& frames & \S\ref{c:address-space} address space \\
+A1-10 shared page & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A1-11 page fault statistics & \S\ref{c:interrupts} interrupts & \S\ref{c:pagefault} page faults \\
+A1-12 sbrk & \S\ref{c:sbrk} sbrk \& demand paging & \S\ref{c:pagefault} page faults, \S\ref{c:address-space} address space \\
+A1-13 sum15 & \S\ref{c:calling} registers \& calling conv. &  \\
+A1-14 malloc & \S\ref{c:heap} heap \& malloc & \S\ref{c:address-space} address space, \S\ref{c:sbrk} sbrk \& demand paging \\
+A1-15 spinlock + mutex & \S\ref{c:locks} locks \& atomics &  \\
+A1-16 semaphore & \S\ref{c:sync} semaphores \& condvars & \S\ref{c:locks} locks \& atomics \\
+A1-17 condition variables & \S\ref{c:sync} semaphores \& condvars & \S\ref{c:locks} locks \& atomics \\
+A1-18 sleep + uptime & \S\ref{c:time} timer \& scheduler & \S\ref{c:interrupts} interrupts \\
+A1-19 waitpid & \S\ref{c:process} processes, waitpid & \S\ref{c:exit} exit \& atexit, \S\ref{c:sync} semaphores \& condvars \\
+A1-20 pthread\_detach & \S\ref{c:thread} a thread's life &  \\
+A1-21 forkall & \S\ref{c:process} processes, waitpid & \S\ref{c:thread} a thread's life, \S\ref{c:frames} page tables \& frames \\
+A1-22 pthread\_switch (context) & \S\ref{c:calling} registers \& calling conv. & \S\ref{c:divert} diverting a thread \\
+A1-23 pthread\_switch (ids) & \S\ref{c:thread} a thread's life & \S\ref{c:locks} locks \& atomics \\
+\midrule\multicolumn{3}{@{}l}{\textbf{A2}}\\\midrule
+A2-01 swap out / in & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults, \S\ref{c:address-space} address space \\
+A2-02 page backup & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A2-03 swap onto the kernel heap & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults, \S\ref{c:heap} heap \& malloc \\
+A2-04 XOR-encrypted swap & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A2-05 dirty swap & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults \\
+A2-06 F3: swap all pages & \S\ref{c:interrupts} interrupts & \S\ref{c:frames} page tables \& frames \\
+A2-07 mprotect + W$\oplus$X & \S\ref{c:pagefault} page faults & \S\ref{c:frames} page tables \& frames, \S\ref{c:address-space} address space \\
+A2-08 NX & \S\ref{c:pagefault} page faults & \S\ref{c:frames} page tables \& frames, \S\ref{c:address-space} address space \\
+A2-09 zero page + copy-on-write & \S\ref{c:frames} page tables \& frames & \S\ref{c:pagefault} page faults, \S\ref{c:process} processes, waitpid \\
+A2-10 RAM obfuscation thread & \S\ref{c:frames} page tables \& frames & \S\ref{c:thread} a thread's life, \S\ref{c:locks} locks \& atomics, \S\ref{c:time} timer \& scheduler \\
+A2-11 boot counter + motd & \S\ref{c:strings} C strings & \S\ref{c:frames} page tables \& frames \\
+A2-12 syscall blacklist & \S\ref{c:calling} registers \& calling conv. & \S\ref{c:process} processes, waitpid \\
+A2-13 mmap / munmap & \S\ref{c:sbrk} sbrk \& demand paging & \S\ref{c:pagefault} page faults, \S\ref{c:frames} page tables \& frames, \S\ref{c:address-space} address space \\
+\end{longtable}
+}
 \chapter*{The concepts}
 \addcontentsline{toc}{chapter}{The concepts}
 \markboth{The concepts}{The concepts}
