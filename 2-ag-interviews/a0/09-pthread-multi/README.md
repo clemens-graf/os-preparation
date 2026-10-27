@@ -1,6 +1,6 @@
 # A0-09 · pthread_multi
 
-**Time box 40 min (with 08 done) · ★★★ · builds on [A0-08](../08-pthread-create/)**
+**Time box 40 min (with 08 done) · ★★★ · type S + K ([TRIAGE](../../TRIAGE.md)) · builds on [A0-08](../08-pthread-create/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §8 registers & calling convention
 

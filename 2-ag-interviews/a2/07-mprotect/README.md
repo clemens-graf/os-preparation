@@ -1,6 +1,6 @@
 # A2-07 · mprotect + W⊕X
 
-**Time box 30 min · ★★☆ · read first: ex04**
+**Time box 30 min · ★★☆ · type S + E (page fault) ([TRIAGE](../../TRIAGE.md)) · read first: ex04**
 
 ```
 Name:         mprotect (sys/mman.h - stub and PROT_* constants exist)

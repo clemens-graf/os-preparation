@@ -1,6 +1,6 @@
 # A1-03 · pthread barriers
 
-**Time box 40 min · ★★★ · builds on A1-01 · man page: pthread_barrier_wait**
+**Time box 40 min · ★★★ · type S ([TRIAGE](../../TRIAGE.md)) · builds on A1-01 · man page: pthread_barrier_wait**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §14 barriers, §13 semaphores & condvars
 

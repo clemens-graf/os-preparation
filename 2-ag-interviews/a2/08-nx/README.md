@@ -1,6 +1,6 @@
 # A2-08 · NX: never execute data or stack
 
-**Time box 25 min · ★★☆ · read first: ex09**
+**Time box 25 min · ★★☆ · type E (loader) ([TRIAGE](../../TRIAGE.md)) · read first: ex09**
 
 ```
 Name:         if you try to execute a page that is not in the code segment, it causes a

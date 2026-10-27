@@ -1,6 +1,6 @@
 # A0-12 · two addresses, one page (tutorial 2 done right)
 
-**Time box 40 min · ★★★ · read first: [ex12](../../examples/ex12-tutorial2/) (the tutorial), [ex02](../../examples/ex02-map-page/)**
+**Time box 40 min · ★★★ · type S ([TRIAGE](../../TRIAGE.md)) · read first: [ex12](../../examples/ex12-tutorial2/) (the tutorial), [ex02](../../examples/ex02-map-page/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages
 

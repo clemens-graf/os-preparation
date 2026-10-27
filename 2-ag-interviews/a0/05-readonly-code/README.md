@@ -1,6 +1,6 @@
 # A0-05 · read-only code (the loader)
 
-**Time box 25 min · ★★☆ · read first: [ex09](../../examples/ex09-loader/), [ex04](../../examples/ex04-pte-flags/)**
+**Time box 25 min · ★★☆ · type E (loader) ([TRIAGE](../../TRIAGE.md)) · read first: [ex09](../../examples/ex09-loader/), [ex04](../../examples/ex04-pte-flags/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §4 page faults, §1 address space
 

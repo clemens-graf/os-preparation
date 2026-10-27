@@ -1,6 +1,6 @@
 # A2-06 · F3: swap out all pages of a process
 
-**Time box 30 min · ★★☆ · builds on A2-01 · read first: ex07**
+**Time box 30 min · ★★☆ · type E (key) + S ([TRIAGE](../../TRIAGE.md)) · builds on A2-01 · read first: ex07**
 
 ```
 Name:         f3 - swap out/in all pages of a process

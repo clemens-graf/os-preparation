@@ -1,6 +1,6 @@
 # A1-01 · pthread_join
 
-**Time box 60 min · ★★★ · builds on A0-08 (pthread_create) · your own P2 task**
+**Time box 60 min · ★★★ · type S ([TRIAGE](../../TRIAGE.md)) · builds on A0-08 (pthread_create) · your own P2 task**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §13 semaphores & condvars
 

@@ -1,6 +1,6 @@
 # A2-03 · swap onto the kernel heap
 
-**Time box 25 min · ★★☆ · builds on A2-01**
+**Time box 25 min · ★★☆ · type E (page fault) ([TRIAGE](../../TRIAGE.md)) · builds on A2-01**
 
 ```
 Name:         swap-out onto kernel-heap

@@ -1,6 +1,6 @@
 # A1-11 · page fault statistics (the assembly entry)
 
-**Time box 30 min · ★★☆**
+**Time box 30 min · ★★☆ · type A + E ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §10 interrupts, §4 page faults
 

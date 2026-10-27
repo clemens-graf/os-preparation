@@ -1,6 +1,6 @@
 # A2-12 · syscall blacklist
 
-**Time box 20 min · ★☆☆**
+**Time box 20 min · ★☆☆ · type E (syscall entry) + S ([TRIAGE](../../TRIAGE.md))**
 
 ```
 Name:         blacklistsys

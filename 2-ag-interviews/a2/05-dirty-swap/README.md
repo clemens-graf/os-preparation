@@ -1,6 +1,6 @@
 # A2-05 · don't write unchanged pages
 
-**Time box 40 min · ★★★ · builds on A2-01**
+**Time box 40 min · ★★★ · type E ([TRIAGE](../../TRIAGE.md)) · builds on A2-01**
 
 ```
 Name:         not writing unchanged pages

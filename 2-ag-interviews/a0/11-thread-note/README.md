@@ -1,6 +1,6 @@
 # A0-11 · a note per thread (tutorial 1 done right)
 
-**Time box 30 min · ★★☆ · read first: [ex11](../../examples/ex11-tutorial1/) (the tutorial), [ex01](../../examples/ex01-syscalls/)**
+**Time box 30 min · ★★☆ · type S ([TRIAGE](../../TRIAGE.md)) · read first: [ex11](../../examples/ex11-tutorial1/) (the tutorial), [ex01](../../examples/ex01-syscalls/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §7 C strings
 

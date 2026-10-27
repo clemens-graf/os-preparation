@@ -1,6 +1,6 @@
 # A0-08 · pthread_create – the mechanics
 
-**Time box 60 min · ★★★ · read first: [ex06](../../examples/ex06-kernel-thread/), [ex02](../../examples/ex02-map-page/)**
+**Time box 60 min · ★★★ · type S ([TRIAGE](../../TRIAGE.md)) · read first: [ex06](../../examples/ex06-kernel-thread/), [ex02](../../examples/ex02-map-page/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life, §8 registers & calling convention
 

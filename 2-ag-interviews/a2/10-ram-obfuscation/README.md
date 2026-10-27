@@ -1,6 +1,6 @@
 # A2-10 · RAM obfuscation thread
 
-**Time box 60 min · ★★★ · official task 28 · read first: ex06**
+**Time box 60 min · ★★★ · type E (kernel thread) ([TRIAGE](../../TRIAGE.md)) · official task 28 · read first: ex06**
 
 ```
 Name:         RAM Obfuscation Thread

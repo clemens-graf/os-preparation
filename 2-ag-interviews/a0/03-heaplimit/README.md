@@ -1,6 +1,6 @@
 # A0-03 · heaplimit – a heap mapped on demand
 
-**Time box 30 min · ★★☆ · read first: [ex03](../../examples/ex03-stack-growth/)**
+**Time box 30 min · ★★☆ · type S + E (page fault) ([TRIAGE](../../TRIAGE.md)) · read first: [ex03](../../examples/ex03-stack-growth/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
 

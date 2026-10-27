@@ -1,6 +1,6 @@
 # A0-07 · upcall – register manipulation
 
-**Time box 30 min · ★★☆ · read first: [ex05](../../examples/ex05-registers/)**
+**Time box 30 min · ★★☆ · type K ([TRIAGE](../../TRIAGE.md)) · read first: [ex05](../../examples/ex05-registers/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §8 registers & calling convention, §9 diverting a thread
 

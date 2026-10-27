@@ -1,6 +1,6 @@
 # A1-12 · sbrk
 
-**Time box 30 min · ★★☆**
+**Time box 30 min · ★★☆ · type S + E (page fault) ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §3 sbrk & demand paging, §4 page faults
 

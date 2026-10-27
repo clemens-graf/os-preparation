@@ -1,6 +1,6 @@
 # A2-09 · zero-page deduplication + copy-on-write
 
-**Time box 45 min · ★★★**
+**Time box 45 min · ★★★ · type E (loader + page fault) ([TRIAGE](../../TRIAGE.md))**
 
 ```
 Name:         deduplication zero

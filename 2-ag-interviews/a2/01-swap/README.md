@@ -1,6 +1,6 @@
 # A2-01 · swap a page out and back in
 
-**Time box 60 min · ★★★ · read first: ex08 (disk), ex04 (PTE bits)**
+**Time box 60 min · ★★★ · type S + E (page fault) ([TRIAGE](../../TRIAGE.md)) · read first: ex08 (disk), ex04 (PTE bits)**
 
 ```
 Name:         swapout, swapinfo

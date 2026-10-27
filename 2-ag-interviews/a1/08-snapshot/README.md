@@ -1,6 +1,6 @@
 # A1-08 · snapshot & revive
 
-**Time box 40 min · ★★★**
+**Time box 40 min · ★★★ · type A + S ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §9 diverting a thread, §8 registers & calling convention
 

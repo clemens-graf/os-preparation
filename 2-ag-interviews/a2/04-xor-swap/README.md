@@ -1,6 +1,6 @@
 # A2-04 · XOR-encrypted swap
 
-**Time box 25 min · ★★☆ · builds on A2-01**
+**Time box 25 min · ★★☆ · type E ([TRIAGE](../../TRIAGE.md)) · builds on A2-01**
 
 ```
 Name:         encrypted writing-out with XOR, 128-bit key

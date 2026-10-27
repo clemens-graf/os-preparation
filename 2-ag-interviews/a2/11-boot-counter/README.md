@@ -1,6 +1,6 @@
 # A2-11 · boot counter + message of the day on the swap device
 
-**Time box 40 min · ★★☆ · read first: ex08**
+**Time box 40 min · ★★☆ · type E (boot) + S ([TRIAGE](../../TRIAGE.md)) · read first: ex08**
 
 ```
 Name:         store the number of boots on the swap device; message of the day

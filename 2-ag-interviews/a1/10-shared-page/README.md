@@ -1,6 +1,6 @@
 # A1-10 · a page shared by two processes
 
-**Time box 45 min · ★★★**
+**Time box 45 min · ★★★ · type S + E (exit) ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §4 page faults
 

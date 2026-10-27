@@ -1,6 +1,6 @@
 # A1-04 · thread flagging: scheduled twice as often
 
-**Time box 30 min · ★★☆ · builds on A1-01**
+**Time box 30 min · ★★☆ · type E (scheduler) + S ([TRIAGE](../../TRIAGE.md)) · builds on A1-01**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §15 a thread's life · example: [ex13](../../examples/ex13-timer-scheduler/)
 

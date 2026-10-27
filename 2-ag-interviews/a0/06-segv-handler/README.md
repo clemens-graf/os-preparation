@@ -1,6 +1,6 @@
 # A0-06 · segv handler – call a user function on a segfault
 
-**Time box 40 min · ★★★ · read first: [ex05](../../examples/ex05-registers/), [ex03](../../examples/ex03-stack-growth/)**
+**Time box 40 min · ★★★ · type K + E (page fault) ([TRIAGE](../../TRIAGE.md)) · read first: [ex05](../../examples/ex05-registers/), [ex03](../../examples/ex03-stack-growth/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §9 diverting a thread, §4 page faults
 

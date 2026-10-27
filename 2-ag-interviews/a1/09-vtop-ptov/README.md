@@ -1,6 +1,6 @@
 # A1-09 · vtop / ptov
 
-**Time box 25 min · ★★☆**
+**Time box 25 min · ★★☆ · type S ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §1 address space
 

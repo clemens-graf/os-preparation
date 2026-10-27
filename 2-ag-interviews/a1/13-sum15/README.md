@@ -1,6 +1,6 @@
 # A1-13 · a syscall with 15 arguments
 
-**Time box 15 min · ★☆☆**
+**Time box 15 min · ★☆☆ · type A ([TRIAGE](../../TRIAGE.md))**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §8 registers & calling convention
 

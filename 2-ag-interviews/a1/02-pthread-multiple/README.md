@@ -1,6 +1,6 @@
 # A1-02 · pthread_multiple + pthread_join_any
 
-**Time box 45 min · ★★★ · builds on A1-01**
+**Time box 45 min · ★★★ · type S ([TRIAGE](../../TRIAGE.md)) · builds on A1-01**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §15 a thread's life
 

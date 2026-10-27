@@ -1,6 +1,6 @@
 # A0-02 · allocpage / freepage
 
-**Time box 30 min · ★★☆ · read first: [ex02](../../examples/ex02-map-page/)**
+**Time box 30 min · ★★☆ · type S ([TRIAGE](../../TRIAGE.md)) · read first: [ex02](../../examples/ex02-map-page/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §4 page faults
 

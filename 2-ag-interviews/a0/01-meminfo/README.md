@@ -1,6 +1,6 @@
 # A0-01 · meminfo
 
-**Time box 25 min · ★☆☆ · read first: [ex01](../../examples/ex01-syscalls/)**
+**Time box 25 min · ★☆☆ · type S ([TRIAGE](../../TRIAGE.md)) · read first: [ex01](../../examples/ex01-syscalls/)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §16 frames, shared pages, §1 address space
 

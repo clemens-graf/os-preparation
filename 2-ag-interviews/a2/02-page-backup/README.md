@@ -1,6 +1,6 @@
 # A2-02 · createPageBackup / loadPageBackup
 
-**Time box 40 min · ★★☆ · builds on A2-01 · official task 31**
+**Time box 40 min · ★★☆ · type S ([TRIAGE](../../TRIAGE.md)) · builds on A2-01 · official task 31**
 
 ```
 Name:         Syscall createPageBackup() & loadPageBackup()
