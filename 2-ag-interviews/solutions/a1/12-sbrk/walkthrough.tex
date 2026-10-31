@@ -21,9 +21,190 @@ typing is how it sticks), check the ``Done when'' box, then go on. Before you st
 \code{task start a1-12}. At the end: \code{task test}, done when \textbf{7 of 7} checks pass and the
 last access kills the process.\\[3pt]
 \textbf{Theory:} \file{concepts.pdf} \S3 sbrk \& demand paging, \S4 page faults, \S16 page tables.
-The same pattern as A0-03 heaplimit -- only the number you store and the syscall differ.
+The same pattern as A0-03 heaplimit -- only the number you store and the syscall differ.\\[3pt]
+\textbf{New to all of this?} Read part 0 first: the words and pictures you need, without any
+computer-science background.
 \end{infobox}
 
+% =====================================================================================
+\section*{Part 0 -- the basics, in plain words}
+
+\subsection*{The words}
+
+{\small
+\begin{longtable}{@{}L{3.1cm} L{12.3cm}@{}}
+\toprule
+\textbf{Word} & \textbf{What it means}\\\midrule
+\endhead
+\textbf{RAM} & The computer's working memory: a very long row of numbered bytes. Fast, but empty
+  again when the power goes off.\\
+\textbf{Address} & The number of one byte in that row. ``Address \code{0x600000000000}'' = byte
+  number $0x600000000000$ (\code{0x} means the number is written in hexadecimal).\\
+\textbf{Program} & A file on the disk with instructions for the CPU (e.g.\ the test
+  \code{sbrk\_basic.sweb}).\\
+\textbf{Process} & A program that is \emph{running}. It has its own memory that no other process
+  can see. Two copies of the same program = two processes.\\
+\textbf{Thread} & One ``worker'' inside a process that executes instructions. A process has at
+  least one thread; several threads share the process's memory.\\
+\textbf{Kernel} & The operating system's core (here: SWEB). It runs with full rights, manages the RAM
+  and decides which thread runs. Programs cannot touch it directly.\\
+\textbf{User space} & Everything that is \emph{not} the kernel: the programs and the C library (libc)
+  they use. Code you write in \file{userspace/} runs there.\\
+\textbf{Syscall} & The only door from a program into the kernel: ``please do X for me''. The
+  program puts a number (which service) and arguments into registers, the CPU switches into the
+  kernel, the kernel does the work and returns a result. \code{sbrk} is syscall number 1700.\\
+\textbf{Register} & A tiny storage cell \emph{inside} the CPU (\code{rax}, \code{rsp}, \ldots). Syscall
+  arguments and results travel through them.\\
+\textbf{Address space} & The addresses a process \emph{sees}: its own private numbering from 0 up to
+  a huge number. Every process has its own, so address 1000 in process A and address 1000 in
+  process B are different bytes.\\
+\textbf{Page} & The address space is cut into pieces of 4096 bytes (= 4 KiB), called pages.
+  The kernel always works with whole pages, never with single bytes.\\
+\textbf{Page number (vpn)} & Which page an address is on: address $\div$ 4096 (``virtual page number'').\\
+\textbf{Physical page (ppn)} & A 4096-byte piece of the real RAM (``physical page number'').\\
+\textbf{Page table} & The kernel's list per process: ``virtual page $X$ $\to$ physical page $Y$''.
+  The CPU looks into it on \emph{every} memory access.\\
+\textbf{Mapped} & A virtual page has an entry in the page table, so it is backed by real RAM.
+  \textbf{Unmapped} = no entry, no RAM -- an access fails.\\
+\textbf{Page fault} & What the CPU does when a program touches an unmapped page: it stops the
+  program and calls the kernel. The kernel either maps the page (then the program simply goes on,
+  it does not notice) or ends the program.\\
+\textbf{Stack} & Memory for the local variables of functions. Every thread has its own; it grows
+  and shrinks automatically with every function call.\\
+\textbf{Heap} & Memory a program asks for \emph{while it runs}, in any size, that lives until the
+  program gives it back (\code{malloc} / \code{free}). One heap per process, shared by its threads.\\
+\textbf{Break} & The current \emph{end} of the heap. Below it: allowed. Above it: forbidden.\\
+\textbf{\code{sbrk}} & ``set break'': the syscall that moves the break up (more heap) or down (less
+  heap). It returns where the break was before = where the new memory starts.\\
+\textbf{Demand paging} & The kernel gives a page real RAM only at its \emph{first touch} (via a
+  page fault), not when it is asked for. RAM is only spent on pages that are really used.\\
+\textbf{Lock} & A rule ``only one thread at a time in here''. Here: \code{thread\_lock\_} protects the
+  break and the page table of one process.\\
+\textbf{TLB} & A small cache in the CPU that remembers recent ``page $\to$ RAM'' answers. After
+  removing a mapping it must be emptied (``flushed''), or the CPU keeps using the old answer.\\
+\bottomrule
+\end{longtable}
+}
+
+\subsection*{Picture 1 -- who is who}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt}]
+  \node[box,minimum width=14.6cm,minimum height=0.7cm,fill=black!6] (ram) at (0,0) {RAM -- the real memory};
+  \node[box,minimum width=14.6cm,minimum height=0.8cm,fill=warnbg] (k) at (0,1.15) {kernel (SWEB): manages the RAM, the page tables and the threads};
+  \node[box,minimum width=6.9cm,minimum height=2.3cm,fill=newbg,anchor=south west] (pa) at (-7.3,1.75) {};
+  \node[anchor=north west] at (pa.north west) {\textbf{process A} (own address space)};
+  \node[box,fill=white] at (-5.6,2.45) {thread 1};
+  \node[box,fill=white] at (-3.8,2.45) {thread 2};
+  \node[box,fill=keybg] at (-1.9,2.45) {heap};
+  \node[box,minimum width=6.9cm,minimum height=2.3cm,fill=newbg,anchor=south east] (pb) at (7.3,1.75) {};
+  \node[anchor=north west] at (pb.north west) {\textbf{process B} (own address space)};
+  \node[box,fill=white] at (1.9,2.45) {thread 1};
+  \node[box,fill=keybg] at (3.7,2.45) {heap};
+  \draw[-{Stealth},thick] (-3.8,2.1) -- node[right,font=\scriptsize] {syscall} (-3.8,1.57);
+\end{tikzpicture}
+\end{center}
+Programs (user space) sit on top; the only way down into the kernel is a syscall. Each process
+has its own heap; all threads of one process share it.
+
+\subsection*{Picture 2 -- the address space of one process}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize]
+  \def\w{4.4}
+  \fill[black!6] (0,0) rectangle (\w,1.0);   \node at (\w/2,0.5) {code + global variables};
+  \fill[keybg] (0,2.0) rectangle (\w,3.2);   \node at (\w/2,2.6) {\textbf{heap}};
+  \fill[keybg!40] (0,3.2) rectangle (\w,4.2); \node at (\w/2,3.7) {(room to grow)};
+  \fill[newbg] (0,6.0) rectangle (\w,7.0);   \node at (\w/2,6.5) {stacks (one per thread)};
+  \fill[warnbg] (0,7.6) rectangle (\w,8.2);  \node at (\w/2,7.9) {kernel -- forbidden};
+  \draw (0,0) rectangle (\w,8.2);
+  \foreach \y in {1.0,2.0,3.2,4.2,6.0,7.0,7.6} \draw[black!30] (0,\y) -- (\w,\y);
+  \draw[very thick,red!70!black] (-0.15,3.2) -- (\w+0.15,3.2);
+  \draw[-{Stealth},thick,keyrule] (\w+0.6,2.4) -- (\w+0.6,3.9) node[right,align=left] {grows up\\with \code{sbrk}};
+  \draw[-{Stealth},thick,newrule] (\w+0.6,6.8) -- (\w+0.6,5.6) node[right] {grows down};
+  \node[left] at (-0.2,0) {\code{0x400000}};
+  \node[left] at (-0.2,2.0) {\code{BRK\_START} = \code{0x600000000000}};
+  \node[left,red!70!black] at (-0.2,3.2) {\textbf{break} (\code{brk\_})};
+  \node[left] at (-0.2,4.2) {\code{BRK\_START + BRK\_MAX} (16 MiB)};
+  \node[left] at (-0.2,7.6) {\code{USER\_BREAK} = \code{0x800000000000}};
+  \node[left,black!50] at (-0.2,5.1) {(huge empty gap)};
+\end{tikzpicture}
+\end{center}
+Low addresses at the bottom, high ones at the top (not to scale -- the real gaps are enormous).
+The heap starts at a fixed address and ends at the break; \code{sbrk} moves the break.
+
+\subsection*{Picture 3 -- virtual pages, page table, RAM}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, x=1cm,y=1cm]
+  \node[font=\small\bfseries] at (1.0,4.2) {heap pages (virtual)};
+  \foreach \i/\y in {0/3.4,1/2.6,2/1.8,3/1.0} {
+    \draw[fill=white] (0,\y) rectangle (2,\y+0.6); \node at (1,\y+0.3) {page \i};}
+  \fill[keybg] (0,3.4) rectangle (2,4.0); \draw (0,3.4) rectangle (2,4.0); \node at (1,3.7) {page 0};
+  \fill[keybg] (0,2.6) rectangle (2,3.2); \draw (0,2.6) rectangle (2,3.2); \node at (1,2.9) {page 1};
+  \fill[keybg] (0,1.0) rectangle (2,1.6); \draw (0,1.0) rectangle (2,1.6); \node at (1,1.3) {page 3};
+  \node[font=\small\bfseries] at (6.0,4.2) {page table};
+  \draw (4.6,0.9) rectangle (7.4,4.0);
+  \node[align=left,font=\footnotesize\ttfamily] at (6.0,2.45) {0 $\to$ 812\\1 $\to$ 77\\2 $\to$ ---\\3 $\to$ 1033};
+  \node[font=\small\bfseries] at (11.0,4.2) {RAM (physical pages)};
+  \foreach \n/\y in {77/3.4,812/2.6,1033/1.8,1500/1.0} {
+    \draw[fill=black!4] (10,\y) rectangle (12,\y+0.6); \node at (11,\y+0.3) {ppn \n};}
+  \draw[-{Stealth}] (2.1,3.7) -- (4.5,3.2);
+  \draw[-{Stealth}] (2.1,2.9) -- (4.5,2.8);
+  \draw[-{Stealth}] (2.1,1.3) -- (4.5,1.9);
+  \draw[-{Stealth}] (7.5,3.2) -- (9.9,2.9);
+  \draw[-{Stealth}] (7.5,2.8) -- (9.9,3.7);
+  \draw[-{Stealth}] (7.5,1.9) -- (9.9,2.1);
+  \node[align=center,font=\scriptsize,red!70!black] at (1,0.55) {page 2: no entry\\$\Rightarrow$ touching it = page fault};
+\end{tikzpicture}
+\end{center}
+The program only knows its own page numbers. The page table translates them into real RAM pages,
+in any order. A page without an entry is \emph{unmapped}.
+
+\subsection*{Picture 4 -- what happens at the first touch (demand paging)}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt,minimum height=1.05cm,text width=3.0cm}]
+  \node[box,fill=newbg] (a) at (0,0) {program writes\\\code{start[0] = 1}};
+  \node[box,fill=warnbg] (b) at (3.75,0) {CPU: page not mapped\\$\to$ \textbf{page fault}};
+  \node[box,fill=warnbg] (c) at (7.5,0) {kernel: heap page?\\below the break?};
+  \node[box,fill=keybg] (d) at (11.9,0) {get a zeroed RAM page and map it};
+  \node[box,fill=newbg] (e) at (11.9,-1.8) {CPU repeats the write -- it works};
+  \node[box,fill=red!10] (f) at (7.5,-1.8) {above the break: end the program};
+  \draw[-{Stealth}] (a) -- (b); \draw[-{Stealth}] (b) -- (c);
+  \draw[-{Stealth}] (c) -- node[above,font=\scriptsize] {yes} (d);
+  \draw[-{Stealth}] (d) -- (e);
+  \draw[-{Stealth}] (c) -- node[right,font=\scriptsize] {no} (f);
+\end{tikzpicture}
+\end{center}
+The second write to the same page causes no page fault any more -- the page is mapped now.
+
+\subsection*{Picture 5 -- \code{sbrk} grows and shrinks the heap}
+
+\begin{center}
+\begin{tikzpicture}[font=\footnotesize, x=1.15cm, y=0.75cm]
+  \newcommand{\row}[4]{% y, label, number of pages below the break, mapped pages list
+    \node[left,align=right] at (-0.2,#1+0.4) {#2};
+    \foreach \i in {0,...,7} {\draw[black!30,fill=black!6] (\i,#1) rectangle +(0.9,0.8);}
+    \foreach \i in {0,...,7} {\ifnum\i<#3 \draw[black!50,fill=white] (\i,#1) rectangle +(0.9,0.8);\fi}
+    \foreach \i in {#4} {\draw[keyrule,fill=keyrule!30] (\i,#1) rectangle +(0.9,0.8);}
+    \foreach \i in {0,...,7} {\node at (\i+0.45,#1+0.4) {\scriptsize \i};}
+  }
+  \row{4}{start: \code{sbrk(0)}\\heap empty}{0}{}
+  \draw[very thick,red!70!black] (-0.05,3.85) -- (-0.05,5.0);
+  \row{2}{after \code{sbrk(10000)}\\+ writing all of it}{3}{0,1,2}
+  \draw[very thick,red!70!black] (2.45,1.85) -- (2.45,3.0);
+  \row{0}{after \code{sbrk(-9900)}\\break at start+100}{1}{0}
+  \draw[very thick,red!70!black] (0.12,-0.15) -- (0.12,1.0);
+  \node[right,align=left,font=\scriptsize] at (8.2,2.4) {break inside page 2:\\page 2 is partly usable};
+  \node[right,align=left,font=\scriptsize] at (8.2,0.4) {pages 1, 2 unmapped,\\page 0 kept (still in use)};
+\end{tikzpicture}
+
+{\footnotesize green = mapped \quad white = below the break, not touched yet \quad grey = above the break
+\quad red line = the break}
+\end{center}
+
+\clearpage
 \section*{The goal (level 1)}
 
 \begin{lstlisting}[language={},basicstyle=\ttfamily\footnotesize]
