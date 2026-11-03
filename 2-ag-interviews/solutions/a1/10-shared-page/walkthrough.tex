@@ -3,92 +3,68 @@
 \renewcommand{\thesection}{\arabic{section}}
 \fancyhead[L]{\small\textcolor{headgray}{A1-10 shared page -- walkthrough}}
 \fancyhead[R]{}
-\newcommand{\why}[1]{\par\smallskip\noindent\textbf{#1}\par\nopagebreak}
 \newcommand{\done}[1]{\begin{keybox}[title={Done when}]#1\end{keybox}}
+\setlist[description]{topsep=2pt,itemsep=2pt,parsep=0pt,leftmargin=1.3em}
 
 \begin{document}
 
 {\centering
-  {\LARGE\bfseries A1-10 a page shared by two processes -- step by step\par}
+  {\LARGE\bfseries A1-10 a page shared by two processes\par}
   \vspace{4pt}
-  {\large every line of code, and the theory behind it\par}
+  {\large the short version -- every line explained\par}
   \vspace{8pt}
 }
 
 \begin{infobox}
-\textbf{How to use this.} Do one step at a time: read it, type the code yourself (do not copy-paste --
-typing is how it sticks), check the ``Done when'' box, then go on. Before you start:
-\code{task start a1-10}. At the end: \code{task test}, done when \textbf{9 of 9} checks pass and the final
-\code{exit} reports no memory leak.\\[3pt]
-\textbf{From the list of earlier years:} \emph{simple shm} (shared memory). \textbf{Type S + E}: two
-syscalls, plus cleanup when a process ends (an event).\\[3pt]
-\textbf{Theory:} \file{concepts.pdf} \S16 page tables, physical pages and shared pages; \S4 page faults.\\[3pt]
-\textbf{New to all of this?} Read part 0 first.
+\textbf{Start:} \code{task start a1-10}. \textbf{Done:} \code{task test} shows \textbf{9 of 9} and no leak.
+This code is tested (9 of 9 on your team's code). Type it yourself, one step at a time.\\[3pt]
+\textbf{From the list of earlier years:} \emph{simple shm}. \textbf{Type S + E}: two syscalls + cleanup when a process ends.
 \end{infobox}
 
 % =====================================================================================
-\section*{Part 0 -- the basics, in plain words}
+\section*{The task in 4 sentences}
 
-\subsection*{The words}
+\begin{enumerate}
+  \item Normally every process has its own private memory -- no other process can see it.
+  \item \code{shm\_attach(7)} in two processes puts the \textbf{same piece of RAM} into both: what one writes, the other reads.
+  \item The kernel remembers, per key (1--15), \textbf{which piece of RAM} and \textbf{how many processes} use it.
+  \item The RAM is only given back when \textbf{nobody} uses it any more (count = 0).
+\end{enumerate}
+
+\subsection*{The words you need}
 
 {\small
-\begin{longtable}{@{}L{3.4cm} L{12.0cm}@{}}
+\begin{tabular}{@{}L{3.3cm} L{12.1cm}@{}}
 \toprule
-\textbf{Word} & \textbf{What it means}\\\midrule
-\endhead
-\textbf{Process} & A running program with its own private memory. Normally two processes can
-  \emph{never} see each other's memory.\\
-\textbf{Address space} & The addresses one process sees. Every process has its own; address
-  \code{0x400000007000} in process A and in process B are normally different bytes.\\
-\textbf{Page} & A 4096-byte piece of the address space. The kernel always works in whole pages.\\
-\textbf{Physical page (frame, ppn)} & A 4096-byte piece of the real RAM, numbered (``physical page number'').\\
-\textbf{Page table} & The list per process: ``my virtual page $\to$ this physical page''.\\
-\textbf{Map / unmap} & Enter / remove one line of that list (\code{mapPage}, \code{unmapPage}).\\
-\textbf{Shared memory} & \textbf{One} physical page that appears in the page tables of \textbf{two}
-  (or more) processes. Whatever one writes, the other reads -- the fastest way for processes to talk.\\
-\textbf{Key} & A number (here 1--15) that names a shared page. Two processes that both ask for key 7
-  get the \emph{same} physical page.\\
-\textbf{Attach / detach} & Attach = ``put shared page $k$ into my address space''; detach = ``take it
-  out again''.\\
-\textbf{Reference count} & How many processes currently have the page attached. Only when it drops
-  to 0 may the page be given back to the RAM pool.\\
-\textbf{Free} & Give a physical page back (\code{freePPN}), so the kernel can hand it to someone else.\\
-\textbf{Memory leak} & A page that is never given back. SWEB checks at the end (\code{exit}) that no page leaked.\\
-\textbf{Kernel-wide table} & One table for the whole kernel (not per process): key $\to$ physical page +
-  reference count. Every process looks into the same table.\\
-\textbf{Global object / \code{startup()}} & SWEB never runs the constructors of global C++ objects. A
-  kernel-wide object is therefore created with \code{new} in \code{startup()}, the first kernel function.\\
-\textbf{Lock order / deadlock} & Two threads that each hold one lock and wait for the other's lock wait
-  forever (deadlock). The simple rule here: \textbf{never hold two locks at the same time}.\\
-\textbf{Destructor} & The function that runs when an object is deleted -- \code{\textasciitilde UserProcess}
-  runs when a process ends.\\
-\textbf{TLB} & The CPU's cache of ``page $\to$ RAM'' answers; after an unmap it must be flushed.\\
+\textbf{key} & the number (1--15) two processes agree on: ``I want shared page 7''\\
+\textbf{physical page (ppn)} & a 4096-byte piece of real RAM, by its number\\
+\textbf{virtual page (vpn)} & a 4096-byte piece of one process's addresses\\
+\textbf{map / unmap} & enter / remove ``vpn $\to$ ppn'' in one process's page table\\
+\textbf{free} & give the piece of RAM back to the kernel (\code{freePPN})\\
+\textbf{count (refs)} & how many processes have the key attached\\
+\textbf{leak} & RAM that is never given back -- the test checks for it at the end\\
+\textbf{lock} & ``only one thread at a time in here'' -- needed because many processes use the table\\
 \bottomrule
-\end{longtable}
-}
+\end{tabular}}
 
-\subsection*{Picture 1 -- one physical page, two processes}
+% =====================================================================================
+\subsection*{Picture 1 -- one piece of RAM in two processes}
 
 \begin{center}
 \begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt}]
-  \node[box,fill=newbg,minimum width=3.4cm,minimum height=2.4cm] (a) at (0,0) {};
-  \node[anchor=north] at (a.north) {\textbf{process A}};
-  \node[box,fill=keybg] (av) at (0,-0.3) {virtual page\\\code{SHM\_BASE} + 7 pages};
-  \node[box,fill=newbg,minimum width=3.4cm,minimum height=2.4cm] (b) at (10,0) {};
-  \node[anchor=north] at (b.north) {\textbf{process B}};
-  \node[box,fill=keybg] (bv) at (10,-0.3) {virtual page\\\code{SHM\_BASE} + 7 pages};
-  \node[box,fill=warnbg,minimum width=3cm] (p) at (5,-2.6) {physical page 812\\(key 7)};
-  \node[box,fill=black!5] (t) at (5,0.6) {kernel table\\key 7 $\to$ ppn 812, refs = 2};
-  \draw[-{Stealth},thick] (av.south) -- node[left,font=\scriptsize] {A's page table} (p.west);
-  \draw[-{Stealth},thick] (bv.south) -- node[right,font=\scriptsize] {B's page table} (p.east);
+  \node[box,fill=newbg,minimum width=3cm] (a) at (0,0) {process A\\key 7 at \code{0x400000007000}};
+  \node[box,fill=newbg,minimum width=3cm] (b) at (9,0) {process B\\key 7 at \code{0x400000007000}};
+  \node[box,fill=warnbg] (p) at (4.5,-1.8) {RAM page 812};
+  \node[box,fill=black!5,align=left] (t) at (4.5,0.4) {\code{shm\_ppn[7]  = 812}\\\code{shm\_refs[7] = 2}};
+  \draw[-{Stealth},thick] (a.south) -- (p.west);
+  \draw[-{Stealth},thick] (b.south) -- (p.east);
   \draw[dashed,-{Stealth}] (t.south) -- (p.north);
 \end{tikzpicture}
 \end{center}
-Both page tables point to the \emph{same} physical page. A writes ``hello'' at its address, B reads ``hello''
-at its address. The kernel-wide table remembers which physical page belongs to key 7 and how many
-processes use it.
+Both page tables point to the same RAM page. Two global arrays remember it: \code{shm\_ppn} (which page)
+and \code{shm\_refs} (how many users).
 
-\subsection*{Picture 2 -- the reference count over time}
+\subsection*{Picture 2 -- the count over time (this is exactly the test)}
 
 \begin{center}
 \begin{tikzpicture}[font=\footnotesize, x=2.9cm, y=1cm]
@@ -99,45 +75,39 @@ processes use it.
   \node[align=center] at (4,1.3) {A attaches 7\\again};
   \foreach \x/\n in {0/1,1/2,2/1,4/1} {\node[draw,circle,minimum size=0.75cm,fill=keybg] at (\x,0) {\n};}
   \node[draw,circle,minimum size=0.75cm,fill=red!10] at (3,0) {0};
-  \foreach \x in {0,1,2,3} \draw[-{Stealth}] (\x+0.25,0) -- (\x+0.75,0);
-  \node[align=center,font=\scriptsize] at (0,-0.9) {page created\\(zeroed)};
-  \node[align=center,font=\scriptsize,red!70!black] at (3,-0.9) {0 $\Rightarrow$ page freed};
-  \node[align=center,font=\scriptsize] at (4,-0.9) {a \emph{new} page\\(zeroed again)};
+  \foreach \x in {0,1,2,3} \draw[-{Stealth}] (\x+0.2,0) -- (\x+0.8,0);
+  \node[align=center,font=\scriptsize] at (0,-0.9) {new empty page};
+  \node[align=center,font=\scriptsize,red!70!black] at (3,-0.9) {0 $\Rightarrow$ freed};
+  \node[align=center,font=\scriptsize] at (4,-0.9) {another new\\empty page};
 \end{tikzpicture}
 \end{center}
-This is exactly the story of the test: the page must survive B's exit (count 1), and after A's
-detach (count 0) it is really gone -- a new attach gets a fresh, empty page.
 
-\subsection*{Picture 3 -- why the normal \code{unmapPage} would break it}
+\subsection*{Picture 3 -- the trap: unmap must not free}
 
 \begin{center}
 \begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt,text width=4.2cm}]
-  \node[box,fill=newbg] (a) at (0,0) {B detaches with the \emph{normal}\\\code{unmapPage(vpn)}};
-  \node[box,fill=red!10] (b) at (5.2,0) {it also calls \code{freePPN(812)}:\\the RAM page goes back to the pool};
-  \node[box,fill=red!10] (c) at (10.4,0) {A still uses page 812 --\\someone else gets it next. Broken!};
+  \node[box,fill=newbg] (a) at (0,0) {B removes page 812\\with the normal \code{unmapPage}};
+  \node[box,fill=red!10] (b) at (5.2,0) {that also \textbf{frees} RAM 812};
+  \node[box,fill=red!10] (c) at (10.4,0) {but A still uses it! RAM 812 may be given to someone else};
   \draw[-{Stealth}] (a) -- (b); \draw[-{Stealth}] (b) -- (c);
 \end{tikzpicture}
 \end{center}
-So you need an unmap that \textbf{does not free} (step 4). The same danger is hidden in
-\code{\textasciitilde ArchMemory}: when a process ends, it frees \emph{every} mapped page -- also the shared one.
-That is why the process must unmap its shared pages itself before its address space is deleted (step 11).
+So: a new parameter for \code{unmapPage} -- \emph{remove, but do not free} (step 2). The same trap hides in
+\code{delete arch\_memory\_} at process exit: it frees \emph{every} mapped page (step 7 handles it).
 
-\subsection*{Picture 4 -- two locks, never both at once}
+\subsection*{Picture 4 -- two locks, always the same order}
 
 \begin{center}
-\begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt,text width=4.4cm}]
-  \node[box,fill=warnbg] (a) at (0,0) {\textbf{1.} table lock:\\take a reference (count + 1)\\$\to$ get the ppn};
-  \node[box,fill=newbg] (b) at (6.2,0) {\textbf{2.} \code{thread\_lock\_}:\\map the ppn into this process};
-  \node[box,fill=keybg,text width=2.6cm] (c) at (11.6,0) {return the address};
-  \draw[-{Stealth}] (a) -- node[below,font=\scriptsize,align=center] {lock 1\\released} (b);
-  \draw[-{Stealth}] (b) -- (c);
+\begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt}]
+  \node[box,fill=warnbg,text width=4.2cm] (a) at (0,0) {\textbf{1.} \code{shm\_lock}\\protects the two arrays\\(one for the whole kernel)};
+  \node[box,fill=newbg,text width=4.2cm] (b) at (6,0) {\textbf{2.} \code{thread\_lock\_}\\protects this process's page table\\and \code{shm\_attached\_}};
+  \draw[-{Stealth},thick] (a) -- node[above,font=\scriptsize] {then} (b);
 \end{tikzpicture}
 \end{center}
-Attach: reference \emph{first}, then map. Detach: unmap \emph{first}, then drop the reference. Each lock is
-released before the other one is taken -- so no deadlock is possible, and the page cannot be freed
-while we are mapping it (we already hold a reference).
+A deadlock needs two threads waiting for each other's lock in \emph{opposite} order. Nothing else in the
+kernel takes \code{shm\_lock}, and our code always takes it \emph{first} -- so that cannot happen.
 
-\subsection*{Picture 5 -- where the shared pages live}
+\subsection*{Picture 5 -- where the shared pages appear}
 
 \begin{center}
 \begin{tikzpicture}[font=\footnotesize, x=1.25cm, y=0.8cm]
@@ -146,111 +116,70 @@ while we are mapping it (we already hold a reference).
   \foreach \k in {0,...,9} {\node at (\k+0.45,0.4) {\scriptsize key \k};}
   \node[right] at (10,0.4) {\ldots\ key 15};
   \node[below] at (0.45,-0.05) {\code{SHM\_BASE}};
-  \node[below,align=center] at (7.45,-0.05) {\code{SHM\_BASE + 7 * PAGE\_SIZE}};
+  \node[below] at (7.45,-0.05) {\code{SHM\_BASE + 7 pages}};
 \end{tikzpicture}
 \end{center}
-Key $k$ always lands at the same address \code{SHM\_BASE} + $k$ pages (\code{SHM\_BASE} =
-\code{0x400000000000}, far away from code, heap and stacks). Key 0 is not used.
+Key $k$ always appears at \code{SHM\_BASE} + $k$ pages, in every process. Key 0 is not used.
 
 % =====================================================================================
-\section*{The goal (level 1)}
-
-\begin{lstlisting}[language={},basicstyle=\ttfamily\footnotesize]
-Name:         shm_attach, shm_detach
-Nr:           1680, 1681
-Description:  shm_attach(key) maps the shared page of key (1..15) into the calling
-              process (at a fixed address per key) and returns its address. The first
-              attach of a key creates the page (zeroed). Attaching twice in one process
-              returns the same address.
-              shm_detach(key) unmaps it. The page lives as long as at least one process
-              has it attached - also if a process exits without detaching.
-Return Value: attach: address or NULL; detach: 0 or -1 (not attached)
-\end{lstlisting}
-
-\section*{What each function does, in simple terms}
+\clearpage
+\section*{The 7 steps}
 
 {\small
-\begin{tabular}{@{}L{5.0cm} L{10.4cm}@{}}
+\begin{tabular}{@{}l L{6.4cm} L{7.6cm}@{}}
 \toprule
-\textbf{Function} & \textbf{What it does}\\\midrule
-\code{shm\_attach(key)} (libc) & Ask the kernel: ``put shared page \emph{key} into my memory, tell me where''.\\
-\code{shm\_detach(key)} (libc) & Ask the kernel: ``take shared page \emph{key} out of my memory''.\\
-\code{SharedPages::acquire(key)} & In the kernel table: count + 1. If nobody had the page yet, get a fresh zeroed one first. Returns its ppn.\\
-\code{SharedPages::release(key)} & Count $-$ 1. If it reaches 0, give the physical page back.\\
-\code{UserProcess::shmAttach(key)} & acquire, then map the page at the key's fixed address (only once per process).\\
-\code{UserProcess::shmDetach(key)} & unmap \emph{without freeing}, then release.\\
-\code{unmapPage(vpn, false)} & Remove the page-table entry but \emph{keep} the physical page.\\
-\code{\textasciitilde UserProcess} (addition) & When a process ends: detach every key it still has.\\
-\bottomrule
-\end{tabular}}
-
-\section*{The order: 11 steps}
-
-{\small
-\begin{tabular}{@{}l L{5.6cm} L{4.2cm} L{5.0cm}@{}}
-\toprule
-\# & What & File & Why\\\midrule
-1 & two syscall numbers & \file{syscall-definitions.h} & kernel and libc agree\\
-2 & libc: declarations + wrappers & \file{nonstd.h}, \file{nonstd.c} & the program's entry\\
-3 & the two \code{case}s & \file{Syscall.cpp} & the kernel's entry\\
-4 & \code{unmapPage} that can keep the page & \file{ArchMemory.h/.cpp} & do not free a shared page\\
-5 & the \code{SharedPages} class & new \file{mm/SharedPages.h} & the kernel-wide table\\
-6 & its functions & new \file{mm/SharedPages.cpp} & acquire / release\\
-7 & create it at boot & \file{main.cpp} & no global constructors\\
-8 & declarations + bit array & \file{UserProcess.h} & per-process state\\
-9 & \code{shmAttach} & \file{UserProcess.cpp} & reference, then map\\
-10 & \code{shmDetach} & \file{UserProcess.cpp} & unmap, then release\\
-11 & cleanup at exit & \file{UserProcess.cpp} & the page survives / is freed correctly\\
+\# & What & File\\\midrule
+1 & plumbing: numbers, libc, \code{case}s & \file{syscall-definitions.h}, \file{nonstd.h/.c}, \file{Syscall.cpp}\\
+2 & unmap \emph{without} freeing & \file{ArchMemory.h/.cpp}\\
+3 & constants + per-process state & \file{UserProcess.h}\\
+4 & the table: 2 arrays + 1 lock & \file{UserProcess.cpp} (top), \file{main.cpp}\\
+5 & attach & \file{UserProcess.cpp}\\
+6 & detach & \file{UserProcess.cpp}\\
+7 & cleanup when a process ends & \file{UserProcess.cpp} (destructor)\\
 \bottomrule
 \end{tabular}}
 
 % =====================================================================================
-\section{Two syscall numbers \hfill {\normalsize\file{common/include/kernel/syscall-definitions.h}}}
+\section{Plumbing}
 
-\begin{lstlisting}[style=cpp]
+\textbf{\file{common/include/kernel/syscall-definitions.h}} -- next to the other numbers:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 #define sc_shm_attach 1680
 #define sc_shm_detach 1681
 \end{lstlisting}
-Both sides include this file, so the program and the kernel use the same numbers.
+\begin{description}
+  \item[1--2] The numbers of the two new syscalls. The program and the kernel both include this file, so they agree.
+\end{description}
 
-\done{Two lines, next to the other \code{sc\_\ldots}.}
-
-% =====================================================================================
-\section{The libc part \hfill {\normalsize\file{userspace/libc/include/nonstd.h} + \file{src/nonstd.c}}}
-
-In \file{nonstd.h} (add \code{\#include "types.h"} at the top if \code{size\_t} is unknown there), before
-the closing \code{\#ifdef \_\_cplusplus}:
-\begin{lstlisting}
+\textbf{\file{userspace/libc/include/nonstd.h}} -- at the top \code{\#include "types.h"} (for \code{size\_t}); before the closing \code{\#ifdef}:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 extern void* shm_attach(size_t key);
 extern int shm_detach(size_t key);
 \end{lstlisting}
-At the end of \file{nonstd.c}:
-\begin{lstlisting}
+\begin{description}
+  \item[1] Declares \code{shm\_attach}: it gives back an address (\code{void*}).
+  \item[2] Declares \code{shm\_detach}: it gives back 0 or $-1$. Without these two lines the test does not compile.
+\end{description}
+
+\textbf{\file{userspace/libc/src/nonstd.c}} -- at the end:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 void* shm_attach(size_t key)
 {
   return (void*) __syscall(sc_shm_attach, key, 0x00, 0x00, 0x00, 0x00);
 }
-
 int shm_detach(size_t key)
 {
   return __syscall(sc_shm_detach, key, 0x00, 0x00, 0x00, 0x00);
 }
 \end{lstlisting}
-\begin{itemize}
-  \item The wrappers only enter the kernel. \code{shm\_attach} returns an \emph{address}, hence the
-        \code{(void*)}; the kernel's 0 becomes \code{NULL}.
-  \item \code{shm\_detach} returns \code{int}: the kernel's \code{(size\_t) -1} becomes \code{-1} -- the test
-        checks \code{shm\_detach(7) == -1}.
-  \item Declaration (\file{.h}) \emph{and} definition (\file{.c}) -- without the declaration the test does not compile.
-\end{itemize}
+\begin{description}
+  \item[3] Enter the kernel with number 1680 and the key as first argument (the other four are unused).
+        The result is a number -- \code{(void*)} turns it into an address; 0 becomes \code{NULL}.
+  \item[7] The same with 1681. The kernel's $-1$ arrives as $-1$ in the \code{int}.
+\end{description}
 
-\done{The test compiles (it still fails: the kernel does nothing yet).}
-
-% =====================================================================================
-\section{The two \code{case}s \hfill {\normalsize\file{common/source/kernel/Syscall.cpp}}}
-
-In the \code{switch} of \code{syscallException}, e.g.\ after \code{case sc\_execv}:
-\begin{lstlisting}[style=cpp]
+\textbf{\file{common/source/kernel/Syscall.cpp}} -- in the \code{switch} of \code{syscallException}, e.g.\ before \code{case sc\_execv}:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 case sc_shm_attach:
   return_value = currentThread->getProcess()->shmAttach(arg1);
   break;
@@ -258,352 +187,249 @@ case sc_shm_detach:
   return_value = currentThread->getProcess()->shmDetach(arg1);
   break;
 \end{lstlisting}
-The attached keys belong to the \emph{process}, so the work goes straight to two
-\code{UserProcess} methods (step 9, 10) -- no extra \code{Syscall::} functions needed.
+\begin{description}
+  \item[1, 4] ``If the program asked for 1680 / 1681 \ldots''
+  \item[2, 5] \ldots\ call the method of the \emph{calling} process with the key (\code{arg1}). \code{return\_value}
+        goes back to the program.
+  \item[3, 6] End of the \code{case}.
+\end{description}
 
-\done{Two \code{case}s.}
+\done{The test compiles (it still fails -- the methods come in step 5--6).}
 
 % =====================================================================================
-\section{An unmap that can keep the page \hfill {\normalsize\file{arch/x86/64/include/ArchMemory.h} + \file{source/ArchMemory.cpp}}}
+\section{Unmap without freeing}
 
-In \file{ArchMemory.h} change the declaration:
-\begin{lstlisting}[style=cpp]
+\textbf{\file{arch/x86/64/include/ArchMemory.h}} -- change the declaration of \code{unmapPage}:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 bool unmapPage(uint64 virtual_page, bool free_physical_page = true);
 \end{lstlisting}
-In \file{ArchMemory.cpp} change the definition's first line and the \code{freePPN} line:
-\begin{lstlisting}[style=cpp]
+\begin{description}
+  \item[1] A second parameter: free the RAM page or not. \code{= true} is the default, so every old call
+        \code{unmapPage(vpn)} still frees, exactly as before. Only our code passes \code{false}.
+\end{description}
+
+\textbf{\file{arch/x86/64/source/ArchMemory.cpp}} -- the first line of the function and the \code{freePPN} line:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 bool ArchMemory::unmapPage(uint64 virtual_page, bool free_physical_page)
-{
-  ...
-  m.pt[m.pti].present = 0;
+...
   if (free_physical_page)
     PageManager::instance()->freePPN(m.page_ppn);
-  ...
 \end{lstlisting}
-\begin{itemize}
-  \item Picture 3: the old \code{unmapPage} \emph{always} frees the physical page -- fatal for a shared page.
-  \item \code{= true} is a \textbf{default value}: every existing call \code{unmapPage(vpn)} keeps working
-        exactly as before (frees). Only the shared-page code passes \code{false}.
-  \item The default goes into the \textbf{declaration} only (\file{.h}), not into the definition (\file{.cpp}).
-\end{itemize}
+\begin{description}
+  \item[1] The same parameter, without the \code{= true} (the default belongs only in the \file{.h}).
+  \item[3--4] Free the RAM page only if asked to. The rest of \code{unmapPage} (remove the entry) stays as it is.
+\end{description}
 
-\done{\code{unmapPage(vpn, false)} removes the entry and keeps the physical page.}
+\done{\code{unmapPage(vpn, false)} removes the page from the page table but keeps the RAM (picture 3).}
 
 % =====================================================================================
-\section{The kernel-wide table \hfill {\normalsize new file \file{common/include/mm/SharedPages.h}}}
+\section{Constants and per-process state \hfill {\normalsize\file{common/include/kernel/UserProcess.h}}}
 
 \begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
-#pragma once
-
-#include "types.h"
-
-class Mutex;
-
-#define SHM_MAX_KEYS 16
+#define SHM_KEYS 16
 #define SHM_BASE 0x0000400000000000ULL
 
-class SharedPages
-{
-  public:
-    static SharedPages* instance();
-    static void init();
-    size_t acquire(size_t key);
-    void release(size_t key);
-
-  private:
-    SharedPages();
-    static SharedPages* instance_;
-
-    struct Entry
-    {
-      size_t ppn;
-      size_t references;
-    };
-    Mutex* lock_;
-    Entry entries_[SHM_MAX_KEYS];
-};
-\end{lstlisting}
-\begin{description}
-  \item[Lines 7--8.] 16 slots (keys 1--15 are valid, 0 is unused). \code{SHM\_BASE}: the address of key 0;
-        key $k$ is at \code{SHM\_BASE} + $k$ pages (picture 5). Far away from code, heap (\code{0x6000\ldots})
-        and stacks (\code{0x7FFF\ldots}).
-  \item[Lines 13--14.] The usual SWEB ``singleton'' pattern (like \code{PageManager::instance()}): exactly
-        one table in the kernel. \code{init()} creates it, \code{instance()} returns it.
-  \item[Lines 15--16.] The only two operations: count up (and maybe create), count down (and maybe free).
-  \item[Lines 22--26.] One entry per key: which physical page (\code{ppn}, 0 = none yet) and how many
-        processes have it attached.
-  \item[Line 27.] A \code{Mutex*} (a pointer, created with \code{new} in the constructor): several
-        processes can attach at the same time; the table must be changed by one at a time.
-        \code{class Mutex;} in line 5 is enough for a pointer -- the full header is only needed in the \file{.cpp}.
-\end{description}
-
-\done{The header exists. (CMake picks up new files in \file{common/source/mm/} automatically;
-\code{task test} re-runs cmake.)}
-
-% =====================================================================================
-\section{The table's functions \hfill {\normalsize new file \file{common/source/mm/SharedPages.cpp}}}
-
-\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
-#include "SharedPages.h"
-#include "PageManager.h"
-#include "Mutex.h"
-#include "ScopeLock.h"
-#include "assert.h"
-
-SharedPages* SharedPages::instance_ = nullptr;
-
-void SharedPages::init()
-{
-  instance_ = new SharedPages();
-}
-
-SharedPages* SharedPages::instance()
-{
-  assert(instance_ && "SharedPages::init() was not called in startup()");
-  return instance_;
-}
-
-SharedPages::SharedPages() : lock_(new Mutex("SharedPages::lock_"))
-{
-  for (Entry& entry : entries_)
-  {
-    entry.ppn = 0;
-    entry.references = 0;
-  }
-}
-
-size_t SharedPages::acquire(size_t key)
-{
-  ScopeLock lock(*lock_);
-  Entry& entry = entries_[key];
-  if (entry.ppn == 0)
-    entry.ppn = PageManager::instance()->allocPPN();
-  entry.references++;
-  return entry.ppn;
-}
-
-void SharedPages::release(size_t key)
-{
-  ScopeLock lock(*lock_);
-  Entry& entry = entries_[key];
-  assert(entry.references > 0);
-  entry.references--;
-  if (entry.references == 0)
-  {
-    PageManager::instance()->freePPN(entry.ppn);
-    entry.ppn = 0;
-  }
-}
-\end{lstlisting}
-\begin{description}
-  \item[Line 7.] The static pointer starts as \code{nullptr} -- a plain pointer needs no constructor, so this is fine.
-  \item[Lines 9--12.] \code{init} creates the one table with \code{new} (step 7 calls it at boot).
-  \item[Lines 14--18.] \code{instance} returns it; the \code{assert} catches a forgotten \code{init}.
-  \item[Lines 20--27.] Constructor: create the lock, mark every key as ``no page, nobody''.
-  \item[Lines 29--37 -- acquire.] Under the table lock: if the key has no page yet, take a fresh
-        physical page (\code{allocPPN} fills it with zeros -- ``the first attach creates the page (zeroed)'').
-        Count + 1 and return the ppn.
-  \item[Lines 39--50 -- release.] Count $-$ 1. At 0 nobody uses the page any more: give it back
-        (\code{freePPN}) and mark the key empty, so the next acquire creates a \emph{new} page (picture 2).
-  \item[Line 43.] Releasing a key nobody holds is a bug in our own kernel code -- the \code{assert} stops it at once.
-\end{description}
-
-\done{\code{acquire} counts up (creating the page if needed), \code{release} counts down (freeing at 0).}
-
-% =====================================================================================
-\section{Create the table at boot \hfill {\normalsize\file{common/source/kernel/main.cpp}}}
-
-Add \code{\#include "SharedPages.h"} at the top, and in \code{startup()} right after
-\code{Scheduler::instance();} (line 59):
-\begin{lstlisting}[style=cpp]
-SharedPages::init();
-\end{lstlisting}
-SWEB never runs constructors of global objects, so a global \code{SharedPages table;} would stay
-uninitialised. \code{startup()} runs once at boot, before any process exists -- the right moment.
-
-\done{The table exists before the first process can attach.}
-
-% =====================================================================================
-\section{Per-process state \hfill {\normalsize\file{common/include/kernel/UserProcess.h}}}
-
-In the \textbf{public} part (e.g.\ after \code{cancelThread}):
-\begin{lstlisting}[style=cpp]
 size_t shmAttach(size_t key);
 size_t shmDetach(size_t key);
-\end{lstlisting}
-At the very bottom of the \textbf{private} members:
-\begin{lstlisting}[style=cpp]
-bool shm_attached_[16] = {};
-\end{lstlisting}
-\begin{itemize}
-  \item \code{public}: \file{Syscall.cpp} calls them (a private method is ``not accessible'').
-  \item \code{shm\_attached\_[k]} = ``this process has key $k$ mapped''. Needed for three things: attaching
-        twice gives the same address without a second mapping; detach of a key that is not attached
-        returns $-1$; at exit we know which keys to clean up. \code{= \{\}} starts all as \code{false}.
-  \item 16 = \code{SHM\_MAX\_KEYS}. Protected by \code{thread\_lock\_}, like the page table.
-\end{itemize}
 
-\done{Two declarations (public) and one member (private).}
+bool shm_attached_[SHM_KEYS] = {};
+\end{lstlisting}
+\begin{description}
+  \item[1] \emph{(at the top, next to the other \code{\#define}s)} 16 slots: keys 1--15, slot 0 unused.
+  \item[2] The address of ``key 0''; key $k$ is $k$ pages above it (picture 5). Far away from code, heap and stacks.
+  \item[4--5] \emph{(in the \code{public:} part, e.g.\ after \code{cancelThread})} The two methods the \code{case}s
+        call. Public, so \file{Syscall.cpp} may call them.
+  \item[7] \emph{(in the \code{private:} part, at the bottom)} One flag per key: ``\emph{this} process has it mapped''.
+        \code{= \{\}} starts all as \code{false}. Needed to answer: attach twice? detach without attach? what to
+        clean up at exit?
+\end{description}
+
+\done{The constants, two declarations and one member are in \file{UserProcess.h}.}
 
 % =====================================================================================
-\section{\code{shmAttach} \hfill {\normalsize\file{common/source/kernel/UserProcess.cpp}}}
+\section{The table: two arrays and one lock}
 
-At the top add \code{\#include "SharedPages.h"} (and \code{"ScopeLock.h"} if missing). The function goes at the end:
+\textbf{\file{common/source/kernel/UserProcess.cpp}} -- below the \code{\#include}s (add \code{\#include "ScopeLock.h"}):
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
+size_t shm_ppn[SHM_KEYS] = {};
+size_t shm_refs[SHM_KEYS] = {};
+Mutex* shm_lock = nullptr;
+\end{lstlisting}
+\begin{description}
+  \item[1] Per key: which RAM page belongs to it. 0 = no page yet.
+  \item[2] Per key: how many processes have it attached.
+  \item[3] The lock for both arrays (picture 4). Only a \emph{pointer}: SWEB never runs constructors of global
+        objects, and a \code{Mutex} needs its constructor. Plain number arrays need none -- they are just 0.
+  \item[1--3] They are outside any class: one table for the whole kernel, shared by all processes.
+\end{description}
+
+\textbf{\file{common/source/kernel/main.cpp}} -- \code{\#include "Mutex.h"} at the top, then:
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
+extern Mutex* shm_lock;
+
+  shm_lock = new Mutex("shm_lock");
+\end{lstlisting}
+\begin{description}
+  \item[1] \emph{(at file level, above \code{startup()})} ``This variable exists in another file'' -- so
+        \file{main.cpp} may use it.
+  \item[3] \emph{(in \code{startup()}, right after \code{Scheduler::instance();})} Create the lock once at boot,
+        before any program can attach.
+\end{description}
+
+\done{It compiles except for the two missing methods.}
+
+% =====================================================================================
+\section{Attach \hfill {\normalsize\file{UserProcess.cpp}, at the end}}
+
 \begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 size_t UserProcess::shmAttach(size_t key)
 {
-  if (key == 0 || key >= SHM_MAX_KEYS)
+  if (key == 0 || key >= SHM_KEYS)
     return 0;
   size_t vpn = SHM_BASE / PAGE_SIZE + key;
-
-  size_t ppn = SharedPages::instance()->acquire(key);
-  bool already;
+  ScopeLock global(*shm_lock);
+  ScopeLock local(thread_lock_);
+  if (!shm_attached_[key])
   {
-    ScopeLock lock(thread_lock_);
-    already = shm_attached_[key];
-    if (!already)
-    {
-      bool mapped = arch_memory_->mapPage(vpn, ppn, 1);
-      assert(mapped && "the shm region is only mapped by shmAttach");
-      shm_attached_[key] = true;
-    }
+    if (shm_refs[key] == 0)
+      shm_ppn[key] = PageManager::instance()->allocPPN();
+    shm_refs[key]++;
+    bool mapped = arch_memory_->mapPage(vpn, shm_ppn[key], 1);
+    assert(mapped);
+    shm_attached_[key] = true;
   }
-  if (already)
-    SharedPages::instance()->release(key);
   return vpn * PAGE_SIZE;
 }
 \end{lstlisting}
 \begin{description}
-  \item[Lines 3--4.] Only keys 1--15. Error = 0, which the libc turns into \code{NULL} (the test checks
-        \code{shm\_attach(0)} and \code{shm\_attach(16)}).
-  \item[Line 5.] The key's fixed page number (picture 5).
-  \item[Line 7 -- reference first.] Count + 1 under the \emph{table} lock (and released again inside
-        \code{acquire}). From now on the page cannot be freed by anyone else.
-  \item[Lines 9--18 -- then map.] An extra \code{\{ \}} block so the \code{ScopeLock} releases
-        \code{thread\_lock\_} at its end (line 18), \emph{before} line 20 might take the table lock again
-        -- never both locks at once (picture 4).
-  \item[Lines 11--17.] Not attached in this process yet: map the shared physical page at the key's
-        address (\code{1} = user may access it) and set the bit. \code{mapPage} returns \code{false} only if
-        the page is already mapped -- impossible here, the bit says it is not -- hence the \code{assert}.
-  \item[Lines 19--20.] Attached already: we just took a \emph{second} reference for the same process --
-        give it back, one process counts once. The address is the same anyway.
-  \item[Line 21.] The address = page number $\times$ 4096.
+  \item[3--4] Only keys 1--15 exist. Otherwise return 0 = \code{NULL} (the test tries 0 and 16).
+  \item[5] The key's fixed virtual page number: \code{SHM\_BASE} as a page number, plus the key (picture 5).
+  \item[6] Take the table lock first \ldots
+  \item[7] \ldots\ then this process's lock. Same order everywhere (picture 4). Both are released
+        automatically at every \code{return}.
+  \item[8] Only if this process does not have the key yet -- attaching twice must not map twice or count twice.
+  \item[10--11] Nobody uses the key yet: take a fresh piece of RAM. \code{allocPPN} fills it with zeros
+        (``the first attach creates the page, zeroed'').
+  \item[12] One more user.
+  \item[13] Enter ``vpn $\to$ RAM page'' in \emph{this} process's page table; \code{1} = the program may access it.
+        \code{mapPage} returns \code{false} only if the vpn is already mapped \ldots
+  \item[14] \ldots\ which cannot happen (line 8 checked it) -- the \code{assert} would catch a bug.
+        (\code{mapPage} is \code{[[nodiscard]]}: its result must be used.)
+  \item[15] Remember: this process has the key now.
+  \item[17] The address = page number $\times$ 4096. Also for the second attach: the same address.
 \end{description}
 
-\done{Attach maps the page once per process and returns the same address every time.}
+\done{Attach maps the page once per process and counts each process once.}
 
 % =====================================================================================
-\section{\code{shmDetach} \hfill {\normalsize\file{common/source/kernel/UserProcess.cpp}}}
+\section{Detach \hfill {\normalsize\file{UserProcess.cpp}}}
 
 \begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 size_t UserProcess::shmDetach(size_t key)
 {
-  if (key == 0 || key >= SHM_MAX_KEYS)
+  if (key == 0 || key >= SHM_KEYS)
     return (size_t) -1;
-  {
-    ScopeLock lock(thread_lock_);
-    if (!shm_attached_[key])
-      return (size_t) -1;
-    arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
-    ArchMemory::flushTlb();
-    shm_attached_[key] = false;
-  }
-  SharedPages::instance()->release(key);
+  ScopeLock global(*shm_lock);
+  ScopeLock local(thread_lock_);
+  if (!shm_attached_[key])
+    return (size_t) -1;
+  arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
+  ArchMemory::flushTlb();
+  shm_attached_[key] = false;
+  shm_refs[key]--;
+  if (shm_refs[key] == 0)
+    PageManager::instance()->freePPN(shm_ppn[key]);
   return 0;
 }
 \end{lstlisting}
 \begin{description}
-  \item[Lines 3--4, 7--8.] Invalid key, or not attached $\to$ $-1$ (``detaching twice fails'').
-  \item[Line 9 -- unmap, but keep.] \code{false}: other processes may still use the physical page.
-  \item[Line 10.] The CPU may still remember the old translation -- flush, or this process could keep
-        writing into the page after detaching.
-  \item[Line 11.] Clear the bit.
-  \item[Line 13 -- then release.] Outside \code{thread\_lock\_}. If we were the last user, the table frees
-        the page now (``after the last detach the page was freed: a new one is zero'').
+  \item[3--4] Invalid key $\to$ $-1$.
+  \item[5--6] The two locks, same order as in attach.
+  \item[7--8] Not attached in this process $\to$ $-1$ (``detaching twice fails'').
+  \item[9] Remove the page from this process's page table, \textbf{\code{false} = keep the RAM} -- others may use it.
+  \item[10] The CPU caches translations (TLB). Flush, so it forgets the old one and a later access really fails.
+  \item[11] This process no longer has the key.
+  \item[12] One user less.
+  \item[13--14] Nobody left: now give the RAM back (``after the last detach the page was freed'').
+        \code{shm\_ppn[key]} keeps the old number, but \code{shm\_refs} is 0 -- the next attach takes a new page (line 10 of attach).
+  \item[15] Success.
 \end{description}
 
-\done{Detach unmaps without freeing, then drops the reference.}
+\done{Detach removes the page and frees the RAM only for the last user.}
 
 % =====================================================================================
-\section{Cleanup when a process ends \hfill {\normalsize\file{UserProcess.cpp}, \code{\textasciitilde UserProcess}}}
+\section{Cleanup when a process ends \hfill {\normalsize\file{UserProcess.cpp}, \textasciitilde UserProcess}}
 
-In the destructor, between \code{delete loader\_;} and \code{delete arch\_memory\_;} (line 33--34):
+Between \code{delete loader\_;} and \code{delete arch\_memory\_;}:
 \begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
-for (size_t key = 1; key < SHM_MAX_KEYS; ++key)
 {
-  if (shm_attached_[key])
+  ScopeLock global(*shm_lock);
+  for (size_t key = 1; key < SHM_KEYS; ++key)
   {
+    if (!shm_attached_[key])
+      continue;
     arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
-    SharedPages::instance()->release(key);
+    shm_refs[key]--;
+    if (shm_refs[key] == 0)
+      PageManager::instance()->freePPN(shm_ppn[key]);
   }
 }
 \end{lstlisting}
 \begin{description}
-  \item[Why here.] A process may end \emph{without} \code{shm\_detach} (the test's second child does).
-        Then \code{delete arch\_memory\_} would run \code{\textasciitilde ArchMemory}, which frees \emph{every}
-        mapped page -- including the shared one the parent still uses (picture 3).
-  \item[Line 5.] So unmap our shared pages first, \emph{without} freeing. Afterwards \code{\textasciitilde ArchMemory}
-        does not see them any more.
-  \item[Line 6.] Drop our reference -- otherwise the count never reaches 0 and the page leaks (the final
-        \code{exit} of the test checks for leaks).
-  \item[No lock, no TLB flush.] The process is being deleted: none of its threads runs any more, and its
-        page table is never loaded again.
-  \item[Must come before \code{delete arch\_memory\_}.] After that line the page table is gone.
+  \item[Why at all] A program may end \emph{without} \code{shm\_detach} (the test's second child does).
+        Then \code{delete arch\_memory\_} would free every mapped page -- also the shared one (picture 3).
+  \item[1, 12] An extra block: the lock of line 2 is released at line 12, before \code{delete arch\_memory\_}.
+  \item[2] The table lock (we change \code{shm\_refs}). No \code{thread\_lock\_}: the process is being deleted,
+        none of its threads runs any more.
+  \item[3] Go through all keys 1--15.
+  \item[5--6] Skip the keys this process does not have.
+  \item[7] Remove the page, keep the RAM -- \emph{before} \code{delete arch\_memory\_} could free it.
+  \item[8--10] One user less; free the RAM if it was the last (otherwise: a leak at the end of the test).
 \end{description}
 
-\done{\code{task test}: \textbf{9 of 9 passed}, no leak reported at the end.}
+\done{\code{task test}: \textbf{9 of 9 passed}, \code{sweb\_run status 0} (no leak).}
 
 % =====================================================================================
 \section*{The test -- what each check means}
 
-\code{shm\_basic.sweb} attaches key 7, writes a text, then starts \code{shm\_child.sweb} twice.
-
 {\small
-\begin{tabular}{@{}L{6.6cm} L{8.6cm}@{}}
+\begin{tabular}{@{}L{6.8cm} L{8.4cm}@{}}
 \toprule
-\textbf{Check} & \textbf{Which step makes it pass}\\\midrule
-attached key 7 & steps 1--3, 5--9\\
-attaching twice gives the same address & step 9: the bit, lines 19--20\\
-child sees the parent's text (child 1) & one physical page in two page tables (picture 1)\\
-the child wrote into our page & the same, in the other direction\\
-page survives a child that did not detach (child 2) & step 11 + step 4: unmapped without freeing, count 2 $\to$ 1\\
-detached & step 10\\
-detaching twice fails & step 10, the bit check\\
-after the last detach the page was freed: a new one is zero & step 6 \code{release} frees at 0; \code{acquire} makes a new zeroed page\\
-invalid keys rejected & step 9, lines 3--4\\
-no leak at the final \code{exit} & step 11: the parent ends attached; its reference is dropped\\
+\textbf{Check} & \textbf{Made to pass by}\\\midrule
+attached key 7 & steps 1--5\\
+attaching twice gives the same address & attach, line 8 + 17\\
+child sees the parent's text / wrote into our page & one RAM page in two page tables (picture 1)\\
+page survives a child that did not detach & step 7 + \code{false} in step 2: count 2 $\to$ 1, RAM kept\\
+detached & step 6\\
+detaching twice fails & detach, lines 7--8\\
+after the last detach the page was freed: a new one is zero & detach lines 13--14, then attach lines 10--11\\
+invalid keys rejected & attach, lines 3--4\\
+no leak at the end & step 7: the parent ends attached, its count is dropped and the RAM freed\\
 \bottomrule
 \end{tabular}}
 
-\section*{Say it in three sentences}
+\section*{Remember -- and the tutor questions}
 
-\begin{keybox}[title={Remember}]
-\begin{itemize}
-  \item Shared memory = \textbf{one physical page in several page tables}; a kernel-wide table maps
-        key $\to$ page and \textbf{counts} the users.
-  \item Unmapping a shared page must \textbf{not free} it -- only the last user (count 0) frees it, also when
-        a process ends without detaching.
-  \item Attach: reference, \emph{then} map. Detach: unmap, \emph{then} release. \textbf{Never hold both locks}.
-\end{itemize}
+\begin{keybox}[title={Three sentences}]
+\begin{enumerate}
+  \item One RAM page in several page tables; two arrays remember the page and \textbf{count the users} per key.
+  \item Removing a shared page \textbf{never frees} it -- only the last user (count 0) frees it, also at process exit.
+  \item Two locks, \textbf{always \code{shm\_lock} first}, then \code{thread\_lock\_} -- that rules out a deadlock.
+\end{enumerate}
 \end{keybox}
 
-\section*{Questions a tutor might ask}
-
 {\small
-\begin{tabular}{@{}L{6.4cm} L{8.8cm}@{}}
+\begin{tabular}{@{}L{6.2cm} L{9.0cm}@{}}
 \toprule
 \textbf{Question} & \textbf{Short answer}\\\midrule
-How can two processes see the same memory? & both page tables point to the same physical page\\
-Why a reference count? & the page may only be freed when the last process lets go\\
-Why not the normal \code{unmapPage}? & it frees the physical page -- the other process would lose it\\
-What happens if a process exits without detaching? & \code{\textasciitilde UserProcess} unmaps without freeing and releases, before \code{\textasciitilde ArchMemory} would free it\\
-Why is the table created in \code{startup()}? & SWEB does not run global constructors\\
-Why reference first, then map? & while mapping, the page must not be freed by another process's release\\
-Why never both locks at once? & two processes taking them in opposite order would deadlock\\
-Why the same address per key? & simple, and pointers inside the page mean the same in every process\\
-Why \code{flushTlb} in detach? & otherwise the CPU might still translate the old address\\
-Attach twice in one process? & second reference is dropped again; the bit prevents a second mapping\\
-What would fork do with an attached page? & your team's fork copies the address space -- the child would get a \emph{copy}, not the shared page (a good follow-up question)\\
+How do two processes see the same memory? & both page tables point to the same RAM page\\
+Why count the users? & the RAM may only be freed when the last one is gone\\
+Why not the normal \code{unmapPage}? & it frees the RAM, the other process would lose its page\\
+A process exits without detaching? & the destructor unmaps without freeing and lowers the count\\
+Why is the lock created in \code{startup()}? & SWEB does not run constructors of global objects\\
+Why can't the two locks deadlock? & same order everywhere, and nothing else takes \code{shm\_lock}\\
+Why \code{flushTlb} in detach? & the CPU might still use the old translation\\
+What would \code{fork} do with an attached page? & your team's fork copies the address space: the child gets a private copy, not the shared page\\
 \bottomrule
 \end{tabular}}
 
