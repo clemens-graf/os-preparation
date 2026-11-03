@@ -91,6 +91,30 @@ stacks included), copies `next_stack_slot_`, makes ONE thread with the copy cons
 `UserThread(child, parent_thread)` (registers copied, `rax = 0`), `registerThread`, `startProcess`.
 `Syscall::fork` turns 0 into -1. forkall is the same with a loop over `threads_`.
 
+## The other reading from the list: fork every running process
+
+The list says: *"More likely: fork process with all its existing threads (this card) · Less likely:
+fork each currently running userspace-process"*.
+
+```
+Name:         forkall (variant)
+Description:  Every running user process is forked once (each gets one child, a copy of
+              the process with only its main thread).
+Return Value: number of new processes, or -1
+```
+
+<details><summary>How to do it</summary>
+
+1. Get the list of processes from `ProcessRegistry` (under its lock) – copy the pointers into a
+   local array first, then release the lock (fork takes other locks).
+2. For each process: do what your team's `UserProcess::fork` does, but with *that* process's main
+   thread as the template instead of `currentThread` – your team's fork asserts it runs on the
+   calling thread, so you need a variant that takes the thread to clone as a parameter.
+3. The trap: the other processes are not stopped – their threads may run while you copy. The
+   copied registers are those saved at their last switch, which is consistent for a thread that is
+   not running right now (one CPU: only the caller runs).
+</details>
+
 ## Questions a tutor might ask
 
 Answer each one out loud first – then open it to compare.

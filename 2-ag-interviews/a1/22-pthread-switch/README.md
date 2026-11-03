@@ -90,6 +90,26 @@ Nothing in the kernel. A new header `userspace/libc/include/context.h` and a new
 a C file: a top-level `__asm__(".globl context_switch\n" "context_switch:\n" ...)` block defines a
 function the C code can call.
 
+## The other reading from the list: switch two threads in the kernel
+
+The list says: *"Manual Context Switching – asm-level logic that saves thread A's registers and
+loads Thread B's registers"*. This card does it in user space (you see every register). In the
+kernel the same idea is: **exchange the saved registers of two threads** of the same process.
+
+<details><summary>How to do it in the kernel</summary>
+
+- Every thread's user state is in `thread->user_registers_` (rip, rsp, rax, …, saved when it
+  entered the kernel or was interrupted). Swapping the *contents* of the two register sets makes
+  thread A continue where B was and the other way round.
+- Only safe for threads that are **not inside a syscall** right now (a thread sleeping in the
+  kernel has kernel state – its kernel stack – that cannot be exchanged). Simplest rule: only the
+  caller and threads that are not running / not blocked.
+- The swap of the *ids* (what the work is called) is [A1-23](../23-pthread-switch-ids/) – same
+  visible result, always safe.
+- The real kernel switch is `arch_contextSwitch` (assembly, `arch/x86/64/source/arch_interrupts.S`)
+  – read it once: it restores `kernel_registers_` / `user_registers_` and does `iretq`.
+</details>
+
 ## Questions a tutor might ask
 
 Answer each one out loud first – then open it to compare.

@@ -61,6 +61,34 @@ Look the thread up under the process' thread lock, release the lock, then yield.
 
 `Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadDataByTid(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
 
+## The other reading from the list: invoke with a function pointer
+
+The list also says *"Manually trigger other thread's execution from specific function pointer"*.
+That is a different task – be ready for it:
+
+```
+Name:         pthread_invoke(pthread_t thread, void (*function)(void*), void* arg)
+Description:  The given thread (same process, not the caller) runs function(arg) the next
+              time it runs, and afterwards continues exactly where it was.
+Return Value: 0, or -1 if the thread does not exist / is the caller / function is NULL
+```
+
+<details><summary>How to do it (the mechanism of A0-07 upcall, applied to ANOTHER thread)</summary>
+
+1. Find the other thread's `UserThread*` (under `thread_lock_`, via its record).
+2. Its saved user registers are `thread->user_registers_` – it is not running, so you may change them.
+3. Push its old `rip` onto ITS user stack (`rsp -= 8`, write the old `rip` there – the stack belongs
+   to the same address space, so the kernel can write it directly while this process is current).
+4. Set `rip = function`, `rdi = arg`. When `function` returns, the `ret` pops the old `rip` –
+   the thread continues where it was.
+5. Keep `rsp` 16-byte aligned at the call (`rsp % 16 == 8` at the function's first instruction).
+6. Optional: then do the directed yield of this card so it runs right away.
+
+Practise the mechanism with [A0-07 upcall](../../a0/07-upcall/) (planned). Trap: a thread that is
+*inside a syscall* has `user_registers_` that are restored only when it returns – changing them is
+fine, it runs `function` after the syscall returns.
+</details>
+
 ## Questions a tutor might ask
 
 Answer each one out loud first – then open it to compare.

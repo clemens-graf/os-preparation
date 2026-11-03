@@ -59,6 +59,26 @@ destructor still has the counter).
 
 Per thread → `Thread.h`: `volatile size_t cpu_ticks_ = 0;`, incremented in `Scheduler::incTicks()` (called from the timer interrupt). Per process → `UserProcess`: `finished_ticks_` (added in `exitThread`) + the running threads in `threads_`. `thread_runtime(0)` = the calling thread. `clock()` in `userspace/libc/src/time.c` is a stub – it calls the new syscall.
 
+## The other readings from the list: "track interrupt time", "runtime of a thread id"
+
+The list says: *"Could be full implementation if someone not already done? · Track interrupt time ·
+Return runtime of specific thread-ID"*. Your team already has `clock()` (`cpu_cycles_` in `Thread`
+and `UserProcess`), so expect an **extension of your team's code**:
+
+- **Runtime of a thread id** – this card's `thread_runtime(tid)`: find the thread by tid (under
+  `thread_lock_`), return its counter. For an ended thread the counter must survive in its record.
+- **Track interrupt time** – how much time is spent *in interrupt handlers* (or: how many timer
+  interrupts happened while a thread was running). Count in the C entry of the interrupt
+  (`irqHandler_0` for the timer, `InterruptUtils.cpp`), e.g. read the CPU's time-stamp counter
+  (`rdtsc`, inline asm) at the start and end of the handler and add the difference to a counter
+  per thread or global. No locks in an interrupt handler – only plain counters.
+
+<details><summary>How to find the place in your team's code</summary>
+
+`git grep -n "cpu_cycles_\|addCpuCycles"` shows where your team adds the time – your extension
+goes right there (per thread) or into the interrupt entry (interrupt time).
+</details>
+
 ## Questions a tutor might ask
 
 Answer each one out loud first – then open it to compare.
