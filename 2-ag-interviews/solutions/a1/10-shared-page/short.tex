@@ -1,0 +1,203 @@
+\documentclass[11pt]{report}
+\input{../../../theory/preamble}
+\fancyhead[L]{\small\textcolor{headgray}{A1-10 shared page -- the short variant}}
+\fancyhead[R]{}
+\newcommand{\step}[2]{\par\medskip\noindent{\large\bfseries #1}\hfill{\file{#2}}\par\nopagebreak\smallskip}
+
+\begin{document}
+
+{\centering {\LARGE\bfseries A1-10 shared page -- the short variant\par}\vspace{6pt}}
+
+\begin{warnbox}
+\textbf{Not tested yet.} This is a shorter version of the tested solution (\file{solution.patch},
+explained in \file{walkthrough.pdf}): no new class, no new files, one extra lock. Run \code{task test}
+-- done when \textbf{9 of 9} pass. If it does not, compare with \file{minimal.pdf} (tested).
+\end{warnbox}
+
+\section*{The idea}
+
+\begin{itemize}
+  \item Two processes that attach the same key get the \textbf{same physical page} in their page tables.
+  \item Two global arrays remember, per key, \textbf{which physical page} and \textbf{how many processes} use it.
+  \item Free the page only when the count reaches \textbf{0}; unmapping a shared page never frees it.
+\end{itemize}
+
+\section*{What is shorter than the tested solution}
+
+\begin{tabular}{@{}L{3.6cm} L{5.6cm} L{6.2cm}@{}}
+\toprule
+ & tested solution & short variant\\\midrule
+the table & class \code{SharedPages}, 2 new files & 2 arrays + 1 lock pointer in \file{UserProcess.cpp}\\
+locks & two locks, never both at once & both at once, \textbf{always in the same order}\\
+lines of logic & $\approx$ 90 & $\approx$ 45\\
+\bottomrule
+\end{tabular}
+
+\smallskip
+\textbf{The one rule that keeps it deadlock-free:} wherever both locks are needed, take
+\code{shm\_lock} \textbf{first}, then \code{thread\_lock\_}. Nothing else in the kernel takes \code{shm\_lock}, so
+no thread can ever hold \code{thread\_lock\_} and wait for \code{shm\_lock}.
+
+% =====================================================================================
+\step{1 -- Plumbing}{syscall-definitions.h · nonstd.h · nonstd.c · Syscall.cpp}
+
+\begin{lstlisting}[style=cpp]
+// syscall-definitions.h
+#define sc_shm_attach 1680
+#define sc_shm_detach 1681
+
+// nonstd.h  (needs #include "types.h" at the top)
+extern void* shm_attach(size_t key);
+extern int shm_detach(size_t key);
+
+// nonstd.c
+void* shm_attach(size_t key)
+{
+  return (void*) __syscall(sc_shm_attach, key, 0x00, 0x00, 0x00, 0x00);
+}
+int shm_detach(size_t key)
+{
+  return __syscall(sc_shm_detach, key, 0x00, 0x00, 0x00, 0x00);
+}
+
+// Syscall.cpp, in the switch of syscallException
+case sc_shm_attach:
+  return_value = currentThread->getProcess()->shmAttach(arg1);
+  break;
+case sc_shm_detach:
+  return_value = currentThread->getProcess()->shmDetach(arg1);
+  break;
+\end{lstlisting}
+
+% =====================================================================================
+\step{2 -- Unmap without freeing}{ArchMemory.h · ArchMemory.cpp}
+
+\begin{lstlisting}[style=cpp]
+// ArchMemory.h
+bool unmapPage(uint64 virtual_page, bool free_physical_page = true);
+
+// ArchMemory.cpp
+bool ArchMemory::unmapPage(uint64 virtual_page, bool free_physical_page)
+  ...
+  if (free_physical_page)
+    PageManager::instance()->freePPN(m.page_ppn);
+\end{lstlisting}
+\textbf{Why:} the physical page still belongs to the other processes.
+
+% =====================================================================================
+\step{3 -- Constants and per-process state}{UserProcess.h}
+
+\begin{lstlisting}[style=cpp]
+// at the top, next to the other #defines
+#define SHM_KEYS 16                        // keys 1..15 (0 is unused)
+#define SHM_BASE 0x0000400000000000ULL     // key k lives at SHM_BASE + k pages
+
+// public:
+size_t shmAttach(size_t key);
+size_t shmDetach(size_t key);
+
+// private, at the bottom:
+bool shm_attached_[SHM_KEYS] = {};          // which keys THIS process has mapped
+\end{lstlisting}
+
+% =====================================================================================
+\step{4 -- The table: two arrays and a lock}{UserProcess.cpp (top) · main.cpp}
+
+\begin{lstlisting}[style=cpp]
+// UserProcess.cpp, below the #includes (add #include "ScopeLock.h" if it is missing)
+size_t shm_ppn[SHM_KEYS] = {};     // key -> physical page, 0 = none yet
+size_t shm_refs[SHM_KEYS] = {};    // key -> how many processes have it attached
+Mutex* shm_lock = nullptr;         // protects both arrays; created in startup()
+\end{lstlisting}
+\begin{itemize}
+  \item Plain arrays of numbers need no constructor -- they are simply zero at boot.
+  \item A \code{Mutex} \emph{does} need its constructor, and SWEB never runs constructors of global objects
+        -- so only a pointer here, the object is created at boot:
+\end{itemize}
+\begin{lstlisting}[style=cpp]
+// main.cpp: #include "Mutex.h" at the top, and in startup() after Scheduler::instance();
+extern Mutex* shm_lock;
+shm_lock = new Mutex("shm_lock");
+\end{lstlisting}
+(\code{extern Mutex* shm\_lock;} goes \emph{above} \code{startup()}, at file level: ``this variable exists in another file''.)
+
+% =====================================================================================
+\step{5 -- Attach}{UserProcess.cpp}
+
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
+size_t UserProcess::shmAttach(size_t key)
+{
+  if (key == 0 || key >= SHM_KEYS)
+    return 0;
+  size_t vpn = SHM_BASE / PAGE_SIZE + key;
+  ScopeLock global(*shm_lock);          // 1st lock
+  ScopeLock local(thread_lock_);        // 2nd lock - always in this order
+  if (!shm_attached_[key])
+  {
+    if (shm_refs[key] == 0)
+      shm_ppn[key] = PageManager::instance()->allocPPN();   // first user: new zeroed page
+    shm_refs[key]++;
+    bool mapped = arch_memory_->mapPage(vpn, shm_ppn[key], 1);
+    assert(mapped);
+    shm_attached_[key] = true;
+  }
+  return vpn * PAGE_SIZE;               // attached twice: same address, counted once
+}
+\end{lstlisting}
+
+% =====================================================================================
+\step{6 -- Detach}{UserProcess.cpp}
+
+\begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
+size_t UserProcess::shmDetach(size_t key)
+{
+  if (key == 0 || key >= SHM_KEYS)
+    return (size_t) -1;
+  ScopeLock global(*shm_lock);
+  ScopeLock local(thread_lock_);
+  if (!shm_attached_[key])
+    return (size_t) -1;
+  arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);   // keep the physical page
+  ArchMemory::flushTlb();
+  shm_attached_[key] = false;
+  shm_refs[key]--;
+  if (shm_refs[key] == 0)
+    PageManager::instance()->freePPN(shm_ppn[key]);             // last user: free it
+  return 0;
+}
+\end{lstlisting}
+
+% =====================================================================================
+\step{7 -- Clean up when a process ends}{UserProcess.cpp, \textasciitilde UserProcess}
+
+Between \code{delete loader\_;} and \code{delete arch\_memory\_;}:
+\begin{lstlisting}[style=cpp]
+{
+  ScopeLock global(*shm_lock);
+  for (size_t key = 1; key < SHM_KEYS; ++key)
+  {
+    if (!shm_attached_[key])
+      continue;
+    arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
+    shm_refs[key]--;
+    if (shm_refs[key] == 0)
+      PageManager::instance()->freePPN(shm_ppn[key]);
+  }
+}
+\end{lstlisting}
+\begin{itemize}
+  \item \textbf{Why:} \code{delete arch\_memory\_} frees every mapped page -- also a shared page the other process
+        still uses, if this one ends without detaching.
+  \item The extra \code{\{ \}} ends the \code{ScopeLock} before \code{delete arch\_memory\_}.
+  \item No \code{thread\_lock\_} here: the process is being deleted, none of its threads runs any more.
+\end{itemize}
+
+\begin{keybox}[title={Remember}]
+\begin{enumerate}
+  \item Count the users per key; free the page only at 0.
+  \item Unmapping a shared page never frees it (\code{false}).
+  \item Two locks: always \code{shm\_lock} first, then \code{thread\_lock\_} -- the same order everywhere.
+\end{enumerate}
+\end{keybox}
+
+\end{document}
