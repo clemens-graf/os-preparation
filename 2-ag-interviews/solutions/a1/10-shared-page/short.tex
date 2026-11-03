@@ -1,6 +1,6 @@
 \documentclass[11pt]{report}
 \input{../../../theory/preamble}
-\fancyhead[L]{\small\textcolor{headgray}{A1-10 shared page -- the short variant}}
+\fancyhead[L]{\small\textcolor{headgray}{A1-10 shared page -- the short variant (tested)}}
 \fancyhead[R]{}
 \newcommand{\step}[2]{\par\medskip\noindent{\large\bfseries #1}\hfill{\file{#2}}\par\nopagebreak\smallskip}
 
@@ -8,11 +8,11 @@
 
 {\centering {\LARGE\bfseries A1-10 shared page -- the short variant\par}\vspace{6pt}}
 
-\begin{warnbox}
-\textbf{Not tested yet.} This is a shorter version of the tested solution (\file{solution.patch},
-explained in \file{walkthrough.pdf}): no new class, no new files, one extra lock. Run \code{task test}
--- done when \textbf{9 of 9} pass. If it does not, compare with \file{minimal.pdf} (tested).
-\end{warnbox}
+\begin{keybox}[title={Tested}]
+On your team's code (\code{f78faff3}): \code{task test} -- \textbf{9 of 9 passed}, no leak at the final
+\code{exit}. A shorter version of \file{solution.patch} (explained in \file{walkthrough.pdf}): no new class,
+no new files, one extra lock.
+\end{keybox}
 
 \section*{The idea}
 
