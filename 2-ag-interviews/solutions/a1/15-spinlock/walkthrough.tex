@@ -202,6 +202,22 @@ extern int pthread_spin_unlock(pthread_spinlock_t *lock);
   \item \code{extern}: ``this function exists somewhere else'' -- the usual style of this header.
 \end{itemize}
 
+\begin{infobox}[title={How would I know that?},fonttitle=\bfseries\small,coltitle=white,colbacktitle=newrule]
+You do not have to guess -- two quick checks tell you, and both work for \emph{every} type-U task:
+\begin{enumerate}
+  \item \textbf{Build first, before writing anything:} \code{task start a1-15}, then \code{task test}. The
+        build stops with \code{error: implicit declaration of function 'pthread\_spin\_init'} (and the
+        same for the others) -- the compiler names exactly the functions that are not declared.
+  \item \textbf{Look for the declaration yourself:} \code{grep -n "pthread\_spin" userspace/libc/include/pthread.h}
+        finds only the \code{typedef}, no function -- while
+        \code{grep -n "pthread\_spin" userspace/libc/src/pthread.c} finds all five stubs.
+\end{enumerate}
+The rule behind it: a program can only call a library function if a \textbf{header} declares it. The
+stub in the \file{.c} file is the \emph{definition} (the code); the line in the \file{.h} file is the
+\emph{declaration} (``this function exists, with these parameters''). A stub without a declaration
+is invisible to the test program.
+\end{infobox}
+
 \done{Five declarations in \file{pthread.h}.}
 
 % =====================================================================================
