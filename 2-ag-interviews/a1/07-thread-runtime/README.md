@@ -73,6 +73,8 @@ and `UserProcess`), so expect an **extension of your team's code**:
   (`rdtsc`, inline asm) at the start and end of the handler and add the difference to a counter
   per thread or global. No locks in an interrupt handler – only plain counters.
 
+**The full task on your team's real clock code, with a test: [A1-25](../25-clock-extension/).**
+
 <details><summary>How to find the place in your team's code</summary>
 
 `git grep -n "cpu_cycles_\|addCpuCycles"` shows where your team adds the time – your extension

@@ -38,6 +38,8 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 21 | [forkall](21-forkall/) | S | `forkall` | – | 45 min | ★★★ |
 | 22 | [pthread_switch: the context switch itself](22-pthread-switch/) | A + U | `pthread_switch` | – | 40 min | ★★★ |
 | 23 | [pthread_switch: two threads swap their ids](23-pthread-switch-ids/) | S | `pthread_switch` (variant) | – | 30 min | ★★☆ |
+| 24 | [pthread_invoke from a function pointer](24-pthread-invoke-function/) | K + S | `pthread_invoke` (*from specific function pointer*) | A0-07 | 45 min | ★★★ |
+| 25 | [clock extension: any thread's CPU time + interrupt time](25-clock-extension/) | S + E | `clock`-extension (on your team's clock) | your team's `SubmissionD1` | 40 min | ★★☆ |
 
 Not here, with the reason:
 - *Pagefault handler with special addresses* (`0xDEADBEEF`): that is A0-04 – do it again with a

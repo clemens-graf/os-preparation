@@ -1,5 +1,6 @@
 # id|folder|base|runner options|test commands (separated by ;)
-# base: main = clean upstream SWEB, or the id of the task whose SOLUTION this task builds on
+# base: main = your team's pinned code, team:<full commit> = a newer commit of your team's code,
+#       or the id of the task whose SOLUTION this task builds on
 ex01|examples/ex01-syscalls|main|--expect-pass 4|ex_syscall.sweb
 ex02|examples/ex02-map-page|main|--expect-pass 2|ex_mapping.sweb;exit
 ex03|examples/ex03-stack-growth|main|--expect-pass 2|ex_pagefault.sweb;exit
@@ -62,3 +63,5 @@ a2-13|a2/13-mmap|main|--expect-pass 11|mmap_basic.sweb;exit
 a1-21|a1/21-forkall|main|--expect-pass 7|forkall_basic.sweb;exit
 a1-22|a1/22-pthread-switch|main|--expect-pass 7|switch_basic.sweb;switch_return.sweb;exit
 a1-23|a1/23-pthread-switch-ids|main|--expect-pass 9|switch_ids_basic.sweb;exit
+a1-24|a1/24-pthread-invoke-function|main|--expect-pass 9|invoke_function_basic.sweb;exit
+a1-25|a1/25-clock-extension|team:f02fd43a62c9261459158c57422c9c1a7412ab79|--expect-pass 8|clock_ext_basic.sweb;exit

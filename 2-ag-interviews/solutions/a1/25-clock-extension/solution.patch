@@ -1,0 +1,172 @@
+diff --git a/arch/x86/64/source/InterruptUtils.cpp b/arch/x86/64/source/InterruptUtils.cpp
+index 65609d67..d0fb58b3 100644
+--- a/arch/x86/64/source/InterruptUtils.cpp
++++ b/arch/x86/64/source/InterruptUtils.cpp
+@@ -29,6 +29,8 @@
+ #include "Syscall.h"
+ #include "paging-definitions.h"
+ #include "PageFaultHandler.h"
++#include "../../../../common/include/misc/Clock.h"   // A1-25 (misc/ is not on the arch include path)
++#include "../../../../common/include/misc/Cpuid.h"
+ 
+ #include "8259.h"
+ 
+@@ -164,6 +166,7 @@ extern Thread *currentThread;
+ extern "C" void arch_irqHandler_0();
+ extern "C" void irqHandler_0()
+ {
++  uint64 irq_start = Cpuid::readTSC();        // A1-25
+   ++outstanding_EOIs;
+   ArchCommon::drawHeartBeat();
+ 
+@@ -171,6 +174,9 @@ extern "C" void irqHandler_0()
+ 
+   Scheduler::instance()->schedule();
+ 
++  if (Clock::isInitialized())                 // A1-25: before the switch - it does not come back here
++    Clock::instance()->addTimerIrqCycles(Cpuid::readTSC() - irq_start);
++
+   //kprintfd("irq0: Going to leave irq Handler 0\n");
+   ArchInterrupts::EndOfInterrupt(0);
+   arch_contextSwitch();
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index 5858797f..4a3661f5 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -193,6 +193,9 @@ class UserProcess
+     */
+     size_t detachThread(size_t tid);
+ 
++    /** A1-25: CPU time of thread tid of this process in ns @return -1 if there is no such running thread */
++    size_t threadCpuTime(size_t tid);
++
+     /**
+      * Kills all threads and cleans their thread data.
+      * @param is_caller_removed true if the caller thread should also be removed,
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 1428e9fe..831320c3 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -42,6 +42,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_thread_cputime 1652   // A1-25
++#define sc_timer_irq_time 1653
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/include/misc/Clock.h b/common/include/misc/Clock.h
+index 14d5bd4f..714b1b8a 100644
+--- a/common/include/misc/Clock.h
++++ b/common/include/misc/Clock.h
+@@ -87,6 +87,12 @@ public:
+    */
+   uint64 getProcessTime(UserProcess* process);
+ 
++  /** A1-25: called at the end of the timer interrupt with the cycles it took */
++  void addTimerIrqCycles(uint64 cycles) {timer_irq_cycles_ += cycles;}
++
++  /** A1-25: time spent in the timer interrupt since boot, in nanoseconds */
++  uint64 getTimerIrqTime() {return cyclesToNanoseconds(timer_irq_cycles_);}
++
+ 
+   // RTC stuff
+ 
+@@ -156,5 +162,7 @@ private:
+ 
+   uint64 cycles_count_start_;
+ 
++  uint64 timer_irq_cycles_ = 0; // A1-25
++
+   uint64 cycles_since_start_; // this is used for clock_id == MONOTONIC, marks the point i time as 0 where clock gets initialized
+ };
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 9ff25399..c0c1311d 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -117,6 +117,12 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_clock_get_time:
+       return_value = clockGetTime((clockid_t)arg1, (struct timespec*)arg2);
+       break;
++    case sc_thread_cputime:
++      return_value = currentThread->getProcess()->threadCpuTime(arg1);
++      break;
++    case sc_timer_irq_time:
++      return_value = Clock::instance()->getTimerIrqTime();
++      break;
+     case sc_clock_set_time:
+       return_value = clockSetTime((clockid_t)arg1, (struct timespec*)arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index 6204a103..82186a3f 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -11,6 +11,7 @@
+ #include "UserThread.h"
+ #include "Mutex.h"
+ #include "ArchMemory.h"
++#include "Clock.h"
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, size_t ppid, ArchMemory* arch_memory) :
+   filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
+@@ -708,3 +709,17 @@ void UserProcess::addCpuCycles(uint64 cycles)
+ {
+   cpu_cycles_ += cycles;
+ }
++
++// A1-25
++size_t UserProcess::threadCpuTime(size_t tid)
++{
++  ScopeLock lock(thread_lock_);
++  UserThreadData* data = findThreadDataByTid(tid);
++  if (!data || !data->thread_)
++    return (size_t) -1;                       // unknown, or already ended
++  if (data->thread_ == currentThread)
++    return Clock::instance()->getThreadTime(currentThread);   // + the part of the running time slice
++  // another thread is not running right now: only its counted cycles - getThreadTime() would
++  // add the time since the CURRENT thread's slice began, which is not this thread's time
++  return Clock::instance()->cyclesToNanoseconds(data->thread_->getCpuCycles());
++}
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..c7324acb 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,11 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++// A1-25: CPU time of a thread of this process in ns (-1: no such running thread)
++extern ssize_t thread_cputime(size_t thread);
++// A1-25: time spent in the timer interrupt since boot, in ns
++extern size_t timer_irq_time(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index 6a4862dc..e49d4f9d 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -24,3 +24,14 @@ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+ }
++
++// A1-25
++ssize_t thread_cputime(size_t thread)
++{
++  return __syscall(sc_thread_cputime, thread, 0x00, 0x00, 0x00, 0x00);
++}
++
++size_t timer_irq_time(void)
++{
++  return __syscall(sc_timer_irq_time, 0x00, 0x00, 0x00, 0x00, 0x00);
++}

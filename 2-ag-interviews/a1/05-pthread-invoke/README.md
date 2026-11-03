@@ -84,7 +84,7 @@ Return Value: 0, or -1 if the thread does not exist / is the caller / function i
 5. Keep `rsp` 16-byte aligned at the call (`rsp % 16 == 8` at the function's first instruction).
 6. Optional: then do the directed yield of this card so it runs right away.
 
-Practise the mechanism with [A0-07 upcall](../../a0/07-upcall/) (planned). Trap: a thread that is
+**The full task with a test: [A1-24](../24-pthread-invoke-function/).** Practise the mechanism first with [A0-07 upcall](../../a0/07-upcall/). Trap: a thread that is
 *inside a syscall* has `user_registers_` that are restored only when it returns – changing them is
 fine, it runs `function` after the syscall returns.
 </details>

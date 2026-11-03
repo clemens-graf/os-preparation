@@ -158,6 +158,17 @@ work_branch() { if [[ "$1" == ex* ]]; then echo "${BP}example/$2"; else echo "${
 base_ref() {
   local base="$1"
   [ "$base" = main ] && { echo "$ROOT"; return; }
+  if [[ "$base" == team:* ]]; then          # a newer commit of your team's code (e.g. with its clock)
+    local commit="${base#team:}"
+    if ! branch_exists "${BP}team/${commit:0:8}"; then
+      git -C "$TEAM_REPO" cat-file -e "$commit^{commit}" 2>/dev/null ||
+        die "your team repo does not have commit $commit yet - update it first: git -C $TEAM_REPO fetch"
+      g fetch -q "$TEAM_REPO" "$commit"
+      g branch "${BP}team/${commit:0:8}" "$commit"
+      info "imported your team's commit ${commit:0:8} as ${BP}team/${commit:0:8} (read only from $TEAM_REPO)" >&2
+    fi
+    echo "${BP}team/${commit:0:8}"; return
+  fi
   local saved_id="$T_ID" saved_dir="$T_DIR" saved_base="$T_BASE" saved_opts="$T_OPTS" saved_cmds="$T_CMDS" saved_name="$T_NAME"
   lookup "$base"
   if ! branch_exists "${BP}base/$T_ID"; then
@@ -258,8 +269,10 @@ cmd_reset() {
 
 make_solution() {
   local patch; patch="$(patch_of "$T_ID" "$T_DIR")"
-  local c; c="$(commit_on "$ROOT" "solution of $T_NAME" "$patch" $(tests_of "$T_DIR"))"
-  if [ "$T_BASE" != main ]; then   # also the base task's tests
+  local start="$ROOT"
+  [[ "$T_BASE" == team:* ]] && start="$(base_ref "$T_BASE")"   # the patch is against that team commit
+  local c; c="$(commit_on "$start" "solution of $T_NAME" "$patch" $(tests_of "$T_DIR"))"
+  if [ "$T_BASE" != main ] && [[ "$T_BASE" != team:* ]]; then   # also the base task's tests
     local saved_dir="$T_DIR" base_dir
     base_dir="$(awk -F'|' -v b="$T_BASE" '$1 == b { print $2 }' "$MANIFEST")"
     c="$(commit_on "$c" "tests of the base $T_BASE" "" $(tests_of "$base_dir"))"
