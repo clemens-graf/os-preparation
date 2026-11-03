@@ -164,6 +164,41 @@ In your team's \file{pthread.h}: \code{typedef unsigned int pthread\_spinlock\_t
 \code{typedef unsigned int pthread\_mutex\_t;} -- both are just one number, so the mutex functions
 can simply call the spinlock functions.
 
+\section*{What each function does, in simple terms}
+
+The lock is \textbf{one number}: \code{0} = free, \code{1} = taken.
+
+{\small
+\begin{tabular}{@{}L{5.2cm} L{10.2cm}@{}}
+\toprule
+\textbf{Function} & \textbf{What it does}\\\midrule
+\code{pthread\_spin\_init(lock, \ldots)} & \textbf{Prepare} the lock: set it to \code{0} (free).\\
+\code{pthread\_spin\_destroy(lock)} & \textbf{Throw} the lock away. There is nothing to clean up, so it just says ``OK'' (\code{0}).\\
+\code{pthread\_spin\_lock(lock)} & \textbf{Take} the lock. If someone else has it, \textbf{wait} (let the others run) and try again until you get it.\\
+\code{pthread\_spin\_trylock(lock)} & \textbf{Try once} to take the lock. Free $\to$ take it (\code{0}). Taken $\to$ \textbf{do not wait}, give up right away (\code{-1}).\\
+\code{pthread\_spin\_unlock(lock)} & \textbf{Give} the lock back: set it to \code{0}, so the next one can take it.\\
+\code{pthread\_mutex\_init} & the same as \code{spin\_init} (it just calls it)\\
+\code{pthread\_mutex\_destroy} & the same as \code{spin\_destroy}\\
+\code{pthread\_mutex\_lock} & the same as \code{spin\_lock}\\
+\code{pthread\_mutex\_unlock} & the same as \code{spin\_unlock}\\
+\bottomrule
+\end{tabular}}
+
+\smallskip
+\textbf{Every function also checks:} if you pass \code{NULL} (no lock at all), return \code{-1} instead of crashing.
+
+\subsection*{How the test uses them}
+
+\begin{lstlisting}[language={},basicstyle=\ttfamily\small]
+init     ->  lock = 0
+lock     ->  lock = 1   (I'm in)
+   counter + 1          (only I can do this now)
+unlock   ->  lock = 0   (the next one can go in)
+\end{lstlisting}
+
+All 4 threads do this 20\,000 times. Because only one is ever ``in'', no ``+1'' is lost, and the counter
+ends at exactly 80\,000.
+
 \section*{The order: 8 steps, two files}
 
 {\small
