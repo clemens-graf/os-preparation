@@ -26,6 +26,14 @@ each lock). Done when 7 checks pass.
 
 ## Level 2 – hints
 
+<details><summary>0 – before writing any code: what exists already?</summary>
+
+`grep -rn "pthread_spin" userspace/libc/src userspace/libc/include`. The stubs are in `pthread.c`,
+but `pthread.h` only has the `typedef` – the five functions are **not declared**, so no program can
+call them yet. Add the declarations (copy the signatures from the stubs). The prompt never says
+this – checking definition **and** declaration is part of every libc task (TRIAGE.md, type U).
+</details>
+
 <details><summary>1 – why not just "if (*lock == 0) *lock = 1;"?</summary>
 
 Between reading `0` and writing `1` the timer can switch to another thread, which also reads

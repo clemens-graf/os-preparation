@@ -67,7 +67,12 @@ int atexit(void (*function)(void))
   return 0;
 }
 ```
-- The header usually already declares it – check `userspace/libc/include/*.h`.
+- **Every libc task has two parts, even if the prompt names only the functions:** the
+  *definition* (the stub in `userspace/libc/src/*.c`) and the *declaration* in the header
+  (`userspace/libc/include/*.h`). Check both in the first minute:
+  `grep -rn "<name>" userspace/libc/src userspace/libc/include`. Stub there but no declaration
+  (A1-15: `pthread_spin_*`) → add the declaration, same signature as the stub. A test program can
+  only call what a header declares – otherwise `implicit declaration of function …`.
 - State is `static` in the `.c` file: every process has its own copy (own address space).
 - Test: a program in `userspace/tests/` that calls it and prints `[PASS]`/`[FAIL]`.
 - Threads: is it called by several threads at once? Counters for registration (atexit) are
