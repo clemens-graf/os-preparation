@@ -8,7 +8,7 @@
 #   task.sh reset a0-01                start the task over - your attempt is kept in a backup/... branch
 #   task.sh reset a1                   the same for every started task of A1 (a0, a1, a2, ex, all)
 #   task.sh solution a0-01             branch solution/a0-01-... with the reference solution, switched to
-#   task.sh short a1-12                branch short/a1-12-... with the SHORTEST working solution (A1 list tasks)
+#   task.sh short a1-12                branch short/a1-12-... with the SHORTEST working solution (A0, A1)
 #   task.sh diff a0-01                 your attempt vs. the solution (kernel + libc, without tests)
 #   task.sh example ex02               branch example/ex02-... with the example applied
 #   task.sh run [qemu|kvm]             build the current branch and boot SWEB in a window (like sweb-practise)

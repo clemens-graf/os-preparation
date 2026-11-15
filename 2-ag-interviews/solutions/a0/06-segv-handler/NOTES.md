@@ -55,3 +55,13 @@ threads faulting together could both get the one-shot handler.
 - Handler gets the fault type too: pass the error flags in `rdx`.
 - Resume after the handler (like a real signal handler): the kernel would push the old
   `rip`/`rsp` and need a `sigreturn` syscall – the handler cannot just return there.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **75 lines** instead of 87, passes the same test. Get it with
+`task short a0-06` (branch `short/…`, then `task test`).
+
+What is shorter: `deliverSegv` with fewer separate checks.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

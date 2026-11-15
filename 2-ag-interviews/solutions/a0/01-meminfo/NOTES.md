@@ -77,3 +77,13 @@ only one thread there) – your team uses `thread_lock_` since a process can hav
   the process is killed (exit 666). Above `USER_BREAK`: we return -1 before touching it.
 - *Why only 2 pages at the start?* Lazy loading: the `UserThread` constructor maps only the stack page;
   every code/data page is loaded on its first page fault.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **60 lines** instead of 79, passes the same test. Get it with
+`task short a0-01` (branch `short/…`, then `task test`).
+
+What is shorter: the syscall inline in its `case`; the result written as three `size_t` into the program's struct.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

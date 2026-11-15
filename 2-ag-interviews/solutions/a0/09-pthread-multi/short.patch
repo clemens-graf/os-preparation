@@ -1,0 +1,101 @@
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..c767df78 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,7 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_pthread_multi 1552
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..a2707820 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,8 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "kstring.h"
++#include "ArchThreads.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -89,6 +91,41 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_pthread_multi:
++    {
++      size_t count = arg4;
++      size_t functions[16];
++      size_t arguments[16];
++      if (count == 0 || count > 16)
++      {
++        return_value = -1;
++        break;
++      }
++      memcpy(functions, (void*) arg2, count * sizeof(size_t));   // copy now: the caller may reuse its arrays
++      memcpy(arguments, (void*) arg3, count * sizeof(size_t));
++      bool ok = true;
++      for (size_t i = 0; i < count; ++i)
++        if (functions[i] == 0 || functions[i] >= USER_BREAK)
++          ok = false;
++      UserThread* thread = ok ? process->createThread((void*) arg5, false, 0, 0) : nullptr;
++      if (!thread)
++      {
++        return_value = -1;
++        break;
++      }
++      // put both arrays on the new thread's stack (same address space: we can write it directly)
++      ArchThreadRegisters* regs = thread->user_registers_;
++      size_t* stack = (size_t*) (regs->rsp - 32 * sizeof(size_t));
++      memcpy(stack, functions, count * sizeof(size_t));
++      memcpy(stack + 16, arguments, count * sizeof(size_t));
++      regs->rdi = (size_t) stack;                // pthreadMultiStart(functions, arguments, count)
++      regs->rsi = (size_t) (stack + 16);
++      regs->rdx = count;
++      regs->rsp = (size_t) stack - sizeof(size_t);   // as if it had been called
++      *(size_t*) arg1 = thread->getTID();
++      Scheduler::instance()->addNewThread(thread);
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index c40fcbe2..21b85fcb 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -62,6 +62,8 @@ extern int pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex);
+ 
+ extern int pthread_setcancelstate(int state, int *oldstate);
+ 
++extern int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count);
++
+ extern int pthread_setcanceltype(int type, int *oldtype);
+ 
+ #ifdef __cplusplus
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 8b8448e4..70d33887 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -231,3 +231,16 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
+   return -1;
+ }
++
++static void pthreadMultiStart(void* (**functions)(void*), void** arguments, size_t count)
++{
++  for (size_t i = 0; i < count; ++i)
++    functions[i](arguments[i]);
++  pthread_exit(0);
++}
++
++int pthread_multi(pthread_t* thread, void* (**functions)(void*), void** arguments, size_t count)
++{
++  return __syscall(sc_pthread_multi, (size_t) thread, (size_t) functions, (size_t) arguments, count,
++                   (size_t) pthreadMultiStart);
++}

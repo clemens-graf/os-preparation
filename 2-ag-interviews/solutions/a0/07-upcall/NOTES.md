@@ -65,3 +65,13 @@ lower addresses
 - *`-fomit-frame-pointer`:* then `__syscall` would restore `rsp` by `add $n, %rsp` relative
   to the *moved* `rsp` → garbage. A robust kernel would push a trampoline that restores
   the exact old `rsp` (like Linux's `sigreturn`).
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **25 lines** instead of 43, passes the same test. Get it with
+`task short a0-07` (branch `short/…`, then `task test`).
+
+What is shorter: inline in the `case`; the return address is written straight to the user stack (no `checkAddressValid`).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

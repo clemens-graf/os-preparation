@@ -1,0 +1,194 @@
+diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
+index 19431844..87a5ac4a 100644
+--- a/arch/x86/64/include/ArchMemory.h
++++ b/arch/x86/64/include/ArchMemory.h
+@@ -51,7 +51,7 @@ class ArchMemory
+      * @param virtual_page The virtual page which shall be unmapped
+      * @return Currently always returns true
+      */
+-    bool unmapPage(uint64 virtual_page);
++    bool unmapPage(uint64 virtual_page, bool free_physical_page = true);   // A0-12: false for aliases
+ 
+     /**
+      * Takes a physical page number (PPN) and returns a virtual address that can be used to access given physical page.
+@@ -85,6 +85,8 @@ class ArchMemory
+ 
+     const ArchMemoryMapping resolveMapping(uint64 vpage);
+ 
++    bool mapsPhysicalPage(size_t ppn);   // A0-12: is ppn mapped anywhere in the user half?
++
+     static uint64 get_PPN_Of_VPN_In_KernelMapping(uint64 virtual_page,
+                                                   uint64 *physical_page, uint64 *physical_pte_page=nullptr);
+ 
+diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
+index 6aff17ae..9abc81c9 100644
+--- a/arch/x86/64/source/ArchMemory.cpp
++++ b/arch/x86/64/source/ArchMemory.cpp
+@@ -80,13 +80,14 @@ bool ArchMemory::checkAndRemove(pointer map_ptr, uint64 index)
+   return true;
+ }
+ 
+-bool ArchMemory::unmapPage(uint64 virtual_page)
++bool ArchMemory::unmapPage(uint64 virtual_page, bool free_physical_page)
+ {
+   ArchMemoryMapping m = resolveMapping(virtual_page);
+ 
+   assert(m.page_ppn != 0 && m.page_size == PAGE_SIZE && m.pt[m.pti].present);
+   m.pt[m.pti].present = 0;
+-  PageManager::instance()->freePPN(m.page_ppn);
++  if (free_physical_page)
++    PageManager::instance()->freePPN(m.page_ppn);
+   ((uint64*)m.pt)[m.pti] = 0; // for easier debugging
+   bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
+   if (empty)
+@@ -360,3 +361,30 @@ void ArchMemory::flushTlb()
+ {
+   asm volatile ("movq %%cr3, %%rax; movq %%rax, %%cr3;" ::: "%rax", "memory");
+ }
++
++bool ArchMemory::mapsPhysicalPage(size_t ppn)
++{
++  PageMapLevel4Entry* pml4 = (PageMapLevel4Entry*) getIdentAddressOfPPN(page_map_level_4_);
++  for (size_t i4 = 0; i4 < PAGE_MAP_LEVEL_4_ENTRIES / 2; i4++)
++  {
++    if (!pml4[i4].present)
++      continue;
++    PageDirPointerTableEntry* pdpt = (PageDirPointerTableEntry*) getIdentAddressOfPPN(pml4[i4].page_ppn);
++    for (size_t i3 = 0; i3 < PAGE_DIR_POINTER_TABLE_ENTRIES; i3++)
++    {
++      if (!pdpt[i3].pd.present)
++        continue;
++      PageDirEntry* pd = (PageDirEntry*) getIdentAddressOfPPN(pdpt[i3].pd.page_ppn);
++      for (size_t i2 = 0; i2 < PAGE_DIR_ENTRIES; i2++)
++      {
++        if (!pd[i2].pt.present)
++          continue;
++        PageTableEntry* pt = (PageTableEntry*) getIdentAddressOfPPN(pd[i2].pt.page_ppn);
++        for (size_t i1 = 0; i1 < PAGE_TABLE_ENTRIES; i1++)
++          if (pt[i1].present && pt[i1].page_ppn == ppn)
++            return true;
++      }
++    }
++  }
++  return false;
++}
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index bc32c487..e15965a1 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -171,6 +171,8 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    ustl::list<size_t> alias_vpns_;   // A0-12: unmapped WITHOUT freeing when the process ends
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..7b64c34f 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_get_physical_address 1560
++#define sc_map_address 1561
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..ded13205 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,7 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "ScopeLock.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -89,6 +90,26 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_get_physical_address:
++    {
++      ScopeLock lock(process->getThreadLock());
++      ArchMemoryMapping m = process->getAddressSpace().resolveMapping(arg1 / PAGE_SIZE);
++      return_value = (arg1 < USER_BREAK && m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
++      break;
++    }
++    case sc_map_address:
++    {
++      ScopeLock lock(process->getThreadLock());
++      ArchMemory& memory = process->getAddressSpace();
++      // only below USER_BREAK, only a frame this process already has, only a free virtual page
++      if (arg1 >= USER_BREAK || !memory.mapsPhysicalPage(arg2) || !memory.mapPage(arg1 / PAGE_SIZE, arg2, 1))
++      {
++        return_value = -1;
++        break;
++      }
++      process->alias_vpns_.push_back(arg1 / PAGE_SIZE);
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index e32f2cda..95bc1135 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -31,6 +31,8 @@ UserProcess::~UserProcess()
+ 
+   delete working_dir_;
+   delete loader_;
++  for (size_t vpn : alias_vpns_)
++    arch_memory_->unmapPage(vpn, false);         // the frame also belongs to the original page
+   delete arch_memory_;
+ 
+   debug(USERPROCESS, "signaling ProcessRegistry the deletion for process with ppid: %zu, pid: %zu filename: %s, file descriptor: %d\n", ppid_, pid_, filename_.c_str(), fd_);
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..4e1f41c5 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++extern size_t get_physical_address(size_t address);
++extern size_t map_address(size_t address, size_t ppn);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..1f6048a0 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,14 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++size_t get_physical_address(size_t address)
++{
++  return __syscall(sc_get_physical_address, address, 0x00, 0x00, 0x00, 0x00);
++}
++
++size_t map_address(size_t address, size_t ppn)
++{
++  return __syscall(sc_map_address, address, ppn, 0x00, 0x00, 0x00);
++}

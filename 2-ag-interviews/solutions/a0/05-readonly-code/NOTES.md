@@ -58,3 +58,13 @@ entry with the right bit in one step. `phdrs_` is read under `program_binary_loc
 - *Non-executable stack/heap:* set `execution_disabled` (NX) in the PTE – SWEB enables
   `EFER.NXE` at boot (`boot.32.C`), so the bit works. Instruction fetch from such a page
   faults with the *instruction fetch* flag set. That is an A2 elective (W⊕X).
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **7 lines** instead of 13, passes the same test. Get it with
+`task short a0-05` (branch `short/…`, then `task test`).
+
+What is shorter: one check per segment instead of two.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

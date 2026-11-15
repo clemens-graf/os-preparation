@@ -1,0 +1,83 @@
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..b50a7343 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,7 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_upcall 1540
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..07033b9f 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,7 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "ArchThreads.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -89,6 +90,22 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_upcall:
++    {
++      if (arg1 == 0 || arg1 >= USER_BREAK)
++      {
++        return_value = -1;
++        break;
++      }
++      ArchThreadRegisters* regs = currentThread->user_registers_;
++      size_t rsp = regs->rsp - 128;              // below the red zone
++      rsp = rsp - rsp % 16 - 8;                  // aligned like right after a call
++      *(size_t*) rsp = regs->rip;                // the return address: back into upcall()
++      regs->rsp = rsp;
++      regs->rip = arg1;                          // continue in function ...
++      regs->rdi = arg2;                          // ... with its argument
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..f944e072 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,8 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++extern size_t upcall(size_t (*function)(size_t), size_t argument);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..9f81f1ad 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,9 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++size_t upcall(size_t (*function)(size_t), size_t argument)
++{
++  return __syscall(sc_upcall, (size_t) function, argument, 0x00, 0x00, 0x00);
++}

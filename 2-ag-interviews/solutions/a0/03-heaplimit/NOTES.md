@@ -75,3 +75,13 @@ size.
   → heap branch → `mapHeapPage` → return → `arch_contextSwitch` → the write is repeated.
 - *Grow automatically:* map on demand whenever the address is in the region, no limit
   check – that is how ex03 grows the stack.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **46 lines** instead of 82, passes the same test. Get it with
+`task short a0-03` (branch `short/…`, then `task test`).
+
+What is shorter: the syscall inline; `mapHeapPage` takes the frame inside the lock; the shrink loop in one `for`.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

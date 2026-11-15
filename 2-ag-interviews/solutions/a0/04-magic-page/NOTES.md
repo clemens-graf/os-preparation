@@ -57,3 +57,13 @@ non-present entries are never cached.
 - Not freeing the physical page when another thread was faster (`mapPage` false) – a leak
   the leak check at shutdown reports.
 - `m.pt` is only valid if the page table exists – after a successful `mapPage` it does.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **16 lines** instead of 34, passes the same test. Get it with
+`task short a0-04` (branch `short/…`, then `task test`).
+
+What is shorter: everything in the page fault handler: frame, text with `strncpy`/`strncat`, map, clear `writeable` – no extra method, no lock (two threads touching the page at the same time is not handled).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

@@ -80,3 +80,13 @@ pages) – we never take them the other way round.
   reloaded or `invlpg`. A context switch to another process also flushes it (cr3 write),
   but a switch to another thread of the **same** process does not.
 - *Leftover pages at exit?* `ArchMemory::~ArchMemory` frees every present page of the lower half.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **45 lines** instead of 67, passes the same test. Get it with
+`task short a0-02` (branch `short/…`, then `task test`).
+
+What is shorter: both syscalls inline; one combined check in `freepage`; the frame is only taken when a free slot was found.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

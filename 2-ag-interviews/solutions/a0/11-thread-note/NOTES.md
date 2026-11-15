@@ -106,3 +106,13 @@ nothing that can sleep or allocate under a SpinLock.
 - **Kernel copy:** another thread can change the user string between check and use (TOCTOU).
 - **Lock:** see "Locking".
 - **Debug flag:** one line in `debug.h`; remove `| OUTPUT_ENABLED` to silence it.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **58 lines** instead of 72, passes the same test. Get it with
+`task short a0-11` (branch `short/…`, then `task test`).
+
+What is shorter: both syscalls inline; no debug output.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

@@ -200,15 +200,15 @@ task start a0-01                        # back to your own attempt
 `NOTES.md` explains the solution step by step: files, locking, pitfalls, answers to the card's
 questions. The patch itself: `solutions/a0/01-meminfo/solution.patch`.
 
-### `task short <id>` – the shortest working solution (A1 list tasks)
+### `task short <id>` – the shortest working solution (A0 and A1)
 
 ```bash
 task short a1-12                        # branch short/a1-12-sbrk: the SHORTEST version that passes
 task test                               # the same test as the full solution
 task start a1-12                        # back to your own attempt
 ```
-Every A1 task from the list of earlier years has a `short.patch` next to `solution.patch`: only the
-core, tested. Its `NOTES.md` ends with "Shortest working version" – what was left out and why.
+Every A0 task and every A1 task from the list of earlier years has a `short.patch` next to
+`solution.patch`: only the core, tested. Its `NOTES.md` ends with "Shortest working version" – what was left out and why.
 
 ### `task diff <id>` – your attempt vs. the solution
 

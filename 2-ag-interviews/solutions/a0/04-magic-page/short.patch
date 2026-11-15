@@ -1,0 +1,34 @@
+diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
+index 2dfb14e4..eb231c6d 100644
+--- a/common/source/mm/PageFaultHandler.cpp
++++ b/common/source/mm/PageFaultHandler.cpp
+@@ -8,6 +8,9 @@
+ #include "Syscall.h"
+ #include "ArchThreads.h"
+ #include "UserThread.h"
++#include "PageManager.h"
++#include "ArchMemory.h"
++#include "kstring.h"
+ 
+ extern "C" void arch_contextSwitch();
+ 
+@@ -72,6 +75,19 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+ 
+   if (checkPageFaultIsValid(address, user, present, switch_to_us))
+   {
++    if (address / PAGE_SIZE == 0xC0FFEE000 / PAGE_SIZE)          // A0-04: the magic page
++    {
++      size_t ppn = PageManager::instance()->allocPPN();          // a zeroed frame
++      char* page = (char*) ArchMemory::getIdentAddressOfPPN(ppn); // the kernel's address of it
++      strncpy(page, "coffee for ", PAGE_SIZE);
++      strncat(page, currentThread->getName(), PAGE_SIZE - strlen(page) - 1);
++      ArchMemory& memory = currentThread->getProcess()->getAddressSpace();
++      bool mapped = memory.mapPage(address / PAGE_SIZE, ppn, 1);
++      assert(mapped);
++      ArchMemoryMapping m = memory.resolveMapping(address / PAGE_SIZE);
++      m.pt[m.pti].writeable = 0;                                 // read-only: every write faults again -> killed
++      return;
++    }
+     // UserProcess* current_process = currentThread->getProcess();
+     // assert(current_process && "Thread has no process");
+     // current_process->getLoader().loadPage(address, current_process->getAddressSpace());

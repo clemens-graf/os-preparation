@@ -68,3 +68,13 @@ it. That changes the moment `addNewThread` runs, so everything is set up before.
   of the arrays – works with a real `pthread_create`, but needs memory management in user
   space (no `malloc` in SWEB's libc!). The kernel version owns the copy on the thread's stack.
 - *A function calls `pthread_exit`:* the thread ends, the remaining functions never run.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **50 lines** instead of 91, passes the same test. Get it with
+`task short a0-09` (branch `short/…`, then `task test`).
+
+What is shorter: no `pushToStack` method: the arrays are written straight onto the new thread's stack (same address space).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

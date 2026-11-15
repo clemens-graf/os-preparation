@@ -1,0 +1,76 @@
+diff --git a/userspace/libc/include/string.h b/userspace/libc/include/string.h
+index 839d5d3a..c687cb6b 100644
+--- a/userspace/libc/include/string.h
++++ b/userspace/libc/include/string.h
+@@ -91,6 +91,12 @@ extern int strcmp (const char * l, const char * r);
+  */
+ extern char *strstr(const char *haystack, const char *needle);
+ 
++extern char *strcpy(char *destination, const char *source);
++extern char *strncpy(char *destination, const char *source, size_t n);
++extern char *strcat(char *destination, const char *source);
++extern int strncmp(const char *first, const char *second, size_t n);
++extern char *strchr(const char *str, int character);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/string.c b/userspace/libc/src/string.c
+index b69bbbe7..b464a2e7 100644
+--- a/userspace/libc/src/string.c
++++ b/userspace/libc/src/string.c
+@@ -147,4 +147,52 @@ char *strstr(const char *haystack, const char *needle)
+   }
+ 
+   return NULL;
+-}
+\ No newline at end of file
++}
++
++char *strcpy(char *destination, const char *source)
++{
++  size_t i = 0;
++  for (; source[i] != '\0'; i++)
++    destination[i] = source[i];
++  destination[i] = '\0';
++  return destination;
++}
++
++char *strncpy(char *destination, const char *source, size_t n)
++{
++  size_t i = 0;
++  for (; i < n && source[i] != '\0'; i++)
++    destination[i] = source[i];
++  for (; i < n; i++)                         // the rest of the n bytes: zeros (no NUL if source was long)
++    destination[i] = '\0';
++  return destination;
++}
++
++char *strcat(char *destination, const char *source)
++{
++  strcpy(destination + strlen(destination), source);   // copy to where the old NUL is
++  return destination;
++}
++
++int strncmp(const char *first, const char *second, size_t n)
++{
++  for (size_t i = 0; i < n; i++)
++  {
++    if (first[i] != second[i])
++      return (unsigned char) first[i] - (unsigned char) second[i];
++    if (first[i] == '\0')
++      return 0;                              // both ended here
++  }
++  return 0;
++}
++
++char *strchr(const char *str, int character)
++{
++  for (size_t i = 0; ; i++)
++  {
++    if (str[i] == (char) character)
++      return (char *) &str[i];               // also finds the NUL if character == 0
++    if (str[i] == '\0')
++      return 0;
++  }
++}

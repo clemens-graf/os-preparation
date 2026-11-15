@@ -120,3 +120,13 @@ kernel heap lock (`push_back`). Never the other way round.
 - **`freepage`:** it frees a frame that may still be mapped as an alias somewhere. You would
   need a reference count per frame (or: forbid unmapping a frame that has aliases), as A1-10
   does for its shared pages.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **69 lines** instead of 111, passes the same test. Get it with
+`task short a0-12` (branch `short/…`, then `task test`).
+
+What is shorter: both syscalls inline; the alias list is a public member.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").
