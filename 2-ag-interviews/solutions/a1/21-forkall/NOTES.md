@@ -82,3 +82,13 @@ belong into the copy constructor.
   threads first (e.g. a "please stop" flag checked at every syscall and timer tick, wait until all
   are stopped) – much more code.
 - `loadExecutable` opens the binary again for the child – as your team's `fork` does.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **56 lines** instead of 91, passes the same test. Get it with
+`task short a1-21` (branch `short/…`, then `task test`).
+
+What is shorter: no `in_syscall_` flag: `switch_to_userspace_ == 0` already tells that a thread is inside the kernel; no `Syscall::forkall` wrapper.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

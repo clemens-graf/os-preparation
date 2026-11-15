@@ -41,3 +41,13 @@ Two locks, never nested: `SharedPages::lock_` (table + counts) and `UserProcess:
 
 Names instead of keys (`shm_open`), a size of n pages, shared between threads of different
 processes with a semaphore in the page.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **82 lines** instead of 158, passes the same test. Get it with
+`task short a1-10` (branch `short/…`, then `task test`).
+
+What is shorter: no `SharedPages` class: two global arrays + one lock pointer; both locks taken in a fixed order instead of never together.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

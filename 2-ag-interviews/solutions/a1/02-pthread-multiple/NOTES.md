@@ -38,3 +38,13 @@ none → return -1 (waiting would never end).
   the first threads run although creation fails later.
 - Test lesson: busy loops finish within one 55 ms time slice in QEMU; the test uses yields to get
   a deterministic finishing order.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **103 lines** instead of 149, passes the same test. Get it with
+`task short a1-02` (branch `short/…`, then `task test`).
+
+What is shorter: no extra `Syscall::` functions; both functions in `UserProcess`; rollback written inline; only the count is checked, not every user pointer.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

@@ -1,0 +1,70 @@
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..c543ef86 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,7 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_sum15 1710
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..1e4c58b1 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -89,6 +89,14 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_sum15:
++    {
++      size_t* rest = (size_t*) arg5;            // arguments 5..15: an array in the caller's memory
++      return_value = 1 * arg1 + 2 * arg2 + 3 * arg3 + 4 * arg4;
++      for (size_t i = 0; i < 11; ++i)
++        return_value += (i + 5) * rest[i];
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..ea134e3e 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++extern size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6, size_t a7, size_t a8,
++                    size_t a9, size_t a10, size_t a11, size_t a12, size_t a13, size_t a14, size_t a15);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..d78b890b 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,11 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++size_t sum15(size_t a1, size_t a2, size_t a3, size_t a4, size_t a5, size_t a6, size_t a7, size_t a8,
++             size_t a9, size_t a10, size_t a11, size_t a12, size_t a13, size_t a14, size_t a15)
++{
++  size_t rest[11] = {a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15};   // 4 registers + 1 pointer
++  return __syscall(sc_sum15, a1, a2, a3, a4, (size_t) rest);
++}

@@ -1,0 +1,140 @@
+diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
+index 19431844..b0d1fb62 100644
+--- a/arch/x86/64/include/ArchMemory.h
++++ b/arch/x86/64/include/ArchMemory.h
+@@ -85,6 +85,8 @@ class ArchMemory
+ 
+     const ArchMemoryMapping resolveMapping(uint64 vpage);
+ 
++    size_t findVirtualPage(size_t ppn);   // A1-09: lowest user vpn that maps ppn, 0 if none
++
+     static uint64 get_PPN_Of_VPN_In_KernelMapping(uint64 virtual_page,
+                                                   uint64 *physical_page, uint64 *physical_pte_page=nullptr);
+ 
+diff --git a/arch/x86/64/source/ArchMemory.cpp b/arch/x86/64/source/ArchMemory.cpp
+index 6aff17ae..9046c129 100644
+--- a/arch/x86/64/source/ArchMemory.cpp
++++ b/arch/x86/64/source/ArchMemory.cpp
+@@ -360,3 +360,30 @@ void ArchMemory::flushTlb()
+ {
+   asm volatile ("movq %%cr3, %%rax; movq %%rax, %%cr3;" ::: "%rax", "memory");
+ }
++
++size_t ArchMemory::findVirtualPage(size_t ppn)
++{
++  PageMapLevel4Entry* pml4 = (PageMapLevel4Entry*) getIdentAddressOfPPN(page_map_level_4_);
++  for (size_t i4 = 0; i4 < PAGE_MAP_LEVEL_4_ENTRIES / 2; i4++)         // user half only
++  {
++    if (!pml4[i4].present)
++      continue;
++    PageDirPointerTableEntry* pdpt = (PageDirPointerTableEntry*) getIdentAddressOfPPN(pml4[i4].page_ppn);
++    for (size_t i3 = 0; i3 < PAGE_DIR_POINTER_TABLE_ENTRIES; i3++)
++    {
++      if (!pdpt[i3].pd.present)
++        continue;
++      PageDirEntry* pd = (PageDirEntry*) getIdentAddressOfPPN(pdpt[i3].pd.page_ppn);
++      for (size_t i2 = 0; i2 < PAGE_DIR_ENTRIES; i2++)
++      {
++        if (!pd[i2].pt.present)
++          continue;
++        PageTableEntry* pt = (PageTableEntry*) getIdentAddressOfPPN(pd[i2].pt.page_ppn);
++        for (size_t i1 = 0; i1 < PAGE_TABLE_ENTRIES; i1++)
++          if (pt[i1].present && pt[i1].page_ppn == ppn)
++            return ((i4 * 512 + i3) * 512 + i2) * 512 + i1;   // the four indices = the vpn
++      }
++    }
++  }
++  return 0;
++}
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..afdc4bdb 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_vtop 1670
++#define sc_ptov 1671
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..a2ee9369 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,7 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "ScopeLock.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -89,6 +90,24 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_vtop:
++    {
++      if (arg1 >= USER_BREAK)
++        return_value = -1;
++      else
++      {
++        ScopeLock lock(currentThread->getProcess()->getThreadLock());
++        ArchMemoryMapping m = currentThread->getProcess()->getAddressSpace().resolveMapping(arg1 / PAGE_SIZE);
++        return_value = m.page_size == PAGE_SIZE ? m.page_ppn : (size_t) -1;
++      }
++      break;
++    }
++    case sc_ptov:
++    {
++      ScopeLock lock(currentThread->getProcess()->getThreadLock());
++      return_value = currentThread->getProcess()->getAddressSpace().findVirtualPage(arg1) * PAGE_SIZE;
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..90230168 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++extern ssize_t vtop(void* address);
++extern void* ptov(size_t ppn);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index befb9485..0c5aec21 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -23,4 +23,14 @@ int getThreadCount(void)
+ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+-}
+\ No newline at end of file
++}
++
++ssize_t vtop(void* address)
++{
++  return __syscall(sc_vtop, (size_t) address, 0x00, 0x00, 0x00, 0x00);
++}
++
++void* ptov(size_t ppn)
++{
++  return (void*) __syscall(sc_ptov, ppn, 0x00, 0x00, 0x00, 0x00);
++}

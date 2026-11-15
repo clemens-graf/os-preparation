@@ -8,6 +8,7 @@
 #   task.sh reset a0-01                start the task over - your attempt is kept in a backup/... branch
 #   task.sh reset a1                   the same for every started task of A1 (a0, a1, a2, ex, all)
 #   task.sh solution a0-01             branch solution/a0-01-... with the reference solution, switched to
+#   task.sh short a1-12                branch short/a1-12-... with the SHORTEST working solution (A1 list tasks)
 #   task.sh diff a0-01                 your attempt vs. the solution (kernel + libc, without tests)
 #   task.sh example ex02               branch example/ex02-... with the example applied
 #   task.sh run [qemu|kvm]             build the current branch and boot SWEB in a window (like sweb-practise)
@@ -83,7 +84,7 @@ esac
 pin_now="$(awk 'NF && !/^#/ { print $1; exit }' "$TEAM_PIN" 2>/dev/null || true)"
 if { ! g show-ref --verify --quiet refs/heads/main || [ "$(g rev-parse main)" != "$pin_now" ]; }; then
   case "${1:-}" in
-    start|solution|diff|example|reset|list) cmd_team_setup ;;
+    start|solution|short|diff|example|reset|list) cmd_team_setup ;;
   esac
 fi
 
@@ -144,7 +145,7 @@ tests_of() { ls "$COURSE/$1"/*.c 2>/dev/null || true; }
 # Where the patches are: solutions/<dir>/solution.patch, examples/<dir>/example.patch
 # (an empty patch = a study task: your team's code already is the solution)
 patch_dir() { if [[ "$1" == ex* ]]; then echo "$COURSE/$2"; else echo "$COURSE/solutions/$2"; fi; }
-patch_name() { if [[ "$1" == ex* ]]; then echo example.patch; else echo solution.patch; fi; }
+patch_name() { if [[ "$1" == ex* ]]; then echo example.patch; elif [ "${SOL:-solution}" = short ]; then echo short.patch; else echo solution.patch; fi; }
 
 patch_of() {   # patch_of ID DIR
   local f; f="$(patch_dir "$1" "$2")/$(patch_name "$1")"
@@ -278,17 +279,17 @@ make_solution() {
     c="$(commit_on "$c" "tests of the base $T_BASE" "" $(tests_of "$base_dir"))"
     T_DIR="$saved_dir"
   fi
-  g branch -f "${BP}solution/$T_NAME" "$c" >/dev/null
+  g branch -f "${BP}${SOL:-solution}/$T_NAME" "$c" >/dev/null
 }
 
 cmd_solution() {
   lookup "$1"
   [[ "$T_ID" == ex* ]] && die "examples are complete already: task.sh example $T_ID"
-  [ "$(current_branch)" = "${BP}solution/$T_NAME" ] || require_clean
-  [ "$(current_branch)" = "${BP}solution/$T_NAME" ] && g switch -q "$ROOT"
+  [ "$(current_branch)" = "${BP}${SOL:-solution}/$T_NAME" ] || require_clean
+  [ "$(current_branch)" = "${BP}${SOL:-solution}/$T_NAME" ] && g switch -q "$ROOT"
   make_solution
-  g switch -q "${BP}solution/$T_NAME"
-  info "on branch ${BP}solution/$T_NAME - the reference solution, ready to build: task.sh test / task.sh run"
+  g switch -q "${BP}${SOL:-solution}/$T_NAME"
+  info "on branch ${BP}solution/$T_NAME - the reference solution ($(patch_name "$T_ID")), ready to build: task.sh test / task.sh run"
   info "notes: $COURSE/solutions/$T_DIR/NOTES.md"
   info "back to your attempt: task.sh start $T_ID"
 }
@@ -318,7 +319,7 @@ cmd_example() {
 id_of_current_branch() {
   local b; b="$(current_branch)"
   case "$b" in
-    task/*|solution/*|example/*) local rest="${b#*/}"; echo "${rest%%-*}-$(echo "$rest" | cut -d- -f2)" | sed 's/^\(ex[0-9]*\)-.*/\1/' ;;
+    task/*|solution/*|short/*|example/*) local rest="${b#*/}"; echo "${rest%%-*}-$(echo "$rest" | cut -d- -f2)" | sed 's/^\(ex[0-9]*\)-.*/\1/' ;;
     *) echo "" ;;
   esac
 }
@@ -392,6 +393,7 @@ case "${1:-}" in
   start) [ $# -ge 2 ] || die "task.sh start <id>"; cmd_start "$2" ;;
   reset) [ $# -ge 2 ] || die "task.sh reset <id>|a0|a1|a2|ex|all"; cmd_reset "$2" ;;
   solution) [ $# -ge 2 ] || die "task.sh solution <id>"; cmd_solution "$2" ;;
+  short) [ $# -ge 2 ] || die "task.sh short <id>"; SOL=short; cmd_solution "$2" ;;
   diff) [ $# -ge 2 ] || die "task.sh diff <id>"; cmd_diff "$2" ;;
   example) [ $# -ge 2 ] || die "task.sh example <exNN>"; cmd_example "$2" ;;
   test) shift; cmd_test "${1:-}" ;;

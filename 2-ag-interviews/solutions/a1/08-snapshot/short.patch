@@ -1,0 +1,111 @@
+diff --git a/common/include/kernel/UserThread.h b/common/include/kernel/UserThread.h
+index d3bb979d..aa8dc986 100644
+--- a/common/include/kernel/UserThread.h
++++ b/common/include/kernel/UserThread.h
+@@ -7,6 +7,12 @@ class UserProcess;
+ class UserThread : public Thread
+ {
+ public:
++  // A1-08: the snapshot - registers rip ... r15 (the first 19 words of ArchThreadRegisters) + used stack
++  size_t snap_regs_[19];
++  char snap_stack_[4 * 4096];
++  size_t snap_stack_size_ = 0;
++  bool has_snapshot_ = false;
++
+   UserThread() = delete;
+ 
+   UserThread(UserProcess* process, ustl::string name, uint32 terminal_number,
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..63ef6ae0 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_snapshot 1660
++#define sc_revive 1661
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..93d640f1 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,8 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "kstring.h"
++#include "ArchThreads.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+ #define PTHREAD_JOIN_ERROR -1
+@@ -89,6 +91,35 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_snapshot:
++    {
++      UserThread* thread = (UserThread*) currentThread;
++      size_t rsp = thread->user_registers_->rsp;
++      size_t size = (size_t) thread->getUserStackTop() - rsp;      // the used part of the stack
++      if (size > sizeof(thread->snap_stack_))
++      {
++        return_value = -1;
++        break;
++      }
++      memcpy(thread->snap_regs_, thread->user_registers_, sizeof(thread->snap_regs_));
++      memcpy(thread->snap_stack_, (void*) rsp, size);
++      thread->snap_stack_size_ = size;
++      thread->has_snapshot_ = true;
++      break;                                                       // returns 0: "taken"
++    }
++    case sc_revive:
++    {
++      UserThread* thread = (UserThread*) currentThread;
++      if (!thread->has_snapshot_)
++      {
++        return_value = -1;
++        break;
++      }
++      memcpy(thread->user_registers_, thread->snap_regs_, sizeof(thread->snap_regs_));
++      memcpy((void*) thread->user_registers_->rsp, thread->snap_stack_, thread->snap_stack_size_);
++      return_value = 1;                                            // lands in rax: snapshot() returns 1
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index c40fcbe2..457c42f3 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -41,6 +41,9 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
+ 
+ extern int pthread_detach(pthread_t thread);
+ 
++extern int pthread_snapshot(void);
++extern int pthread_revive(void);
++
+ extern int pthread_mutex_init(pthread_mutex_t *mutex,
+                               const pthread_mutexattr_t *attr);
+ 
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 8b8448e4..68f4971d 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -231,3 +231,13 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
+   return -1;
+ }
++
++int pthread_snapshot(void)
++{
++  return __syscall(sc_snapshot, 0x00, 0x00, 0x00, 0x00, 0x00);
++}
++
++int pthread_revive(void)
++{
++  return __syscall(sc_revive, 0x00, 0x00, 0x00, 0x00, 0x00);
++}

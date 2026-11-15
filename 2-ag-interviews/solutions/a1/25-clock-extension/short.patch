@@ -1,0 +1,129 @@
+diff --git a/arch/x86/64/source/InterruptUtils.cpp b/arch/x86/64/source/InterruptUtils.cpp
+index 65609d67..95cc045d 100644
+--- a/arch/x86/64/source/InterruptUtils.cpp
++++ b/arch/x86/64/source/InterruptUtils.cpp
+@@ -29,6 +29,8 @@
+ #include "Syscall.h"
+ #include "paging-definitions.h"
+ #include "PageFaultHandler.h"
++#include "../../../../common/include/misc/Clock.h"
++#include "../../../../common/include/misc/Cpuid.h"
+ 
+ #include "8259.h"
+ 
+@@ -164,12 +166,15 @@ extern Thread *currentThread;
+ extern "C" void arch_irqHandler_0();
+ extern "C" void irqHandler_0()
+ {
++  uint64 start = Cpuid::readTSC();          // A1-25
+   ++outstanding_EOIs;
+   ArchCommon::drawHeartBeat();
+ 
+   Scheduler::instance()->incTicks();
+ 
+   Scheduler::instance()->schedule();
++  if (Clock::isInitialized())
++    Clock::instance()->timer_irq_cycles_ += Cpuid::readTSC() - start;   // before the switch: it does not come back
+ 
+   //kprintfd("irq0: Going to leave irq Handler 0\n");
+   ArchInterrupts::EndOfInterrupt(0);
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index 1428e9fe..b097f582 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -42,6 +42,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_thread_cputime 1652
++#define sc_timer_irq_time 1653
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/include/misc/Clock.h b/common/include/misc/Clock.h
+index 14d5bd4f..e05daf93 100644
+--- a/common/include/misc/Clock.h
++++ b/common/include/misc/Clock.h
+@@ -28,6 +28,8 @@ public:
+ 
+   // getter
+   static bool isInitialized() {return initialized_;}
++
++  uint64 timer_irq_cycles_ = 0;   // A1-25: cycles spent in the timer interrupt
+   uint64 getTscFrequency() {return tsc_frequency_;}
+ 
+   /**
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 9ff25399..8c3eae6e 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -9,6 +9,7 @@
+ #include "Scheduler.h"
+ #include "UserProcess.h"
+ #include "UserThread.h"
++#include "ScopeLock.h"
+ #include "Clock.h"
+ 
+ #define PTHREAD_CREATE_ERROR -1
+@@ -114,6 +115,22 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_clock_get_res:
+       return_value = clockGetRes((clockid_t)arg1, (struct timespec*)arg2);
+       break;
++    case sc_thread_cputime:
++    {
++      UserProcess* process = currentThread->getProcess();
++      ScopeLock lock(process->getThreadLock());
++      UserThreadData* data = process->findThreadDataByTid(arg1);
++      if (!data || !data->thread_)
++        return_value = -1;
++      else if (data->thread_ == currentThread)
++        return_value = Clock::instance()->getThreadTime(currentThread);    // + the running slice
++      else
++        return_value = Clock::instance()->cyclesToNanoseconds(data->thread_->getCpuCycles());   // not running: only its counted cycles
++      break;
++    }
++    case sc_timer_irq_time:
++      return_value = Clock::instance()->cyclesToNanoseconds(Clock::instance()->timer_irq_cycles_);
++      break;
+     case sc_clock_get_time:
+       return_value = clockGetTime((clockid_t)arg1, (struct timespec*)arg2);
+       break;
+diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
+index 901640e9..bedef77c 100644
+--- a/userspace/libc/include/nonstd.h
++++ b/userspace/libc/include/nonstd.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include "types.h"
+ #include "../../../common/include/kernel/syscall-definitions.h"
+ 
+ #ifdef __cplusplus
+@@ -26,6 +27,9 @@ extern int getThreadCount(void);
+  */
+ extern int getProcessCount(void);
+ 
++extern ssize_t thread_cputime(size_t thread);
++extern size_t timer_irq_time(void);
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
+index 6a4862dc..f4f8ff04 100644
+--- a/userspace/libc/src/nonstd.c
++++ b/userspace/libc/src/nonstd.c
+@@ -24,3 +24,13 @@ int getProcessCount(void)
+ {
+   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
+ }
++
++ssize_t thread_cputime(size_t thread)
++{
++  return __syscall(sc_thread_cputime, thread, 0x00, 0x00, 0x00, 0x00);
++}
++
++size_t timer_irq_time(void)
++{
++  return __syscall(sc_timer_irq_time, 0x00, 0x00, 0x00, 0x00, 0x00);
++}

@@ -43,3 +43,13 @@ One Mutex; the increment, the check and the opening are one critical section, so
 lost wake-up: a thread either increments before the last one (and then waits for the generation
 the last one changes under the same lock) or it is the last one. Broadcast, because all of the
 round must wake.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **91 lines** instead of 142, passes the same test. Get it with
+`task short a1-03` (branch `short/…`, then `task test`).
+
+What is shorter: uses `thread_lock_` instead of a separate barrier lock; the id is read/written straight from the program's `pthread_barrier_t`; no helper functions in `Syscall`.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

@@ -30,3 +30,13 @@ void* malloc(size_t n) { n = (n + 15) & ~15; void* p = sbrk(n); return p == (voi
 ```
 
 (no free) – a real one keeps a free list and only grows the break when needed.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **43 lines** instead of 67, passes the same test. Get it with
+`task short a1-12` (branch `short/…`, then `task test`).
+
+What is shorter: the same logic without comments; the shrink loop runs for growing too (it is simply empty then).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

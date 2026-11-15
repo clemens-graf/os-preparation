@@ -41,3 +41,13 @@ handling this one) overwrites cr2. That is why the stub reads it immediately.
 
 P (1: protection violation, 0: not present), W (write), U (user mode), RSVD, I (instruction fetch).
 A kernel-mode fault on a user address = a syscall touched a user page that is not loaded yet.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **48 lines** instead of 63, passes the same test. Get it with
+`task short a1-11` (branch `short/…`, then `task test`).
+
+What is shorter: an array `size_t pf_stats_[7]` instead of a struct; plain `++` instead of atomic adds (fine on one CPU – the tutor may ask about atomic).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

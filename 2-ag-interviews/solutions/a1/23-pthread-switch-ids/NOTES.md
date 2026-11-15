@@ -51,3 +51,13 @@ Two threads wait for a flag, `pthread_switch(a, b)`, then each stores its `pthre
 that runs `workA` must now see `b`. `join(a)` returns `workB`'s result. Errors: `(a, a)`, an unknown
 id. Then the main thread swaps itself with a new thread: `pthread_self()` changes, and
 `join(old main id)` returns the other thread's result.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **26 lines** instead of 47, passes the same test. Get it with
+`task short a1-23` (branch `short/…`, then `task test`).
+
+What is shorter: inline in the `case`, no `UserProcess` method.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

@@ -1,0 +1,184 @@
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index bc32c487..af150352 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -171,6 +171,10 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    // A1-02
++    size_t createMultiple(size_t* ids, size_t count, void* entry, void* start_routine, void** args);
++    size_t joinAny(size_t* tids, size_t count, size_t* index, void** value);
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..40eaf6a3 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,8 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_pthread_multiple 1601
++#define sc_pthread_join_any 1602
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..511579f3 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -89,6 +89,30 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_pthread_multiple:
++      return_value = process->createMultiple((size_t*) arg1, arg2, (void*) arg5, (void*) arg3, (void**) arg4);
++      break;
++    case sc_pthread_join_any:
++    {
++      if (arg2 == 0 || arg2 > 64)
++      {
++        return_value = -1;
++        break;
++      }
++      size_t tids[64];
++      for (size_t i = 0; i < arg2; ++i)       // copy in: no user memory while holding the lock
++        tids[i] = ((size_t*) arg1)[i];
++      size_t index = 0;
++      void* value = 0;
++      return_value = process->joinAny(tids, arg2, &index, &value);
++      if (return_value == 0)
++      {
++        *(size_t*) arg3 = index;
++        if (arg4)
++          *(void**) arg4 = value;
++      }
++      break;
++    }
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index e32f2cda..3e3d39fc 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -11,6 +11,7 @@
+ #include "UserThread.h"
+ #include "Mutex.h"
+ #include "ArchMemory.h"
++#include "ScopeLock.h"
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+   filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
+@@ -174,6 +175,12 @@ UserThread* UserProcess::createThread(void* entry, bool start_with_args, void* s
+ 
+   thread_lock_.acquire();
+ 
++  if (threads_.size() >= 64)        // A1-02: at most 64 not yet joined threads per process
++  {
++    thread_lock_.release();
++    return nullptr;
++  }
++
+   void* stack_top = 0;
+   if (!allocateNewStack(&stack_top))
+   {
+@@ -600,3 +607,62 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
+ }
++
++size_t UserProcess::createMultiple(size_t* ids, size_t count, void* entry, void* start_routine, void** args)
++{
++  if (count == 0 || count > 64)
++    return (size_t) -1;
++  UserThread* created[64];
++  for (size_t i = 0; i < count; ++i)
++  {
++    created[i] = createThread(entry, true, start_routine, args ? args[i] : 0);
++    if (created[i])
++      continue;
++    for (size_t j = 0; j < i; ++j)            // all or nothing: undo the ones created so far
++    {
++      {
++        ScopeLock lock(thread_lock_);
++        UserThreadData* data = findThreadData(created[j]);
++        freeUserThreadStack(data);
++        removeThreadDataFromList(data);
++        delete data;
++        running_threads_--;
++      }
++      created[j]->setRegisteredInProcess(false);
++      delete created[j];                      // never scheduled: safe to delete directly
++    }
++    return (size_t) -1;
++  }
++  for (size_t i = 0; i < count; ++i)
++    ids[i] = created[i]->getTID();
++  for (size_t i = 0; i < count; ++i)
++    Scheduler::instance()->addNewThread(created[i]);   // only now they can run
++  return 0;
++}
++
++size_t UserProcess::joinAny(size_t* tids, size_t count, size_t* index, void** value)
++{
++  ScopeLock lock(thread_lock_);
++  while (true)
++  {
++    bool any_joinable = false;
++    for (size_t i = 0; i < count; ++i)
++    {
++      UserThreadData* data = findThreadDataByTid(tids[i]);
++      if (!data || data->joined_ || tids[i] == currentThread->getTID())
++        continue;
++      if (data->exited_)
++      {
++        *index = i;
++        *value = data->exit_value_;
++        removeThreadDataFromList(data);
++        delete data;
++        return 0;
++      }
++      any_joinable = true;
++    }
++    if (!any_joinable)
++      return (size_t) -1;                     // waiting would never end
++    thread_exited_.wait();
++  }
++}
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index c40fcbe2..278a4044 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -41,6 +41,9 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
+ 
+ extern int pthread_detach(pthread_t thread);
+ 
++extern int pthread_multiple(pthread_t* threads, size_t count, void* (*start_routine)(void*), void** args);
++extern int pthread_join_any(pthread_t* threads, size_t count, size_t* index, void** value_ptr);
++
+ extern int pthread_mutex_init(pthread_mutex_t *mutex,
+                               const pthread_mutexattr_t *attr);
+ 
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 8b8448e4..fbafce25 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -231,3 +231,14 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
+   return -1;
+ }
++
++int pthread_multiple(pthread_t* threads, size_t count, void* (*start_routine)(void*), void** args)
++{
++  return __syscall(sc_pthread_multiple, (size_t) threads, count, (size_t) start_routine, (size_t) args,
++                   (size_t) pthread_start);
++}
++
++int pthread_join_any(pthread_t* threads, size_t count, size_t* index, void** value_ptr)
++{
++  return __syscall(sc_pthread_join_any, (size_t) threads, count, (size_t) index, (size_t) value_ptr, 0x00);
++}

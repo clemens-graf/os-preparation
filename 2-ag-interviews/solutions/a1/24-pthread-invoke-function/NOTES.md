@@ -43,3 +43,13 @@ libc: `__pthread_invoke_trampoline` (asm: `call __pthread_invoke_finish`) → `_
 
 A thread that never makes a syscall never runs the function. Variant: also deliver when the timer
 interrupt returns to user mode.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **66 lines** instead of 107, passes the same test. Get it with
+`task short a1-24` (branch `short/…`, then `task test`).
+
+What is shorter: registers saved with one `memcpy` (first 19 words); the delivery written directly at the end of `syscallException`; no check that the return syscall comes from an invoked function.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

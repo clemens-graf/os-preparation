@@ -77,3 +77,13 @@ all registers – exactly what the kernel does.
   another global).
 - The x87 control word and `MXCSR` are callee-saved too, strictly speaking – irrelevant unless
   the program changes rounding modes.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **40 lines** instead of 78, passes the same test. Get it with
+`task short a1-22` (branch `short/…`, then `task test`).
+
+What is shorter: a header without `extern "C"` guards and comments; the same assembly.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

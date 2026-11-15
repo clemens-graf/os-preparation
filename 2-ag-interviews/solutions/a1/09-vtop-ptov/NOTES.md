@@ -20,3 +20,13 @@ the vpn: `((pml4i * 512 + pdpti) * 512 + pdi) * 512 + pti`.
 - There is no reverse mapping in SWEB, hence the walk. Real kernels keep one (Linux: rmap), because
   swapping and page migration (A2!) need "who maps this frame?".
 - ppn validity: `ppn < getTotalNumPages()`.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **60 lines** instead of 85, passes the same test. Get it with
+`task short a1-09` (branch `short/…`, then `task test`).
+
+What is shorter: both syscalls inline in their `case`; no ppn range check (the search simply finds nothing).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

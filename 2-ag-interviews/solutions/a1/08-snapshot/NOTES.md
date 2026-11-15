@@ -42,3 +42,13 @@ the restored `rip` is the instruction after `int $0x80` of the old snapshot call
 
 - One snapshot per thread; stack ≤ 16 KiB; with threads, the stack top is the thread's own.
 - Variant: snapshot into a user buffer (`jmp_buf`-like) – then check the pointer, copy out/in.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **48 lines** instead of 105, passes the same test. Get it with
+`task short a1-08` (branch `short/…`, then `task test`).
+
+What is shorter: registers saved with ONE `memcpy` of the first 19 words of `ArchThreadRegisters` (rip … r15), the snapshot lives directly in `UserThread` (no `new`/`delete`).
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

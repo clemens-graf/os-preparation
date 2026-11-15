@@ -1,0 +1,58 @@
+diff --git a/userspace/libc/include/context.h b/userspace/libc/include/context.h
+new file mode 100644
+index 00000000..df002fd7
+--- /dev/null
++++ b/userspace/libc/include/context.h
+@@ -0,0 +1,10 @@
++#pragma once
++#include "types.h"
++
++typedef struct
++{
++  size_t rsp;                // everything else of a context lies on its stack
++} context_t;
++
++void context_make(context_t* ctx, void* stack, size_t stack_size, void (*function)(void*), void* arg);
++void context_switch(context_t* from, context_t* to);
+diff --git a/userspace/libc/src/context.c b/userspace/libc/src/context.c
+new file mode 100644
+index 00000000..79f8295d
+--- /dev/null
++++ b/userspace/libc/src/context.c
+@@ -0,0 +1,36 @@
++#include "context.h"
++#include "stdlib.h"
++
++// save the 6 callee-saved registers on the old stack, switch rsp, restore them from the new stack
++__asm__(".globl context_switch\n"
++        "context_switch:\n"
++        "  pushq %rbp\n  pushq %rbx\n  pushq %r12\n  pushq %r13\n  pushq %r14\n  pushq %r15\n"
++        "  movq %rsp, (%rdi)\n"           // from->rsp = rsp
++        "  movq (%rsi), %rsp\n"           // rsp = to->rsp
++        "  popq %r15\n  popq %r14\n  popq %r13\n  popq %r12\n  popq %rbx\n  popq %rbp\n"
++        "  ret\n");                       // continues where *to stopped
++
++// a new context "returns" here: call function(arg) (r12, r13), exit if it returns
++__asm__(".globl __context_start\n"
++        "__context_start:\n"
++        "  movq %r13, %rdi\n"
++        "  callq *%r12\n"
++        "  xorl %edi, %edi\n"
++        "  call exit\n");
++
++void __context_start(void);
++
++void context_make(context_t* ctx, void* stack, size_t stack_size, void (*function)(void*), void* arg)
++{
++  size_t top = (size_t) stack + stack_size;
++  top = top - top % 16;                       // aligned stack top
++  size_t* frame = (size_t*) top - 7;          // what context_switch pops: r15 r14 r13 r12 rbx rbp, return address
++  frame[0] = 0;
++  frame[1] = 0;
++  frame[2] = (size_t) arg;                    // r13
++  frame[3] = (size_t) function;               // r12
++  frame[4] = 0;
++  frame[5] = 0;
++  frame[6] = (size_t) __context_start;
++  ctx->rsp = (size_t) frame;
++}

@@ -28,3 +28,13 @@ remaining arguments from the stack" literally: the kernel could follow `user_reg
 (the `__syscall` frame) to the frame of `sum15` and read its stack arguments – it works with
 `-O0` frame pointers, but breaks as soon as the compiler changes the layout. The array is the
 robust version; mention both.
+
+## Shortest working version (tested)
+
+[`short.patch`](short.patch) – **19 lines** instead of 33, passes the same test. Get it with
+`task short a1-13` (branch `short/…`, then `task test`).
+
+What is shorter: inline in the `case`: reads the 11 arguments straight from the program's array, no pointer check, no `memcpy`.
+
+Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
+a tutor asks about ("what if the pointer is invalid / two threads at once?").

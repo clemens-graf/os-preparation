@@ -1,0 +1,182 @@
+diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
+index bc32c487..48592411 100644
+--- a/common/include/kernel/UserProcess.h
++++ b/common/include/kernel/UserProcess.h
+@@ -171,6 +171,11 @@ class UserProcess
+       */
+     size_t cancelThread(size_t tid);
+ 
++    // A1-03: barriers of this process, id = index + 1 (0 = invalid)
++    size_t barrierInit(size_t count);
++    size_t barrierWait(size_t id);
++    size_t barrierDestroy(size_t id);
++
+     /**
+     * Checks whether cancellation was requested for the thread with the given tid.
+     *
+@@ -274,6 +279,15 @@ class UserProcess
+ 
+     Mutex thread_lock_;
+     Condition thread_exited_; //broadcast on every pthread_exit
++
++    struct Barrier
++    {
++      size_t count;        // threads needed to open it (0 = slot free)
++      size_t waiting;      // arrived in the current round
++      size_t round;        // +1 every time it opens
++    };
++    Barrier barriers_[16] = {};
++    Condition barrier_opened_{&thread_lock_, "UserProcess::barrier_opened_"};
+     Mutex next_stack_slot_lock_;
+ 
+     size_t running_threads_;
+diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
+index db84270e..6fc4f188 100644
+--- a/common/include/kernel/syscall-definitions.h
++++ b/common/include/kernel/syscall-definitions.h
+@@ -34,6 +34,9 @@
+ #define sc_pthread_cancel 1502
+ #define sc_pthread_testcancel 1503
+ #define sc_pthread_detach 1504
++#define sc_barrier_init 1610
++#define sc_barrier_wait 1611
++#define sc_barrier_destroy 1612
+ #define sc_thread_count 1998
+ #define sc_process_count 1999
+ 
+diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
+index 178fc3a2..97a29deb 100644
+--- a/common/source/kernel/Syscall.cpp
++++ b/common/source/kernel/Syscall.cpp
+@@ -89,6 +89,21 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
+       break;
++    case sc_barrier_init:
++    {
++      size_t id = (arg2 == 0 || arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierInit(arg2);
++      if (id == (size_t) -1)
++        return_value = -1;
++      else
++        *(size_t*) arg1 = id;                  // the id lives in the program's pthread_barrier_t
++      break;
++    }
++    case sc_barrier_wait:
++      return_value = (arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierWait(*(size_t*) arg1);
++      break;
++    case sc_barrier_destroy:
++      return_value = (arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierDestroy(*(size_t*) arg1);
++      break;
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
+       break;
+diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
+index e32f2cda..c70bd5c9 100644
+--- a/common/source/kernel/UserProcess.cpp
++++ b/common/source/kernel/UserProcess.cpp
+@@ -11,6 +11,7 @@
+ #include "UserThread.h"
+ #include "Mutex.h"
+ #include "ArchMemory.h"
++#include "ScopeLock.h"
+ 
+ UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, int fd, uint32 ppid, ArchMemory* arch_memory) :
+   filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
+@@ -600,3 +601,47 @@ void UserProcess::exitProcess()
+   thread_lock_.release();
+ 
+ }
++
++size_t UserProcess::barrierInit(size_t count)
++{
++  ScopeLock lock(thread_lock_);
++  for (size_t i = 0; i < 16; ++i)
++  {
++    if (barriers_[i].count != 0)
++      continue;
++    barriers_[i].count = count;
++    barriers_[i].waiting = 0;
++    barriers_[i].round = 0;
++    return i + 1;
++  }
++  return (size_t) -1;
++}
++
++size_t UserProcess::barrierWait(size_t id)
++{
++  ScopeLock lock(thread_lock_);
++  if (id == 0 || id > 16 || barriers_[id - 1].count == 0)
++    return (size_t) -1;
++  Barrier& barrier = barriers_[id - 1];
++  size_t my_round = barrier.round;
++  barrier.waiting++;
++  if (barrier.waiting == barrier.count)        // the last one opens it for everybody
++  {
++    barrier.waiting = 0;
++    barrier.round++;
++    barrier_opened_.broadcast();
++    return 1;                                  // PTHREAD_BARRIER_SERIAL_THREAD
++  }
++  while (barrier.round == my_round)            // while, not if: a wake-up is no proof
++    barrier_opened_.wait();
++  return 0;
++}
++
++size_t UserProcess::barrierDestroy(size_t id)
++{
++  ScopeLock lock(thread_lock_);
++  if (id == 0 || id > 16 || barriers_[id - 1].count == 0 || barriers_[id - 1].waiting > 0)
++    return (size_t) -1;
++  barriers_[id - 1].count = 0;
++  return 0;
++}
+diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
+index c40fcbe2..c85bf536 100644
+--- a/userspace/libc/include/pthread.h
++++ b/userspace/libc/include/pthread.h
+@@ -19,6 +19,10 @@ typedef unsigned int pthread_spinlock_t;
+ 
+ //pthread cond typedefs
+ typedef unsigned int pthread_cond_t;
++
++typedef size_t pthread_barrier_t;
++typedef unsigned int pthread_barrierattr_t;
++#define PTHREAD_BARRIER_SERIAL_THREAD 1
+ typedef unsigned int pthread_condattr_t;
+ 
+ #define PTHREAD_CANCELED ((void*) -1)
+@@ -41,6 +45,10 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
+ 
+ extern int pthread_detach(pthread_t thread);
+ 
++extern int pthread_barrier_init(pthread_barrier_t* barrier, const pthread_barrierattr_t* attr, unsigned int count);
++extern int pthread_barrier_wait(pthread_barrier_t* barrier);
++extern int pthread_barrier_destroy(pthread_barrier_t* barrier);
++
+ extern int pthread_mutex_init(pthread_mutex_t *mutex,
+                               const pthread_mutexattr_t *attr);
+ 
+diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
+index 8b8448e4..8ecf68d0 100644
+--- a/userspace/libc/src/pthread.c
++++ b/userspace/libc/src/pthread.c
+@@ -231,3 +231,19 @@ int pthread_setcanceltype(int type, int *oldtype)
+ {
+   return -1;
+ }
++
++int pthread_barrier_init(pthread_barrier_t* barrier, const pthread_barrierattr_t* attr, unsigned int count)
++{
++  (void) attr;
++  return __syscall(sc_barrier_init, (size_t) barrier, count, 0x00, 0x00, 0x00);
++}
++
++int pthread_barrier_wait(pthread_barrier_t* barrier)
++{
++  return __syscall(sc_barrier_wait, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++}
++
++int pthread_barrier_destroy(pthread_barrier_t* barrier)
++{
++  return __syscall(sc_barrier_destroy, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++}
