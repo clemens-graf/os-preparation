@@ -1,0 +1,319 @@
+% A0 cheat sheet – your team's SWEB code (osw26e3 main, team/BASE)
+% A0 + A1 cheat sheet on the team's SubmissionD1 code
+% build: pdflatex cheatsheet.tex  (twice not needed)
+\documentclass[10pt,a4paper,landscape]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[landscape,margin=0.9cm,top=0.6cm,bottom=0.7cm]{geometry}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{multicol}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{amssymb}
+\usepackage[hidelinks]{hyperref}
+
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+\setlength{\columnsep}{0.6cm}
+\setlist{nosep,leftmargin=1.1em,itemsep=1pt}
+\renewcommand{\arraystretch}{1.15}
+
+% ---------- colours ----------
+\definecolor{cBlue}{HTML}{2563EB}
+\definecolor{cGreen}{HTML}{16A34A}
+\definecolor{cOrange}{HTML}{EA580C}
+\definecolor{cPurple}{HTML}{7C3AED}
+\definecolor{cTeal}{HTML}{0D9488}
+\definecolor{cPink}{HTML}{DB2777}
+\definecolor{cRed}{HTML}{DC2626}
+\definecolor{cSlate}{HTML}{475569}
+\definecolor{cAmber}{HTML}{B45309}
+\definecolor{codeBg}{HTML}{F8FAFC}
+\definecolor{kw}{HTML}{1D4ED8}
+\definecolor{cmt}{HTML}{6B7280}
+\definecolor{str}{HTML}{B45309}
+
+% ---------- code ----------
+\lstdefinestyle{sweb}{
+  language=C++, basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  keywordstyle=\color{kw}, commentstyle=\color{cmt}\itshape, stringstyle=\color{str},
+  morekeywords={size_t,uint64,nodiscard,ScopeLock,Mutex,UserProcess,UserThread,ArchMemory,
+    ArchMemoryMapping,PageManager,Loader},
+  backgroundcolor=\color{codeBg}, frame=none, xleftmargin=2pt, aboveskip=2pt, belowskip=2pt,
+  showstringspaces=false, literate={~}{{\textasciitilde}}1
+}
+\lstdefinestyle{shell}{
+  basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  backgroundcolor=\color{codeBg}, commentstyle=\color{cmt}\itshape, morecomment=[l]{\#},
+  aboveskip=2pt, belowskip=2pt, showstringspaces=false
+}
+\lstset{style=sweb}
+\newcommand{\cc}[1]{\texttt{#1}}   % inline code
+\newcommand{\ok}{\textcolor{cGreen}{\checkmark}}
+\newcommand{\no}{\textcolor{cRed}{\ensuremath{\times}}}
+
+% ---------- boxes ----------
+\newtcolorbox{csec}[2]{enhanced, breakable, colback=#1!5, colframe=#1, coltitle=white,
+  fonttitle=\bfseries\small, title={#2}, boxrule=0.6pt, arc=2.5mm,
+  left=4pt, right=4pt, top=3pt, bottom=3pt, toptitle=1.5pt, bottomtitle=1.5pt,
+  before skip=3pt, after skip=3pt, fontupper=\small\raggedright}
+\newtcolorbox{tip}[1][cAmber]{enhanced, colback=#1!10, colframe=#1!70, boxrule=0.4pt,
+  arc=1.5mm, left=3pt, right=3pt, top=1pt, bottom=1pt, before skip=3pt, after skip=3pt,
+  fontupper=\footnotesize}
+
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newenvironment{tab}[1]{\footnotesize\tabularx{\linewidth}{#1}}{\endtabularx}
+
+\begin{document}
+
+% ================= header =================
+\begin{tcolorbox}[enhanced, colback=cBlue, colframe=cBlue, arc=3mm, boxrule=0pt,
+  interior style={left color=cBlue, right color=cPurple}, left=8pt, top=5pt, bottom=5pt]
+  \color{white}{\LARGE\bfseries A0 + A1 Cheat Sheet}\hfill{\small team osw26e3 \textbullet{} SWEB x86-64}\\[2pt]
+  {\small Your team's submitted code (\texttt{SubmissionD1} = \texttt{f02fd43a}) \textbullet{} the API you need for the
+  interview \textbullet{} keep it next to CLion}
+\end{tcolorbox}
+
+\begin{multicols}{2}
+
+% ================= 1 access =================
+\begin{csec}{cBlue}{1 \quad How to get to everything}
+\begin{lstlisting}
+UserProcess* process = currentThread->getProcess();
+ArchMemory& mem = process->getAddressSpace();  // page tables
+Mutex& plock    = process->getProcessLock();   // address space, loader, fds
+Mutex& tlock    = process->getThreadLock();    // threads, records, stack slots
+UserThread* ut  = (UserThread*) currentThread; // UserThread fields
+Scheduler* s    = Scheduler::instance();       // the one scheduler
+\end{lstlisting}
+\begin{itemize}
+  \item \cc{currentThread} = the thread running right now (global \cc{Thread*}).
+  \item Pointer $\to$ \cc{->}, reference $\to$ \cc{.}: \cc{process->getAddressSpace().mapPage(...)}
+\end{itemize}
+\end{csec}
+
+% ================= 2 constants & formulas =================
+\begin{csec}{cGreen}{2 \quad Pages: constants \& formulas}
+\begin{tab}{@{}l l Y@{}}
+\cc{PAGE\_SIZE}      & 4096 & one page = one frame \\
+\cc{USER\_BREAK}     & \cc{0x800000000000ULL} & below = user, above = kernel \\
+\end{tab}
+\begin{lstlisting}
+size_t vpn    = address / PAGE_SIZE;   // address -> page number
+size_t addr   = vpn * PAGE_SIZE;       // page number -> address
+size_t offset = address % PAGE_SIZE;   // position inside the page
+size_t up     = (x + PAGE_SIZE - 1) / PAGE_SIZE;   // round UP to pages
+// next page: vpn + 1   (NOT vpn + PAGE_SIZE!)
+\end{lstlisting}
+\begin{tip}[cGreen]
+  \textbf{vpn} = virtual page (what the program sees) \quad \textbf{ppn} = physical frame (RAM).
+  Tree PML4 $\to$ PDPT $\to$ PD $\to$ PT, 512 entries each; vpn $= ((i_4\cdot512+i_3)\cdot512+i_2)\cdot512+i_1$.
+\end{tip}
+\end{csec}
+
+% ================= 3 ArchMemory =================
+\begin{csec}{cTeal}{3 \quad ArchMemory \quad\normalfont(= \cc{process->getAddressSpace()})}
+\begin{tab}{@{}>{\raggedright}p{0.43\linewidth} Y@{}}
+\cc{mapPage(vpn, ppn, 1)} & vpn $\to$ ppn, user access. \textbf{false} if already mapped. \cc{[[nodiscard]]}! \\
+\cc{unmapPage(vpn)} & removes mapping, \textbf{frees the ppn}, panics if not mapped, no TLB flush \\
+\cc{resolveMapping(vpn)} & $\to$ \cc{ArchMemoryMapping}: \cc{.page\_size} (\textbf{0 = not mapped}), \cc{.page\_ppn}, \cc{.pt[.pti]} = the PTE \\
+\cc{checkAddressValid(addr)} & kernel pointer to that user byte, 0 if not mapped \\
+\cc{ArchMemory::flushTlb()} & \textit{static} -- after every \cc{unmapPage} / taken right \\
+\cc{ArchMemory::getIdent\-AddressOfPPN(ppn)} & \textit{static} -- kernel pointer into a frame \\
+\end{tab}
+\begin{lstlisting}
+ArchMemoryMapping m = mem.resolveMapping(vpn);
+m.pt[m.pti].writeable = 0;            // read-only (PTE bits: present, writeable, ...)
+\end{lstlisting}
+\end{csec}
+
+% ================= 4 PageManager =================
+\begin{csec}{cGreen}{4 \quad PageManager \quad\normalfont(physical frames)}
+\begin{lstlisting}
+size_t ppn = PageManager::instance()->allocPPN(); // free + ZEROED, NO argument
+PageManager::instance()->freePPN(ppn);            // only if NOT mapped
+\end{lstlisting}
+\end{csec}
+
+% ================= 5 locks =================
+\begin{csec}{cOrange}{5 \quad Locks \& conditions}
+\begin{lstlisting}
+{
+  ScopeLock lock(process->getThreadLock());   // released at } and every return
+  // check + change in ONE critical section
+}
+Condition cond(&mutex, "name");   // wait() / signal() / broadcast(): mutex held
+while (!done) cond.wait();        // WHILE, not if
+\end{lstlisting}
+\begin{itemize}
+  \item \textbf{Order:} \cc{process\_lock\_} \emph{before} \cc{thread\_lock\_} (the page fault handler does it so).
+  \item \cc{process\_lock\_}: address space, loader, fds. \cc{thread\_lock\_}: \cc{threads\_}, records, stack slots.
+  \item \textbf{Never} \cc{yield()}, \cc{exit()} or touch \textbf{user memory} while holding a lock (a page fault takes the locks again $\to$ deadlock).
+\end{itemize}
+\begin{tip}[cOrange]
+  Training copy (\cc{sweb-ag}, older \cc{f78faff3}): no \cc{process\_lock\_} yet -- \cc{thread\_lock\_} protects the page tables there.
+\end{tip}
+\end{csec}
+
+% ================= 6 threads =================
+\begin{csec}{cPurple}{6 \quad Threads \& records}
+\begin{lstlisting}
+ScopeLock lock(process->getThreadLock());
+UserThreadData* r = process->findThreadDataByTid(tid);   // nullptr = unknown
+if (!r || !r->thread_) ...      // thread_ == nullptr: already ended
+if (r->thread_ == currentThread) ...   // it is me
+\end{lstlisting}
+\cc{UserThreadData}: \cc{thread\_ exit\_value\_ tid\_ exited\_ joined\_ requested\_cancel\_ detached\_}
+\begin{tab}{@{}>{\raggedright}p{0.48\linewidth} Y@{}}
+\cc{currentThread->getTID()} / \cc{setTID(id)} & id of the thread object (\cc{pthread\_self}) \\
+\cc{process->createThread(entry,false,0,0)} & new \cc{UserThread}, then \cc{Scheduler::instance()->addNewThread(t)} \\
+\cc{process->exitThread(value)} & ends the caller (stores the value, broadcasts \cc{thread\_exited\_}) \\
+\cc{process->killThreads(...)} & exit/exec: wakes joiners, waits for them, kills the rest \\
+\cc{thread->kill()} & ends a thread \\
+\end{tab}
+\begin{tip}[cPurple]
+  The id lives \textbf{twice}: \cc{record->tid\_} (join/cancel/detach search it) and \cc{thread->getTID()} (\cc{pthread\_self}).
+\end{tip}
+\end{csec}
+
+% ================= 7 scheduler =================
+\begin{csec}{cPink}{7 \quad Scheduler \quad\normalfont(\cc{common/source/kernel/Scheduler.cpp})}
+\begin{tab}{@{}>{\raggedright}p{0.45\linewidth} Y@{}}
+\cc{Scheduler::instance()->yield()} & give up the CPU, stay runnable \\
+\cc{->sleep()} / \cc{->wake(t)} & block the caller / make \cc{t} runnable (prefer a \cc{Condition}) \\
+\cc{->addNewThread(t)} & a new thread may run from now on \\
+\cc{->getTicks()} & timer ticks since boot \\
+\cc{->timedSleepUntil(deadline)} & nanosleep: sleep until a monotonic time (ns) \\
+\cc{schedule()} & picks the next thread -- timer interrupt / yield \\
+\end{tab}
+\begin{lstlisting}
+// schedule(): round robin over threads_ (ALL threads, ustl::list<Thread*>)
+for (it = threads_.begin(); it != threads_.end(); ++it)
+  if ((*it)->schedulable()) { currentThread = *it; break; }   // state == Running
+ustl::rotate(threads_.begin(), it + 1, threads_.end());     // the chosen one to the back
+currentThreadRegisters = currentThread->switch_to_userspace_
+    ? currentThread->user_registers_ : currentThread->kernel_registers_;
+\end{lstlisting}
+\begin{itemize}
+  \item \cc{ThreadState}: \cc{Running} (wants the CPU) \textbullet{} \cc{Sleeping} (waits) \textbullet{} \cc{ToBeDestroyed}.
+  \item \cc{schedule()} runs with \textbf{interrupts off}: no locks, no \cc{new}, no blocking -- read plain fields only.
+  \item Change the choice (invoke, flag, priority): a field set by the syscall, checked here \emph{before} the loop;
+        only compare a remembered \cc{Thread*} with the list -- it may be dead.
+\end{itemize}
+\end{csec}
+
+% ================= 8 time =================
+\begin{csec}{cAmber}{8 \quad Time \& CPU time \quad\normalfont(your team's \cc{Clock}, \cc{common/include/misc/})}
+\begin{tab}{@{}>{\raggedright}p{0.52\linewidth} Y@{}}
+\cc{Clock::instance()->getMonotonicTime()} & ns since boot (TSC) \\
+\cc{->getThreadTime(t)} / \cc{getProcessTime(p)} & CPU time in ns -- \cc{getThreadTime} only right for the \textbf{running} thread \\
+\cc{->cyclesToNanoseconds(c)} & TSC cycles $\to$ ns \\
+\cc{Cpuid::readTSC()} & the CPU's cycle counter \\
+\cc{thread->getCpuCycles()} & counted at every switch (\cc{schedule()}) \\
+\end{tab}
+Timer interrupt: \cc{irqHandler\_0} (\cc{arch/x86/64/source/InterruptUtils.cpp}) $\to$ \cc{incTicks()}, \cc{schedule()}, \cc{arch\_contextSwitch()} (never returns). Syscalls: \cc{clock\_gettime} 1101, \cc{nanosleep} 1200.
+\end{csec}
+
+% ================= 9 registers =================
+\begin{csec}{cBlue}{9 \quad Registers: syscalls \& diverting a thread}
+\begin{tab}{@{}l Y@{}}
+syscall args & \cc{rbx rcx rdx rsi rdi} = \cc{arg1 .. arg5}; number in \cc{rax} \\
+return value & \cc{syscallHandler} writes it into \cc{user\_registers\_->rax} \\
+\cc{user\_registers\_} & \cc{rip rsp rax rbx rcx rdx rsi rdi rbp r8..r15 rflags} -- saved user state \\
+\cc{switch\_to\_userspace\_} & 0 = the thread is inside the kernel right now \\
+\end{tab}
+\begin{lstlisting}
+// send a thread into function(arg) and come back (upcall, segv, invoke):
+size_t rsp = regs->rsp - 128;      // skip the red zone
+rsp = rsp - rsp % 16 - 8;          // rsp % 16 == 8 at the function start
+*(size_t*) slot_for(rsp) = regs->rip;   // return address (checkAddressValid)
+regs->rsp = rsp; regs->rip = function; regs->rdi = arg;
+\end{lstlisting}
+\begin{tip}[cBlue]
+  Never copy a whole \cc{ArchThreadRegisters} (\cc{saved = *regs}) -- its destructor frees \cc{fpu}: copy the fields.
+\end{tip}
+\end{csec}
+
+% ================= 10 loader / PFH =================
+\begin{csec}{cTeal}{10 \quad Page faults \& loader}
+\begin{itemize}
+  \item \cc{common/source/mm/PageFaultHandler.cpp}, \cc{handlePageFault}: \cc{checkPageFaultIsValid}
+        (\cc{present} $\Rightarrow$ invalid) $\to$ \cc{process\_lock\_} $\to$ \cc{thread\_lock\_} $\to$ stack growth / guard page /
+        \cc{loadPage} (returns \textbf{false} = no segment) $\to$ unlock $\to$ \cc{exit} if needed.
+  \item New special regions (heap, magic page, brk) go \textbf{first} in the valid branch, then \cc{return}.
+  \item The CPU \textbf{repeats} the faulting instruction after the handler returns.
+\end{itemize}
+\begin{tab}{@{}l Y@{}}
+\cc{present} / \cc{writing} / \cc{fetch} & mapped? / a write? / an instruction fetch? \\
+\cc{cr2} & the faulting address (\cc{address} parameter) \\
+\end{tab}
+\end{csec}
+
+% ================= 11 six places =================
+\begin{csec}{cPink}{11 \quad New syscall: the six places}
+\begin{tab}{@{}c >{\raggedright}p{0.36\linewidth} Y@{}}
+1 & \cc{syscall-definitions.h} & \cc{\#define sc\_foo 1600} \\
+2 & \cc{Syscall.h} & \cc{static size\_t foo(size\_t arg);} \\
+3 & \cc{Syscall.cpp} switch & \cc{case sc\_foo: return\_value = foo(arg1); \textbf{break};} \\
+4 & \cc{Syscall.cpp} & \cc{size\_t Syscall::foo(size\_t arg)\{...\}} \\
+5 & libc header (\cc{nonstd.h}, \cc{pthread.h}) & declaration -- \textbf{without it the test does not compile} \\
+6 & libc \cc{.c} & \cc{\_\_syscall(sc\_foo, (size\_t)p, 0,0,0,0)} \\
+\end{tab}
+\begin{tip}[cPink]
+  Taken: upstream 1--252 and 9990/9999, 1000--1003 pthread create/exit/self/equal, 1100--1102 clock, 1200 nanosleep,
+  1250 rtc, 1500--1504 mkdir/join/cancel/testcancel/detach, 1998/1999, 2000--2003 fork/getpid/getppid/waitpid, 2500 execv.
+  Libc-only task (type U)? Stub in \cc{libc/src}, declaration in \cc{libc/include} -- check \textbf{both}.
+\end{tip}
+\end{csec}
+
+% ================= 12 user pointers =================
+\begin{csec}{cRed}{12 \quad User pointers \& return values}
+\begin{lstlisting}
+if (buffer == 0 || size > USER_BREAK || buffer > USER_BREAK - size)
+  return (size_t) -1;                     // overflow-safe range check
+\end{lstlisting}
+\begin{tab}{@{}l l Y@{}}
+error & \cc{return (size\_t) -1;} & \no{} \cc{-1U} \\
+NULL  & \cc{return 0;} & for pointers \\
+types & \cc{size\_t} / \cc{ssize\_t} & addresses \& sizes / may be negative \\
+\end{tab}
+\end{csec}
+
+% ================= 13 debug + shell =================
+\begin{csec}{cSlate}{13 \quad Debug \& shell}
+\begin{lstlisting}
+debug(SYSCALL, "vpn %zx ppn %zx\n", vpn, ppn);   // %zx hex, %zd dec, %s string
+currentThread->printBacktrace();
+\end{lstlisting}
+\begin{lstlisting}[style=shell]
+task start a1-05 / task test / task run      # training copy
+task short a1-05 / task solution a1-05       # shortest / full solution
+grep -n "pagefault" /tmp/sweb-ag/run.log     # the full kernel log
+\end{lstlisting}
+Flags: \cc{SYSCALL PAGEFAULT LOADER USERPROCESS SCHEDULER PTHREAD\_JOIN FORK WAITPID CLOCK NANO\_SLEEP}
+\end{csec}
+
+% ================= 14 traps =================
+\begin{csec}{cRed}{14 \quad Classic traps}
+\begin{enumerate}[label=\textbf{\arabic*}, leftmargin=1.3em]
+  \item \cc{case} without \cc{break}; function without \cc{return} (\cc{-Werror})
+  \item \cc{mapPage} result ignored (\cc{[[nodiscard]]}); \cc{freePPN} after \cc{unmapPage}
+  \item no \cc{flushTlb()} after \cc{unmapPage}
+  \item check and change in two lock sections $\to$ race
+  \item \cc{yield} / \cc{exit} / user memory while holding a lock $\to$ deadlock
+  \item swapping local pointers instead of the fields they point to
+  \item \cc{sizeof(PAGE\_SIZE)} = 8, not 4096
+  \item \cc{strcpy}/\cc{strcat} in the kernel panic -- use \cc{strncpy}/\cc{strncat}
+  \item \cc{getThreadTime} for a thread that is not running
+  \item a method declared under \cc{private:} $\to$ "not accessible"
+  \item \cc{int} for addresses; \cc{size\_t} for something negative
+\end{enumerate}
+\end{csec}
+
+\end{multicols}
+\end{document}
