@@ -41,10 +41,10 @@ Target first after invoke: 20/20; after a plain `sched_yield`: 4/20.
 
 ## Shortest working version (tested)
 
-[`short.patch`](short.patch) – **35 lines** instead of 66, passes the same test. Get it with
+[`short.patch`](short.patch) – **38 lines** instead of 66, passes the same test. Get it with
 `task short a1-05` (branch `short/…`, then `task test`).
 
-What is shorter: `preferred_` is set directly instead of a `yieldTo()` method; the scheduler loop is one short search.
+What is shorter: `preferred_` is set directly instead of a `yieldTo()` method (the syscall is its own function `Syscall::pthreadInvoke`); the scheduler loop is one short search.
 
 Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
 a tutor asks about ("what if the pointer is invalid / two threads at once?").
