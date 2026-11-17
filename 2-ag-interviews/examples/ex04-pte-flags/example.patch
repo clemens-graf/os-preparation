@@ -1,8 +1,8 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..bd47d32b 100644
+index b82d8ca3..6e264261 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,6 +18,9 @@ class Syscall
+@@ -19,6 +19,9 @@ class Syscall
      static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
@@ -13,7 +13,7 @@ index 3b55c7a6..bd47d32b 100644
  
      // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..d17a416f 100644
+index 290b5459..c82ecbe9 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,9 @@
@@ -27,7 +27,7 @@ index db84270e..d17a416f 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..9182d877 100644
+index 439b092c..398c6f75 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -39,10 +39,10 @@ index 178fc3a2..9182d877 100644
 +#include "Loader.h"
  #include "UserProcess.h"
  #include "UserThread.h"
- 
-@@ -112,6 +115,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_getppid:
-       return_value = getppid();
+ #include "Clock.h"
+@@ -161,6 +164,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_protectpage:
 +      return_value = protectPage(arg1, arg2);
@@ -50,7 +50,7 @@ index 178fc3a2..9182d877 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +509,27 @@ void Syscall::trace()
+@@ -743,6 +749,27 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -79,7 +79,7 @@ index 178fc3a2..9182d877 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 901640e9..bcd2bd1a 100644
+index 54687327..c97e8fcd 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -90,9 +90,9 @@ index 901640e9..bcd2bd1a 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+@@ -31,6 +33,9 @@ extern int getProcessCount(void);
   */
- extern int getProcessCount(void);
+ extern unsigned long getUsedKernelMemory(void);
  
 +// EX04
 +extern int protectpage(void* address, int writable);
@@ -101,18 +101,18 @@ index 901640e9..bcd2bd1a 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index befb9485..8b74af8d 100644
+index 4c40ec43..f0e4051e 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
  
- extern int main();
+ extern int main(int argc, char** argv);
  
 +int protectpage(void* address, int writable)
 +{
 +  return __syscall(sc_protectpage, (size_t) address, writable, 0x00, 0x00, 0x00);
 +}
 +
- void _start()
+ void _start(int argc, char** argv)
  {
-   exit(main());
+   exit(main(argc, argv));

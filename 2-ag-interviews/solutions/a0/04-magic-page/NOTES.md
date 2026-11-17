@@ -16,7 +16,7 @@ if (address / PAGE_SIZE == MAGIC_PAGE / PAGE_SIZE)
   char* content = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
   const char prefix[] = "coffee for ";
   memcpy(content, prefix, sizeof(prefix) - 1);
-  strncpy(content + sizeof(prefix) - 1, currentThread->getName(), PAGE_SIZE - sizeof(prefix));
+  strncpy(content + sizeof(prefix) - 1, currentThread->getProcess()->getFileName().c_str(), PAGE_SIZE - sizeof(prefix));
   if (!currentThread->getProcess()->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
     PageManager::instance()->freePPN(ppn);
 }

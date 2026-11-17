@@ -75,7 +75,7 @@
 \begin{tcolorbox}[enhanced, colback=cBlue, colframe=cBlue, arc=3mm, boxrule=0pt,
   interior style={left color=cBlue, right color=cPurple}, left=8pt, top=5pt, bottom=5pt]
   \color{white}{\LARGE\bfseries A0 + A1 Cheat Sheet}\hfill{\small team osw26e3 \textbullet{} SWEB x86-64}\\[2pt]
-  {\small Your team's submitted code (\texttt{SubmissionD1} = \texttt{f02fd43a}) \textbullet{} the API you need for the
+  {\small Your team's code (\texttt{SubmissionD1} = \texttt{f02fd43a}, notes for \texttt{main} = \texttt{4778e63b}) \textbullet{} the API you need for the
   interview \textbullet{} keep it next to CLion}
 \end{tcolorbox}
 
@@ -155,18 +155,16 @@ while (!done) cond.wait();        // WHILE, not if
   \item \cc{process\_lock\_}: address space, loader, fds. \cc{thread\_lock\_}: \cc{threads\_}, records, stack slots.
   \item \textbf{Never} \cc{yield()}, \cc{exit()} or touch \textbf{user memory} while holding a lock (a page fault takes the locks again $\to$ deadlock).
 \end{itemize}
-\begin{tip}[cOrange]
-  Training copy (\cc{sweb-ag}, older \cc{f78faff3}): no \cc{process\_lock\_} yet -- \cc{thread\_lock\_} protects the page tables there.
-\end{tip}
 \end{csec}
 
 % ================= 6 threads =================
 \begin{csec}{cPurple}{6 \quad Threads \& records}
 \begin{lstlisting}
 ScopeLock lock(process->getThreadLock());
-UserThreadData* r = process->findThreadDataByTid(tid);   // nullptr = unknown
+UserThreadData* r = process->findThreadData(tid); // D1: ...ByTid
 if (!r || !r->thread_) ...      // thread_ == nullptr: already ended
 if (r->thread_ == currentThread) ...   // it is me
+process->removeThreadData(tid); // + delete (D1: ...FromList(r))
 \end{lstlisting}
 \cc{UserThreadData}: \cc{thread\_ exit\_value\_ tid\_ exited\_ joined\_ requested\_cancel\_ detached\_}
 \begin{tab}{@{}>{\raggedright}p{0.48\linewidth} Y@{}}

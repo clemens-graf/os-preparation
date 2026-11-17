@@ -9,12 +9,11 @@ Patch: [`solution.patch`](solution.patch). Type S, on top of your team's join.
 size_t UserProcess::detachThread(size_t tid)
 {
   ScopeLock lock(thread_lock_);
-  UserThreadData* thread_data = findThreadDataByTid(tid);
+  UserThreadData* thread_data = findThreadData(tid);
   if (!thread_data || thread_data->detached_ || thread_data->joined_) return -1;
   if (thread_data->exited_)                  // ended already: only the record is left
   {
-    removeThreadDataFromList(thread_data);
-    delete thread_data;
+    removeThreadData(thread_data->tid_);           // removes AND deletes it
     return 0;
   }
   thread_data->detached_ = true;             // exitThread frees it
@@ -22,7 +21,7 @@ size_t UserProcess::detachThread(size_t tid)
 }
 
 // exitThread, under thread_lock_, after exited_ = true and the broadcast:
-if (thread_data->detached_) { removeThreadDataFromList(thread_data); delete thread_data; }
+if (thread_data->detached_) { removeThreadData(thread_data->tid_); }   // removes AND deletes
 // joinThread: if (thread_data->detached_) return -1;
 ```
 

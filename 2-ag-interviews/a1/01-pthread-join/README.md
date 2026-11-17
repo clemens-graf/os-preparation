@@ -28,9 +28,11 @@ then `exit` for the leak check).
 
 Your team already has `pthread_join` (your own P2 work) – `task solution a1-01` is `main` plus the
 course tests, nothing else. **Run them against your code and explain every result.** On
-`f78faff3` (19 Oct) the first 8 checks pass, then the kernel **panics** on the 9th
-("a killed thread can be joined"): see [the notes](../../solutions/a1/01-pthread-join/NOTES.md) –
-that is a real bug in your code, and the notes say how to fix it.
+`4778e63b` (15 Nov) the first 8 checks of `pthread_join_basic` pass, then the crash thread's page
+fault ends the **whole process** (`exit_code: 9999`, like a segfault on Linux) – so the 9th line
+("a killed thread can be joined") is never printed, and `pthread_create_basic` adds 8 more: **16**.
+Until 19 Oct (`f78faff3`) the kernel **panicked** there instead – see
+[the notes](../../solutions/a1/01-pthread-join/NOTES.md) for why and what your team changed.
 
 Where to look:
 
@@ -86,6 +88,6 @@ Joining yourself would wait for your own end, which can't happen while you wait:
 
 <details><summary>What happens to a thread that sleeps in <code>pthread_join</code> when another thread calls <code>exit</code>?</summary>
 
-In your team's code: **a kernel panic.** `exitProcess` calls `kill()` on the sleeping joiner – that only sets its state; it is still in the waiters list of `thread_exited_`. When the last thread is gone, `~UserProcess` destroys the Condition with a waiter still listed → "still waiting on this lock" assertion. Fix: `thread_exited_.broadcast()` in `exitProcess` before the kill loop (or end every thread at its next safe point, like cancel).
+Your team's code since 15 Nov: the page fault handler calls `Syscall::exit(9999)` – the whole process ends, the joiner with it, no panic (the POSIX answer: a fault kills the process, not one thread). Until 19 Oct: **a kernel panic.** `exitProcess` calls `kill()` on the sleeping joiner – that only sets its state; it is still in the waiters list of `thread_exited_`. When the last thread is gone, `~UserProcess` destroys the Condition with a waiter still listed → "still waiting on this lock" assertion. Fix: `thread_exited_.broadcast()` in `exitProcess` before the kill loop (or end every thread at its next safe point, like cancel).
 
 </details>

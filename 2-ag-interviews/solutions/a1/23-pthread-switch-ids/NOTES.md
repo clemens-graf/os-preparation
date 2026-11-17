@@ -1,6 +1,6 @@
 # A1-23 pthread_switch (swap two thread ids) – solution notes
 
-Patch: [`solution.patch`](solution.patch) – on your team's code (`f78faff3`). Type S.
+Patch: [`solution.patch`](solution.patch) – on your team's code (`4778e63b`). Type S.
 
 ## The code (simplest version)
 
@@ -11,8 +11,8 @@ size_t UserProcess::switchThreadIds(size_t a, size_t b)
 
   if (a == b)
     return -1;
-  UserThreadData* data_a = findThreadDataByTid(a);
-  UserThreadData* data_b = findThreadDataByTid(b);
+  UserThreadData* data_a = findThreadData(a);
+  UserThreadData* data_b = findThreadData(b);
   if (!data_a || !data_b)
     return -1;                               // unknown (or already joined and deleted)
   if (data_a->joined_ || data_b->joined_)

@@ -90,7 +90,7 @@ struct.
 
 ## Your team's code
 
-`UserThreadData::thread_` (nullptr once the thread ended), `UserProcess::findThreadDataByTid`
+`UserThreadData::thread_` (nullptr once the thread ended), `UserProcess::findThreadData`
 (under `thread_lock_`), `ArchMemory::checkAddressValid`, the syscall entry
 `syscallHandler` in `arch/x86/64/source/InterruptUtils.cpp` (it writes the return value into
 `user_registers_->rax` after `syscallException`). Arguments arrive in `rbx, rcx, rdx, rsi, rdi`

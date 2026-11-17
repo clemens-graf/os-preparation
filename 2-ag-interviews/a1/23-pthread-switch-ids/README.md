@@ -82,7 +82,7 @@ safe rule.
 
 ## Your team's code
 
-`UserProcess::findThreadDataByTid` (private – so the method lives in `UserProcess`),
+`UserProcess::findThreadData` (asserts `thread_lock_`; the method lives in `UserProcess`),
 `UserThreadData{thread_, exit_value_, tid_, exited_, joined_, requested_cancel_, detached_}`,
 `Thread::setTID` / `getTID`. Look at `UserProcess::detachThread` – it has exactly the structure you
 need (lock, find, check, change).

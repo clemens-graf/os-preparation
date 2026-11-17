@@ -4,15 +4,19 @@ In the interview you work in **your team repo**, so the whole course runs on it:
 every example starts from a snapshot of your team's `main` (`osw26e3`), and the cards, hints,
 notes and solutions use your team's classes and names.
 
-All solutions (`../solutions/*/*/solution.patch`) and examples (`../examples/*/example.patch`)
-were made and tested on the commit in [`BASE`](BASE) – `osw26e3` main of 19 Oct 2026, `f78faff3`
-(with `pthread_create/exit/self/equal`, `pthread_join`, `pthread_cancel` with cancellation points,
-`pthread_detach`, `atexit`, `fork`, `execv`, the growing stack). Every one of them builds and passes
-its tests there – except A1-01, whose test shows a bug in your code (below).
+All solutions (`../solutions/*/*/solution.patch`, `short.patch`) and examples (`../examples/*/example.patch`)
+were made and tested on the commit in [`BASE`](BASE) – `osw26e3` main of 15 Nov 2026, `4778e63b`
+(with `pthread_create/exit/self/equal`, `pthread_join`, `pthread_cancel` – deferred and asynchronous,
+`pthread_setcancelstate/-type`, `pthread_detach`, `atexit`, `fork`, `execv` with arguments, `waitpid`,
+`sleep`/`nanosleep`/`clock`, the growing stack).
 
-Since the previous pin (`40140475`, 13 Oct) the team merged: `pthread_equal`, `atexit`,
-`pthread-cancel-points` (a cancelled thread waiting in `pthread_join` now ends), `pthread_detach`,
-pthread_create/exit test cases, the `execv` string checks.
+Since the previous pin (`f78faff3`, 19 Oct) the team merged: **two locks per process**
+(`process_lock_` before `thread_lock_`), renamed record functions (`findThreadData(tid)`,
+`removeThreadData(tid)` – it also deletes), `UserProcess::create` (no `startProcess`),
+`loadPage` returns `bool` and a bad page fault ends the process with **9999** (was 666), `waitpid`,
+the `Clock` class with `sleep`/`nanosleep`/`clock`, asynchronous cancellation, `fork` copies the
+open files and the stack fields, and F7–F12 debug keys (F8 = live processes).
+Retired because your team has them now: A1-07 (clock), A1-18 (sleep); A1-19 (waitpid) is a study task.
 
 ## How it works
 
@@ -43,7 +47,7 @@ task solution a0-01    # -> branch solution/a0-01-meminfo
 | the ELF loader | `process->getLoader()` (a `Loader&`): `loadPage(address, getAddressSpace())` |
 | per-process state | members of `UserProcess` |
 | per-thread state | members of `UserThread` – `(UserThread*) currentThread` |
-| a thread by id | `process->findThreadDataByTid(tid)` (hold `thread_lock_`) → `UserThreadData{thread_, exit_value_, tid_, exited_, joined_, requested_cancel_}`; `thread_` is `nullptr` once it exited; `detached_` since `pthread_detach` |
+| a thread by id | `process->findThreadData(tid)` (hold `thread_lock_`) → `UserThreadData{thread_, exit_value_, tid_, exited_, joined_, requested_cancel_}`; `thread_` is `nullptr` once it exited; `detached_` since `pthread_detach` |
 | stacks | a slot per thread (`USERSTACK_PAGES` 4 + a guard page), grown in the page fault handler (`isUserStackFault`) |
 | syscall numbers taken | 1000–1003 `pthread_create/exit/self/equal`, 1500 `mkdir`, 1501–1504 `pthread_join/cancel/testcancel/detach`, 1998/1999 counts, 2000–2002 `fork/getpid/getppid`, 2500 `execv` |
 | `atexit` | libc only: `atexit_functions[ATEXIT_MAX]` + `atexit_count` in `stdlib.c`, run by `__runAtexitFunctions()` from `exit()` in `exec.c` |
@@ -117,26 +121,23 @@ Types: **U** user space only · **S** syscall + kernel · **E** kernel event · 
   ([notes](../solutions/a1/01-pthread-join/NOTES.md)).
 - **A1-06 (fixed on 18 Oct):** a thread sleeping in `pthread_join` could not be cancelled – your
   `pthread-cancel-points` branch fixed it (`JOIN_CANCELED`, broadcast in `cancelThread`).
-- **`fork`: the child's stack cannot grow.** `UserThread(child_process, parent_thread)` does not
-  copy `user_stack_top_` and `lowest_mapped_stack_vpn_` – they stay 0, so a page fault in the
-  child's stack is not recognised as a stack fault and the child is killed with **666** as soon as
-  it needs a stack page the parent never touched. Fix: copy both in that constructor
-  (`setUserStackTop(parent_thread->getUserStackTop())`, …). Checked on `f78faff3` with a child that
-  uses ~12 KiB of stack. A1-21 forkall does it right.
-- **`thread_lock_` is the page-table lock** – the page fault handler takes it for stack pages,
-  but **releases it before `loadPage`**, so a page loaded from the binary is mapped without it.
-  Two threads faulting on the same page: `mapPage` returns `false` for the second, which then
-  frees its frame – correct, but a tutor may ask about it.
+- **`fork`: the child's stack grows now** – your team's copy constructor copies `user_stack_top_`
+  and `lowest_mapped_stack_vpn_` (it was a bug on `f78faff3`).
+- **Two locks per process now:** `process_lock_` (address space, loader, file descriptors) and
+  `thread_lock_` (threads, records, stack slots). Order: `process_lock_` first. The page fault
+  handler takes both, releases `thread_lock_` before `loadPage`, and calls `exit(9999)` only after
+  releasing `process_lock_` (`loadPage` returns `false` instead of exiting itself).
 - **`exit` / returning from `main` ends the whole process** (`exitProcess` kills all threads) –
   POSIX behaviour.
-- **Many POSIX functions are stubs in your libc** (`malloc`, `sem_*`, `pthread_mutex_*`,
-  `pthread_spin_*`, `sleep`, `clock`, `waitpid`, `mmap`, …) – a task may ask for any of them:
+- **Many POSIX functions are still stubs in your libc** (`malloc`, `sem_*`, `pthread_mutex_*`,
+  `pthread_cond_*`, `pthread_spin_*`, `sbrk`, `mmap`, …) – a task may ask for any of them
+  (`sleep`, `clock`, `waitpid` and `pthread_setcancelstate/type` are your team's now):
   [ATLAS.md section 5](../ATLAS.md).
 - **`Syscall::mkdir` starts with `size_t result = -1U;`** – as a `size_t` that is `0xFFFFFFFF`,
   not -1. It only works because the `int` wrapper cuts it back to 32 bits.
 - **`Syscall::copyUserString()`** exists (byte by byte, stops at `USER_BREAK`) – reuse it where a
   string must fit completely.
-- **No thread limit**: `createThread` accepts threads until memory runs out (A1-02 adds one).
+- **No thread limit**: `createThread` accepts threads until memory runs out (A1-02 adds one); it refuses new threads while the process is being destroyed (`destroying_`).
 - GRUB boots without waiting (`timeout 0` in `menu.lst`) – `task run` starts SWEB directly.
 
 ## When your team's main moves on

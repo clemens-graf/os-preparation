@@ -1,7 +1,8 @@
 # ex07 – an F-key that makes a process do something
 
-Pressing **F8** makes the next syscall print information about the process that makes it.
-Test: `run_test.sh '!key f8' help` → a `[FKEY] F8 handled by /usr/shell.sweb ...` line.
+Pressing **F6** makes the next syscall print information about the process that makes it.
+(F6, not F8: since 15 Nov your team uses F7–F12 itself – F8 prints the live processes.)
+Test: `run_test.sh '!key f6' help` → a `[FKEY] F6 handled by /usr/shell.sweb ...` line.
 
 ## What the example changes
 
@@ -23,17 +24,17 @@ user memory of a process is not accessible from there, and touching another thre
 from there races with that thread. So: **set a flag** in the key handler, and let the target
 do the work at a safe point in its own context – here the top of `syscallException`.
 
-*Shortened* – the two places (full code, also `handleF8()`: `example.patch`):
+*Shortened* – the two places (full code, also `handleF6()`: `example.patch`):
 
 ```cpp
 // Console.cpp
-case KEY_F8:
-  ArchThreads::testSetLock(Syscall::f8_pending_, 1);   // atomic store
+case KEY_F6:
+  ArchThreads::testSetLock(Syscall::f6_pending_, 1);   // atomic store
   break;
 
 // Syscall.cpp, top of syscallException
-if (f8_pending_ && ArchThreads::testSetLock(f8_pending_, 0))   // atomic exchange: read + clear
-  handleF8();                                                    // exactly one syscall handles it
+if (f6_pending_ && ArchThreads::testSetLock(f6_pending_, 0))   // atomic exchange: read + clear
+  handleF6();                                                    // exactly one syscall handles it
 ```
 
 `testSetLock(var, value)` is an atomic exchange (returns the old value) – "read and clear" in

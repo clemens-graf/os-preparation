@@ -6,7 +6,7 @@
 
 ```
 Name:         meminfo
-Nr:           1505 (sc_meminfo) – 1500 is your team's mkdir
+Nr:           1507 (sc_meminfo) – 1500 is your team's mkdir, 1501–1506 pthread
 Description:  Fills a struct in user space with memory statistics:
               - total_pages:   number of physical pages in the system
               - free_pages:    number of free physical pages
@@ -37,7 +37,7 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 - The lock: **`process->getThreadLock()`** – your team's per-process Mutex. The page fault handler
   already holds it while it maps stack pages, so it is the lock that protects the page tables.
   `ScopeLock lock(process->getThreadLock());` around the walk.
-- Number 1505: 1500 is your `mkdir`, 1501–1503 your `pthread_join`/`pthread_cancel`/`pthread_testcancel`.
+- Number 1507: 1500 is your `mkdir`, 1501–1506 your `pthread_join`/`cancel`/`testcancel`/`detach`/`setcancelstate`/`setcanceltype`.
 
 
 ## Hints

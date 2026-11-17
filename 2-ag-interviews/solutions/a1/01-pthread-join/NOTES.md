@@ -10,15 +10,14 @@ size_t UserProcess::joinThread(size_t tid, void** exit_value)
 {
   ScopeLock lock(thread_lock_);
   if (tid == currentThread->getTID()) return -1;            // joining yourself
-  UserThreadData* thread_data = findThreadDataByTid(tid);
+  UserThreadData* thread_data = findThreadData(tid);
   if (!thread_data) return -1;                              // unknown (or joined before: deleted)
   if (thread_data->joined_) return -1;                      // someone else joins it already
   thread_data->joined_ = true;
   while (!thread_data->exited_)
     thread_exited_.wait();                                  // broadcast in exitThread
   *exit_value = thread_data->exit_value_;
-  removeThreadDataFromList(thread_data);
-  delete thread_data;
+  removeThreadData(thread_data->tid_);           // removes AND deletes it
   return 0;
 }
 ```
@@ -33,7 +32,12 @@ size_t UserProcess::joinThread(size_t tid, void** exit_value)
 - `Syscall::pthreadJoin` writes `*value_ptr` only after `joinThread` returned (lock released) –
   writing user memory may page-fault, and the page fault handler needs `thread_lock_`.
 
-## What the course test shows: 8 pass, then a kernel panic
+## Status on `4778e63b` (15 Nov): 8 pass, then the whole process ends with 9999 – no panic
+
+Your team chose the POSIX design (a fault ends the process), and ending the process with a
+joiner asleep in `pthread_join` no longer panics. The rest is the analysis of the old panic on `f78faff3`.
+
+## What the course test showed on `f78faff3`: 8 pass, then a kernel panic
 
 Check 9 creates a thread that dereferences NULL while `main` sleeps in `pthread_join`:
 

@@ -88,7 +88,7 @@ stack page is killed with 666. Copy both (`setUserStackTop`, `setUserStackLowest
 `UserProcess::fork(thread_to_clone_from)` (Felix): loads the binary again (`loadExecutable`),
 creates the child with a **deep copy** of the address space (`new ArchMemory(*arch_memory_)` – all
 stacks included), copies `next_stack_slot_`, makes ONE thread with the copy constructor
-`UserThread(child, parent_thread)` (registers copied, `rax = 0`), `registerThread`, `startProcess`.
+`UserThread(child, parent_thread)` (registers copied, `rax = 0`), `registerThread`, `Scheduler::addNewThread`; open files: `child->getFileDescriptorList().clone(fd_list_)`. Locks: `process_lock_` (loader + memory copy), then `thread_lock_`.
 `Syscall::fork` turns 0 into -1. forkall is the same with a loop over `threads_`.
 
 ## The other reading from the list: fork every running process
@@ -145,6 +145,6 @@ The caller's copy could run immediately and call `exit()`; `exitProcess` kills e
 
 <details><summary>Why keep the thread ids – and what would break if the child got new ones?</summary>
 
-`pthread_t` values are stored in **user memory** (globals, the stack) – e.g. the test's `spinner_tid`. If the copies got new tids, every stored id would be wrong in the child: `pthread_join`/`pthread_cancel` with them would fail or hit the wrong thread. Same tids are fine, because tids only need to be unique **within a process** (`findThreadDataByTid` searches one process).
+`pthread_t` values are stored in **user memory** (globals, the stack) – e.g. the test's `spinner_tid`. If the copies got new tids, every stored id would be wrong in the child: `pthread_join`/`pthread_cancel` with them would fail or hit the wrong thread. Same tids are fine, because tids only need to be unique **within a process** (`findThreadData` searches one process).
 
 </details>

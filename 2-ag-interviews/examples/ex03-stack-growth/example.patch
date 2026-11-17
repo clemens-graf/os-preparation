@@ -1,8 +1,8 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index bc32c487..be27b770 100644
+index 33fc6354..3d2d2253 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -10,7 +10,7 @@
+@@ -11,7 +11,7 @@
  #include "ulist.h"
  #include "Condition.h"
  

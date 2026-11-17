@@ -1,5 +1,5 @@
 diff --git a/common/include/kernel/Loader.h b/common/include/kernel/Loader.h
-index 2c8ceab6..657a70ad 100644
+index fa1a87b7..f96aeb27 100644
 --- a/common/include/kernel/Loader.h
 +++ b/common/include/kernel/Loader.h
 @@ -7,6 +7,15 @@
@@ -16,9 +16,9 @@ index 2c8ceab6..657a70ad 100644
 +};
 +
  class Stabs2DebugInfo;
+ class File;
  
- class Loader
-@@ -32,6 +41,12 @@ class Loader
+@@ -41,6 +50,12 @@ class Loader
  
      Stabs2DebugInfo const* getDebugInfos() const;
  
@@ -32,10 +32,10 @@ index 2c8ceab6..657a70ad 100644
  
    private:
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..f17ce339 100644
+index b82d8ca3..6e9afb1b 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,6 +18,9 @@ class Syscall
+@@ -19,6 +19,9 @@ class Syscall
      static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
@@ -46,7 +46,7 @@ index 3b55c7a6..f17ce339 100644
  
      // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..79b596a2 100644
+index 290b5459..04c35287 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,9 @@
@@ -60,11 +60,11 @@ index db84270e..79b596a2 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..fc1cff0c 100644
+index 6e77ae40..1d516afb 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
-@@ -80,6 +80,25 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
-   debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
+@@ -88,6 +88,25 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+   return true;
  }
  
 +size_t Loader::getSegments(SegmentInfo* out, size_t max)
@@ -90,7 +90,7 @@ index e9c4233f..fc1cff0c 100644
  {
    assert(program_binary_lock_.isHeldBy(currentThread));
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..a61749b2 100644
+index 439b092c..b174e3a9 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,8 @@
@@ -101,10 +101,10 @@ index 178fc3a2..a61749b2 100644
 +#include "kstring.h"
  #include "UserProcess.h"
  #include "UserThread.h"
- 
-@@ -112,6 +114,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_getppid:
-       return_value = getppid();
+ #include "Clock.h"
+@@ -161,6 +163,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_segments:
 +      return_value = segments(arg1, arg2);
@@ -112,7 +112,7 @@ index 178fc3a2..a61749b2 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +508,21 @@ void Syscall::trace()
+@@ -743,6 +748,21 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -135,7 +135,7 @@ index 178fc3a2..a61749b2 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 901640e9..6e554ed3 100644
+index 54687327..2a601ec4 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -146,9 +146,9 @@ index 901640e9..6e554ed3 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -26,6 +28,16 @@ extern int getThreadCount(void);
+@@ -31,6 +33,16 @@ extern int getProcessCount(void);
   */
- extern int getProcessCount(void);
+ extern unsigned long getUsedKernelMemory(void);
  
 +// EX09: same layout as SegmentInfo in the kernel's Loader.h
 +struct segment
@@ -164,18 +164,18 @@ index 901640e9..6e554ed3 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index befb9485..19da18e7 100644
+index 4c40ec43..e9d210d7 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
  
- extern int main();
+ extern int main(int argc, char** argv);
  
 +int segments(struct segment* out, size_t max)
 +{
 +  return __syscall(sc_segments, (size_t) out, max, 0x00, 0x00, 0x00);
 +}
 +
- void _start()
+ void _start(int argc, char** argv)
  {
-   exit(main());
+   exit(main(argc, argv));

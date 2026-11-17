@@ -1,10 +1,10 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index bc32c487..34e9a10e 100644
+index 33fc6354..54593dd8 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -64,6 +64,12 @@ class UserProcess
-     ustl::string getFileName(){return filename_;}
- 
+@@ -92,6 +92,12 @@ class UserProcess
+     // setter
+     void setCpuCycles(uint64 new_cycles) {cpu_cycles_ = new_cycles;}
  
 +    /**
 +     * A0-04: maps ppn read-only at vpn (map + clear the writable bit under thread_lock_)
@@ -16,10 +16,10 @@ index bc32c487..34e9a10e 100644
       * Tries to create the process with its address space.
       * If this fails to create (invalid executable etc.) then it does not create one!
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..0e96831e 100644
+index 2973d144..cec2c7de 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -9,6 +9,7 @@
+@@ -11,6 +11,7 @@
  #include "offsets.h"
  #include "Scheduler.h"
  #include "UserThread.h"
@@ -27,9 +27,9 @@ index e32f2cda..0e96831e 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -600,3 +601,15 @@ void UserProcess::exitProcess()
-   thread_lock_.release();
- 
+@@ -936,3 +937,15 @@ void UserProcess::addCpuCycles(uint64 cycles)
+ {
+   cpu_cycles_ += cycles;
  }
 +
 +bool UserProcess::mapReadOnlyPage(size_t vpn, size_t ppn)
@@ -44,7 +44,7 @@ index e32f2cda..0e96831e 100644
 +  return true;                              // not present before -> not in the TLB -> no flush needed
 +}
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 2dfb14e4..a01eeb01 100644
+index 6d909f90..77339bad 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -9,10 +9,16 @@
@@ -64,6 +64,15 @@ index 2dfb14e4..a01eeb01 100644
  inline bool PageFaultHandler::checkPageFaultIsValid(size_t address, bool user,
                                                      bool present, bool switch_to_us)
  {
+@@ -60,7 +66,7 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+   if (PAGEFAULT & OUTPUT_ENABLED)
+     kprintfd("\n");
+   debug(PAGEFAULT, "Address: %18zx - Thread %zu: %s (%p)\n",
+-        address, currentThread->getTID(), currentThread->getName(), currentThread);
++        address, currentThread->getTID(), currentThread->getProcess()->getFileName().c_str(), currentThread);
+   debug(PAGEFAULT, "Flags: %spresent, %s-mode, %s, %s-fetch, switch to userspace: %1d\n",
+         present ? "    " : "not ",
+         user ? "  user" : "kernel",
 @@ -72,6 +78,19 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
  
    if (checkPageFaultIsValid(address, user, present, switch_to_us))
@@ -75,7 +84,7 @@ index 2dfb14e4..a01eeb01 100644
 +      const char* prefix = "coffee for ";
 +      size_t prefix_length = strlen(prefix);
 +      memcpy(content, prefix, prefix_length);                 // the page is zeroed: the rest stays 0
-+      strncpy(content + prefix_length, currentThread->getName(), PAGE_SIZE - prefix_length - 1);
++      strncpy(content + prefix_length, currentThread->getProcess()->getFileName().c_str(), PAGE_SIZE - prefix_length - 1);
 +      if (!currentThread->getProcess()->mapReadOnlyPage(MAGIC_PAGE / PAGE_SIZE, ppn))
 +        PageManager::instance()->freePPN(ppn);                  // another thread was faster
 +      return;

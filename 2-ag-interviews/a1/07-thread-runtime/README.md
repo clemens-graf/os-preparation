@@ -1,5 +1,7 @@
 # A1-07 · thread runtime + clock()
 
+> **Retired (re-pin of 17 Nov):** your team's code has `clock()` and the `Clock` class now. The `clock`-extension from the list is [A1-25](../25-clock-extension/), which extends your team's clock. `task start a1-07` no longer exists.
+
 **Time box 30 min · ★★☆ · type E (timer) + S ([TRIAGE](../../TRIAGE.md)) · builds on A1-01**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler, §15 a thread's life · example: [ex13](../../examples/ex13-timer-scheduler/)

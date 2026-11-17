@@ -43,7 +43,7 @@ the scheduler itself.
 
 <details><summary>3 – finding the thread by id</summary>
 
-Under `process->getThreadLock()`: `findThreadDataByTid(id)`, then its `thread_` – use that
+Under `process->getThreadLock()`: `findThreadData(id)`, then its `thread_` – use that
 pointer only while holding the lock (`exitThread` clears it under the same lock before the thread dies).
 </details>
 
@@ -62,7 +62,7 @@ pointer only while holding the lock (`exitThread` clears it under the same lock 
 
 ## Your team's code
 
-The flag is per thread → `Thread.h`: `volatile size_t double_slice_ = 0; size_t extra_slice_used_ = 0;` (default member initializers – no constructor change). The scheduler change goes into `Scheduler::schedule()` before the round robin. Finding the thread: `findThreadDataByTid(id)->thread_` under `getThreadLock()`. `pthread_setdouble(0, …)` means the calling thread.
+The flag is per thread → `Thread.h`: `volatile size_t double_slice_ = 0; size_t extra_slice_used_ = 0;` (default member initializers – no constructor change). The scheduler change goes into `Scheduler::schedule()` before the round robin. Finding the thread: `findThreadData(id)->thread_` under `getThreadLock()`. `pthread_setdouble(0, …)` means the calling thread.
 
 ## Questions a tutor might ask
 

@@ -1,5 +1,5 @@
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 2dfb14e4..eb231c6d 100644
+index 6d909f90..b3c5e111 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -8,6 +8,9 @@
@@ -12,6 +12,15 @@ index 2dfb14e4..eb231c6d 100644
  
  extern "C" void arch_contextSwitch();
  
+@@ -60,7 +63,7 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
+   if (PAGEFAULT & OUTPUT_ENABLED)
+     kprintfd("\n");
+   debug(PAGEFAULT, "Address: %18zx - Thread %zu: %s (%p)\n",
+-        address, currentThread->getTID(), currentThread->getName(), currentThread);
++        address, currentThread->getTID(), currentThread->getProcess()->getFileName().c_str(), currentThread);
+   debug(PAGEFAULT, "Flags: %spresent, %s-mode, %s, %s-fetch, switch to userspace: %1d\n",
+         present ? "    " : "not ",
+         user ? "  user" : "kernel",
 @@ -72,6 +75,19 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
  
    if (checkPageFaultIsValid(address, user, present, switch_to_us))
@@ -21,7 +30,7 @@ index 2dfb14e4..eb231c6d 100644
 +      size_t ppn = PageManager::instance()->allocPPN();          // a zeroed frame
 +      char* page = (char*) ArchMemory::getIdentAddressOfPPN(ppn); // the kernel's address of it
 +      strncpy(page, "coffee for ", PAGE_SIZE);
-+      strncat(page, currentThread->getName(), PAGE_SIZE - strlen(page) - 1);
++      strncat(page, currentThread->getProcess()->getFileName().c_str(), PAGE_SIZE - strlen(page) - 1);
 +      ArchMemory& memory = currentThread->getProcess()->getAddressSpace();
 +      bool mapped = memory.mapPage(address / PAGE_SIZE, ppn, 1);
 +      assert(mapped);

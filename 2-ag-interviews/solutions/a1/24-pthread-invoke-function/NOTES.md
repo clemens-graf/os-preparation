@@ -1,6 +1,6 @@
 # A1-24 pthread_invoke from a function pointer – solution notes
 
-Patch: [`solution.patch`](solution.patch) – on your team's code (`f78faff3`). Tested: 9 of 9.
+Patch: [`solution.patch`](solution.patch) – on your team's code (`4778e63b`). Tested: 9 of 9.
 
 ## The three parts
 

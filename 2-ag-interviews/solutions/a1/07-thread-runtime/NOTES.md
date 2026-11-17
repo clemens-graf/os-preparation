@@ -11,7 +11,7 @@ void Scheduler::incTicks()          // timer interrupt, interrupts off
 }
 ```
 
-- `thread_runtime(id)`: under `thread_lock_`, `findThreadDataByTid(id)->thread_->cpu_ticks_`.
+- `thread_runtime(id)`: under `thread_lock_`, `findThreadData(id)->thread_->cpu_ticks_`.
 - Process time: main thread + running threads + `finished_ticks_` (added in `exitThread`,
   when the destructor still has the counter).
 - `clock()` in `userspace/libc/src/time.c`: `ticks * 54925` µs (1193180 / 65536 = 18.2 Hz).

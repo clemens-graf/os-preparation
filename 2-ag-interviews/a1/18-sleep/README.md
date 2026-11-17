@@ -1,5 +1,7 @@
 # A1-18 · sleep + uptime
 
+> **Retired (re-pin of 17 Nov):** your team's code has `sleep`/`nanosleep` now (`Scheduler::timedSleepUntil`). Study how it works in the code tour instead. `task start a1-18` no longer exists.
+
 **Time box 25 min · ★★☆ · type S + E (syscall + timer)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §11 timer & scheduler · example: [ex13](../../examples/ex13-timer-scheduler/)

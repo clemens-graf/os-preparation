@@ -62,7 +62,7 @@ Plus **kernel threads** that run on their own: `Console` (keyboard input), `Proc
 3. `UserProcess::create` (`UserProcess.cpp`): `loadExecutable` (ELF headers → `Loader`),
    `new UserProcess` (new `ArchMemory`), `createThread(entry, …)` → `UserThread` constructor
    (`UserThread.cpp`: user registers with `rip = entry`, stack top, `setAddressSpace`)
-4. `startProcess` → `Scheduler::addNewThread` → the timer schedules it
+4. `UserProcess::create` → `Scheduler::addNewThread` → the timer schedules it
 5. First instruction → **page fault** (nothing is loaded yet) → `Loader::loadPage` maps the code page
 6. User code starts at **`_start`** (`userspace/libc/src/nonstd.c`): `exit(main());`
 
@@ -96,12 +96,13 @@ return value → user_registers_->rax → back in user space as the return value
 pageFaultHandler (InterruptUtils.cpp): error bits → present / user / writing / fetch
 PageFaultHandler::enterPageFault → handlePageFault (common/source/mm/PageFaultHandler.cpp)
   checkPageFaultIsValid: user address below USER_BREAK, not present, … ? else → exit(9999)
-  valid: thread_lock_ ON
-    isUserStackFault  → map stack pages down to the fault (mapStackPage)  → return
-    isGuardPage       → exit(9999)
+  valid: process_lock_ ON, then thread_lock_ ON
+    isUserStackFault  → map stack pages down to the fault (mapStackPage)
+    isGuardPage       → is_exit
     else: thread_lock_ OFF → getLoader().loadPage(address, getAddressSpace())
           Loader::loadPage: find the ELF segment, allocPPN, copy from the binary, mapPage
-          no segment → exit(666)
+          returns false if no segment covers the address → is_exit
+  process_lock_ OFF; is_exit → exit(9999)   (never exit while holding a lock)
 ```
 
 ### Timer tick / thread switch
@@ -153,11 +154,11 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 | `libc/src/nonstd.c` ★ | their implementations (`__syscall(...)`) and **`_start`** (`exit(main())`) – where every program starts |
 | `libc/include/stdlib.h` / `src/stdlib.c` ★ | `atexit` (your A0 version: `atexit_functions[ATEXIT_MAX]`, `__runAtexitFunctions`); `malloc`, `free`, `calloc`, `realloc` – **STUBS**; `atoi`/`atol` are in `atoi.c` |
 | `libc/src/exec.c` ★ | `exit` (`__runAtexitFunctions()`, then the syscall), `_exit` (syscall only), `fork`, `execv` |
-| `libc/include/pthread.h` / `src/pthread.c` ★ | `pthread_create` (+ the trampoline `pthread_start`), `pthread_exit`, `join`, `cancel`, `testcancel`, `self`, `equal`, `detach` work; **STUBS:** `pthread_mutex_*`, `pthread_cond_*`, `pthread_spin_*`, `pthread_setcancelstate/type`. Types: `pthread_t` = `size_t`, `pthread_mutex_t`/`pthread_spinlock_t`/`pthread_cond_t` = `unsigned int` |
+| `libc/include/pthread.h` / `src/pthread.c` ★ | `pthread_create` (+ the trampoline `pthread_start`), `pthread_exit`, `join`, `cancel` (deferred **and** asynchronous), `testcancel`, `setcancelstate`, `setcanceltype`, `self`, `equal`, `detach` work; **STUBS:** `pthread_mutex_*`, `pthread_cond_*`, `pthread_spin_*` (the `pthread_spin_*` are not even declared in `pthread.h`). Types: `pthread_t` = `size_t`, `pthread_mutex_t`/`pthread_spinlock_t`/`pthread_cond_t` = `unsigned int` |
 | `libc/include/semaphore.h` / `src/semaphore.c` | `sem_init/wait/trywait/post/destroy` – **all STUBS**; `sem_t` = `unsigned int` |
-| `libc/src/unistd.c` | `getpid`, `getppid` work; **STUBS:** `brk`, `sbrk`, `sleep`, `ftruncate` |
-| `libc/src/time.c` | `clock` – **STUB** (`CLOCKS_PER_SEC` 1000000 in `time.h`) |
-| `libc/src/wait.c` | `waitpid` – **STUB** |
+| `libc/src/unistd.c` | `getpid`, `getppid`, `sleep` (via `nanosleep`) work; **STUBS:** `brk`, `sbrk`, `ftruncate` |
+| `libc/src/time.c` | `clock` (= `CLOCK_PROCESS_CPUTIME_ID` in µs), `clock_gettime/getres/settime`, `nanosleep` – your team's, backed by the kernel's `Clock` class (`common/source/misc/Clock.cpp`) |
+| `libc/src/wait.c` | `waitpid` – your team's (syscall 2003, also a cancellation point) |
 | `libc/src/mman.c` | `mmap`, `munmap`, `shm_open`, `shm_unlink`, `mprotect` – **all STUBS** |
 | `libc/src/sched.c` | `sched_yield` (syscall 158) |
 | `libc/src/string.c` | `memcmp`, `memcpy`, `memset`, `strlen`, `strcmp`, `strstr` – **no `strcpy`/`strncpy`** |
@@ -174,12 +175,12 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 | `Syscall.cpp` ★ | `syscallException` (the switch) and every syscall: `exit`, `write`, `read`, `open`, `close`, `createprocess`, `pthreadCreate/Exit/Join/Cancel/Self/Equal/Detach`, `fork`, `execv`, `getpid`, `mkdir`, `getThreadCount`, `getProcessCount`; helper `copyUserString` (safe user-string copy) |
 | `../include/kernel/syscall-definitions.h` ★ | every `sc_…` number – included by kernel **and** libc. Your block 1500–1999 |
 | `../include/kernel/Syscall.h` ★ | the declarations (`static size_t x(...)`) |
-| `UserProcess.cpp` ★ | **the process**: `create`, `startProcess`, `fork`, `exec`, `createThread`, `registerThread`, `threadExited`; stacks: `allocateNewStack`, `allocateStackPage`, `mapStackPage`, `isGuardPage`; threads: `exitThread`, `joinThread`, `cancelThread`, `detachThread`, `isCancelRequested`, `findThreadData(ByTid)`, `exitProcess`; `getAddressSpace`, `getLoader`, `getThreadLock`; destructor frees loader + address space. **Per-process state goes here** |
+| `UserProcess.cpp` ★ | **the process**: `create`, `fork`, `exec`, `createThread`, `registerThread`, `threadExited`; stacks: `allocateNewStack`, `allocateStackPage`, `mapStackPage`, `isGuardPage`; threads: `exitThread`, `joinThread`, `cancelThread`, `detachThread`, `isCancelRequested`, `findThreadData(tid)`, `removeThreadData(tid)`, `exitProcess`; `getAddressSpace`, `getLoader`, `getProcessLock`, `getThreadLock`; destructor frees loader + address space. **Per-process state goes here** |
 | `../include/kernel/UserProcess.h` ★ | `UserThreadData` (`thread_`, `exit_value_`, `tid_`, `exited_`, `joined_`, `requested_cancel_`, `detached_`), `JOIN_CANCELED`, `EXEC_MAX_*`, members: `arch_memory_`, `loader_`, `thread_lock_` (Mutex), `thread_exited_` (Condition), `threads_`, `USERSTACK_PAGES`, `GUARD_PAGE` |
 | `UserThread.cpp` ★ | **a user thread**: constructors (new thread / forked thread), `Run`, `resetForExec`, stack top/bottom vpn. **Per-thread state goes into `UserThread.h`**, reach it with `(UserThread*) currentThread` |
 | `Thread.cpp` | the base of every thread (kernel and user): kernel stack, `kill`, state, name, TID, terminal, `printBacktrace`; `user_registers_`, `kernel_registers_`, `switch_to_userspace_`, `getProcess()` |
 | `Scheduler.cpp` ★ | `schedule` (round robin over `threads_`), `addNewThread`, `yield`, `sleep`/`wake`, `cleanupDeadThreads`, `printThreadList`, `getTicks`/`incTicks`, `getThreadCount`, `getNextTid`. **Scheduling tasks change `schedule()`** |
-| `Loader.cpp` | the ELF binary of a process: `readHeaders`, `getEntryFunction`, **`loadPage`** (lazy loading of code/data; exit 666 if no segment) |
+| `Loader.cpp` | the ELF binary of a process: `readHeaders`, `getEntryFunction`, **`loadPage`** (lazy loading of code/data; returns false if no segment) |
 | `ProcessRegistry.cpp` | kernel thread: mounts `/usr`, starts the programs of `user_progs.h` (the shell), `createProcess`, counts processes (`processStart/Exit/Count`), `registerPID` |
 | `Mutex.cpp`, `SpinLock.cpp`, `Condition.cpp`, `Lock.cpp`, `ScopeLock.h` | kernel locks with checks (deadlock detection, wrong release). Mutex sleeps, SpinLock spins (no `new`/`delete` while holding one) |
 | `CleanupThread.cpp`, `IdleThread.cpp` | the two helper kernel threads |
@@ -238,12 +239,12 @@ copies every page), new `UserThread(child, parent)` (copies the registers, `rax 
 | implement a POSIX function that is a stub | its libc file (section 3.1) – first check if it needs the kernel ([TRIAGE.md](TRIAGE.md)) |
 | run code when a program exits | user side: `exit()` in `libc/src/exec.c`; kernel side: `Syscall::exit` / `UserProcess::exitProcess` |
 | run code when a process is deleted | `~UserProcess` (`UserProcess.cpp`) – the last thread is gone |
-| run code when a program starts | user side: `_start` in `nonstd.c`; kernel side: `UserProcess::create` / `startProcess` |
+| run code when a program starts | user side: `_start` in `nonstd.c`; kernel side: `UserProcess::create` |
 | store something per process | member in `UserProcess.h` (+ init in the constructor's initializer list or `= 0`) |
 | store something per thread | member in `UserThread.h`, reach it via `(UserThread*) currentThread` |
 | store something global in the kernel | a `static` member (e.g. `Syscall::x_`) or a global in a `.cpp`; create objects in `main.cpp` |
 | get the calling process / thread | `currentThread->getProcess()` / `(UserThread*) currentThread` |
-| find a thread by TID | `process->findThreadDataByTid(tid)` (hold `getThreadLock()`!) |
+| find a thread by TID | `process->findThreadData(tid)` (hold `getThreadLock()`!) |
 | map / unmap a page | `process->getAddressSpace().mapPage(vpn, ppn, 1)` / `.unmapPage(vpn)` + `ArchMemory::flushTlb()` |
 | find out what is mapped | `getAddressSpace().resolveMapping(vpn)` → `.page_size`, `.page_ppn` |
 | read/write a physical page from the kernel | `(char*) ArchMemory::getIdentAddressOfPPN(ppn)` |
@@ -284,10 +285,10 @@ They exist (header + function), but return an error or do nothing. A task like "
 | `sem_init/wait/trywait/post` | `semaphore.c` | U | one global spinlock (A1-15) protects the counter; `sem_wait` loops: lock, value > 0 → value--, unlock, else unlock + `sched_yield` | A1-16 |
 | `pthread_cond_*` | `pthread.c` | U (simple) / S (real) | simple: a generation counter – `wait` unlocks, yields until the counter changed, locks again; `signal`/`broadcast` increment it | A1-17 |
 | `pthread_detach` | `pthread.c` | S | **done** – yours, merged: a `detached_` flag in `UserThreadData`; `exitThread` frees the data at once, `join` refuses | A1-20 (study) |
-| `sleep` | `unistd.c` | S | kernel: wait until `Scheduler::getTicks()` reached start + seconds × tick rate (yield in a loop) | A1-18 |
-| `clock` | `time.c` | S | a syscall that returns ticks of the process | A1-07 |
+| `sleep` | `unistd.c` | S | **done** – your team's `nanosleep` (`Scheduler::timedSleepUntil`) | A1-18 (superseded) |
+| `clock` | `time.c` | S | **done** – your team's `Clock` (TSC); extend it: [A1-25](a1/25-clock-extension/) | A1-25 |
 | `sbrk`, `brk` | `unistd.c` | S | per-process break in `UserProcess`, pages mapped on demand in the page fault handler | A1-12 |
-| `waitpid` | `wait.c` | S | `ProcessRegistry` remembers exit codes per pid; the caller waits on a Condition | A1-19 |
+| `waitpid` | `wait.c` | S | **done** – your team's: `ProcessRegistry` keeps exit codes, the caller waits on a Condition | A1-19 (study) |
 | `mmap`, `munmap`, `shm_*` | `mman.c` | S | like A0-02 (allocpage) with a size; shared pages like A1-10 | A2-13 (mmap), A1-10 (shared) |
 | `mprotect` | `mman.c` | S | change `writeable` / `execution_disabled` bits + `flushTlb` | A2-07 |
-| `pthread_setcancelstate/type` | `pthread.c` | S | a flag per thread in `UserThreadData`, checked where `requested_cancel_` is checked | – |
+| `pthread_setcancelstate/type` | `pthread.c` | S | **done** – yours (syscalls 1505/1506), incl. asynchronous cancellation | A1-06 (study) |

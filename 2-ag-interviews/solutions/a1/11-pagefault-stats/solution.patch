@@ -37,22 +37,22 @@ index 65609d67..297c6469 100644
  
    if (address >= USER_BREAK && address < KERNEL_START) { // dirty hack due to qemu invoking the pf handler when accessing non canonical addresses
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..1e5e4693 100644
+index b82d8ca3..76471764 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -37,6 +37,7 @@ class Syscall
-     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
-     static size_t pthreadCancel(size_t thread);
+@@ -39,6 +39,7 @@ class Syscall
      static size_t pthreadDetach(size_t thread);
+     static size_t pthreadSetCancelState(int state, int *oldstate);
+     static size_t pthreadSetCancelType(int new_type, int *oldtype);
 +    static size_t pfStats(size_t user_stats);   // A1-11
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index bc32c487..033aecda 100644
+index 33fc6354..6c76d255 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -171,6 +171,13 @@ class UserProcess
+@@ -234,6 +234,13 @@ class UserProcess
        */
      size_t cancelThread(size_t tid);
  
@@ -67,24 +67,24 @@ index bc32c487..033aecda 100644
      * Checks whether cancellation was requested for the thread with the given tid.
      *
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..18b06c1c 100644
+index 290b5459..f507d854 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -34,6 +34,7 @@
- #define sc_pthread_cancel 1502
- #define sc_pthread_testcancel 1503
+@@ -44,6 +44,7 @@
  #define sc_pthread_detach 1504
+ #define sc_pthread_setcancelstate 1505
+ #define sc_pthread_setcanceltype 1506
 +#define sc_pfstats 1690   // A1-11
  #define sc_thread_count 1998
  #define sc_process_count 1999
- 
+ #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..32275008 100644
+index 439b092c..103651ba 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -92,6 +92,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_execv:
-       return_value = execv((const char*) arg1, (char* const*) arg2);
+@@ -114,6 +114,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_equal:
+       return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
        break;
 +    case sc_pfstats:
 +      return_value = pfStats(arg1);
@@ -92,9 +92,9 @@ index 178fc3a2..32275008 100644
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
-@@ -540,3 +543,13 @@ bool Syscall::copyUserString(size_t path, char* kernel_buffer, size_t buffer_siz
+@@ -864,3 +867,13 @@ size_t Syscall::pthreadSetCancelType(int new_type, int *oldtype)
    }
-   return false;
+   return 0;
  }
 +
 +// A1-11: copy the page fault statistics of the calling process
@@ -107,7 +107,7 @@ index 178fc3a2..32275008 100644
 +  return 0;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 901640e9..cf115b0b 100644
+index 54687327..59e51489 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -118,9 +118,9 @@ index 901640e9..cf115b0b 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -26,6 +28,19 @@ extern int getThreadCount(void);
+@@ -31,6 +33,19 @@ extern int getProcessCount(void);
   */
- extern int getProcessCount(void);
+ extern unsigned long getUsedKernelMemory(void);
  
 +// A1-11: page faults of the calling process (same layout as UserProcess::PageFaultStats)
 +struct pfstats
@@ -139,16 +139,13 @@ index 901640e9..cf115b0b 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index befb9485..1402dbf7 100644
+index 4c40ec43..48aeb0d3 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -23,4 +23,10 @@ int getThreadCount(void)
- int getProcessCount(void)
+@@ -29,3 +29,9 @@ unsigned long getUsedKernelMemory(void)
  {
-   return __syscall(sc_process_count, 0x00, 0x00, 0x00, 0x00, 0x00);
--}
-\ No newline at end of file
-+}
+   return __syscall(sc_get_used_kernel_memory, 0x00, 0x00, 0x00, 0x00, 0x00);
+ }
 +
 +// A1-11
 +int pfstats(struct pfstats* stats)

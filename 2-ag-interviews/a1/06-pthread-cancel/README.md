@@ -24,7 +24,7 @@ computing thread that is only cancelled at its next syscall.
 ## Your team's code: a study task
 
 Your team already has deferred `pthread_cancel` (your own P2 work, numbers 1502/1503) –
-`task solution a1-06` is `main` plus the course test. **On `f78faff3` all 9 checks pass.** Until
+`task solution a1-06` is `main` plus the course test. **On `4778e63b` (15 Nov) all 9 checks pass** – the test loops on `pthread_testcancel()`, because your team now follows the POSIX list of cancellation points (`sched_yield` is none). Until
 13 Oct (`40140475`) the test hung at "a thread sleeping in pthread_join is cancelled" – your
 `feature/pthread-cancel-points` (merged 18 Oct) fixed exactly that: `cancelThread` now broadcasts
 `thread_exited_`, the join loop checks the caller's own cancel flag and returns `JOIN_CANCELED`,
@@ -38,7 +38,7 @@ Where to look:
 |---|---|
 | syscall | `Syscall::pthreadCancel` → `UserProcess::cancelThread(tid)`: sets `requested_cancel_` and broadcasts `thread_exited_`, under `thread_lock_` |
 | cancelled while joining | `joinThread`'s wait loop: own `requested_cancel_` → `joined_ = false`, return `JOIN_CANCELED`; `Syscall::pthreadJoin` → `exitThread(PTHREAD_CANCELED_VALUE)` |
-| cancellation point | top of `Syscall::syscallException` (every syscall) and `pthread_testcancel` → `isCancelRequested` |
+| cancellation point | top of `Syscall::syscallException`: `isCancellationPoint(nr)` (since 15 Nov only the POSIX ones: `read`, `write`, `open`, `close`, `pthread_join`, `pthread_testcancel`, `waitpid`, `nanosleep` – **not** `sched_yield`) → `isCancelRequested` |
 | ending | the thread calls `exitThread(PTHREAD_CANCELED)` itself – at a safe point, holding no lock |
 
 ## Why deferred (keep these in mind)

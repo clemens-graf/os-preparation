@@ -30,7 +30,7 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
   valid branch – put the magic-page case **first** in that branch and `return` afterwards.
 - Map + clear-writable in one critical section: a helper `UserProcess::mapReadOnlyPage(vpn, ppn)`
   (`ScopeLock lock(thread_lock_)`, `arch_memory_->mapPage(...)`, then clear `writeable`).
-- `currentThread->getName()` is the program's file name.
+- `currentThread->getProcess()->getFileName().c_str()` is the program's file name. (Not `currentThread->getName()`: since 15 Nov your shell starts programs with `fork` + `execv`, and `execv` changes `filename_` but not the thread's name – it stays `/usr/shell.sweb`.)
 
 
 ## Hints

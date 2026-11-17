@@ -1,20 +1,20 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..7eb0a674 100644
+index b82d8ca3..f0a4b99a 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -37,6 +37,7 @@ class Syscall
-     static size_t pthreadJoin(size_t thread, void** value_ptr); //man 3posix pthread_join
-     static size_t pthreadCancel(size_t thread);
+@@ -39,6 +39,7 @@ class Syscall
      static size_t pthreadDetach(size_t thread);
+     static size_t pthreadSetCancelState(int state, int *oldstate);
+     static size_t pthreadSetCancelType(int new_type, int *oldtype);
 +    static size_t pthreadSwitch(size_t thread_a, size_t thread_b);   // A1-23
  
      static size_t getThreadCount();
      static size_t getProcessCount();
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index bc32c487..94a36550 100644
+index 33fc6354..35753cb1 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
-@@ -188,6 +188,14 @@ class UserProcess
+@@ -251,6 +251,14 @@ class UserProcess
      */
      size_t detachThread(size_t tid);
  
@@ -27,27 +27,27 @@ index bc32c487..94a36550 100644
 +    size_t switchThreadIds(size_t a, size_t b);
 +
      /**
-      * Called if a thread calles exit, caller kills all still active theads, then frees the thread data structs and kills itself afterwards
-      *
+      * Kills all threads and cleans their thread data.
+      * @param is_caller_removed true if the caller thread should also be removed,
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..5a7fdfe1 100644
+index 290b5459..87c2bc55 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
-@@ -34,6 +34,7 @@
- #define sc_pthread_cancel 1502
- #define sc_pthread_testcancel 1503
+@@ -44,6 +44,7 @@
  #define sc_pthread_detach 1504
+ #define sc_pthread_setcancelstate 1505
+ #define sc_pthread_setcanceltype 1506
 +#define sc_pthread_switch 1730   // A1-23
  #define sc_thread_count 1998
  #define sc_process_count 1999
- 
+ #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..4aa28bfb 100644
+index 439b092c..f40263dc 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -103,6 +103,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_pthread_detach:
-       return_value = pthreadDetach(arg1);
+@@ -131,6 +131,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_pthread_setcanceltype:
+       return_value = pthreadSetCancelType((int)arg1, (int*)arg2);
        break;
 +    case sc_pthread_switch:
 +      return_value = pthreadSwitch(arg1, arg2);
@@ -55,7 +55,7 @@ index 178fc3a2..4aa28bfb 100644
      case sc_fork:
        return_value = fork();
        break;
-@@ -232,6 +235,15 @@ size_t Syscall::pthreadCancel(size_t thread)
+@@ -364,6 +367,15 @@ size_t Syscall::pthreadCancel(size_t thread)
    return 0;
  }
  
@@ -72,11 +72,11 @@ index 178fc3a2..4aa28bfb 100644
  {
    debug(PTHREAD_DETACH, "Pthread detach called by thread id: %zu\n", currentThread->getTID());
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..0d97ca6a 100644
+index 2973d144..0df2d970 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -507,6 +507,29 @@ bool UserProcess::isCancelRequested(size_t tid)
-   return thread_data && thread_data->requested_cancel_;
+@@ -824,6 +824,29 @@ bool UserProcess::isCancelRequested(size_t tid)
+   return thread_data && thread_data->requested_cancel_ && thread_data->cancel_enabled_;
  }
  
 +// A1-23
@@ -86,8 +86,8 @@ index e32f2cda..0d97ca6a 100644
 +
 +  if (a == b)
 +    return -1;
-+  UserThreadData* data_a = findThreadDataByTid(a);
-+  UserThreadData* data_b = findThreadDataByTid(b);
++  UserThreadData* data_a = findThreadData(a);
++  UserThreadData* data_b = findThreadData(b);
 +  if (!data_a || !data_b)
 +    return -1;                               // unknown (or already joined and deleted)
 +  if (data_a->joined_ || data_b->joined_)
@@ -106,10 +106,10 @@ index e32f2cda..0d97ca6a 100644
  {
    debug(PTHREAD_DETACH, "Thread id %zu wants to detach thread id %zu\n", currentThread->getTID(), tid);
 diff --git a/userspace/libc/include/pthread.h b/userspace/libc/include/pthread.h
-index c40fcbe2..9dd7f912 100644
+index acdce2f0..2e37b951 100644
 --- a/userspace/libc/include/pthread.h
 +++ b/userspace/libc/include/pthread.h
-@@ -41,6 +41,9 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
+@@ -40,6 +40,9 @@ extern int pthread_join(pthread_t thread, void **value_ptr);
  
  extern int pthread_detach(pthread_t thread);
  
@@ -120,12 +120,12 @@ index c40fcbe2..9dd7f912 100644
                                const pthread_mutexattr_t *attr);
  
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 8b8448e4..3a16e180 100644
+index 75e67a42..8dfb7dbe 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -231,3 +231,9 @@ int pthread_setcanceltype(int type, int *oldtype)
- {
-   return -1;
+@@ -240,3 +240,9 @@ int pthread_setcanceltype(int type, int *oldtype)
+   }
+   return __syscall(sc_pthread_setcanceltype, (size_t)type, (size_t)oldtype, 0x00, 0x00, 0x00);
  }
 +
 +// A1-23

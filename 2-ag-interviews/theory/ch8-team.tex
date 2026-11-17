@@ -2,8 +2,8 @@
 \label{ch:team}
 
 The interview happens in \textbf{your group's repository} --- and the whole course runs on it.
-Since Phase 0 it separates process and thread. State of \code{osw26e3} \code{main} on 19 Oct 2026
-(commit \code{f78faff3}, \code{team/BASE}) --- check again before the interview, the team keeps
+Since Phase 0 it separates process and thread. State of \code{osw26e3} \code{main} on 15 Nov 2026
+(commit \code{4778e63b}, \code{team/BASE}) --- check again before the interview, the team keeps
 changing it. Every file with its contents: \file{ATLAS.md}.
 
 \begin{center}
@@ -19,7 +19,7 @@ page-table lock & \code{process->getThreadLock()} (\code{thread\_lock\_}) --- th
 the loader & \code{process->getLoader()} (a \code{Loader\&}): \code{loadPage(address, getAddressSpace())} \\
 per-process state & members of \code{UserProcess} \\
 per-thread state & members of \code{UserThread}: \code{(UserThread*) currentThread} \\
-a thread by id & \code{findThreadDataByTid(tid)} under \code{thread\_lock\_} $\to$ \code{UserThreadData} (\code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{detached\_}) \\
+a thread by id & \code{findThreadData(tid)} under \code{thread\_lock\_} $\to$ \code{UserThreadData} (\code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{detached\_}) \\
 join / cancel / detach & \code{joinThread} (cancellation point: \code{JOIN\_CANCELED}), \code{cancelThread} (flag + broadcast), \code{detachThread} \\
 stacks & a slot per thread (\code{USERSTACK\_PAGES} = 4 + guard page), grown in the page fault handler \\
 exit & \code{exitProcess} kills all threads (POSIX) \\

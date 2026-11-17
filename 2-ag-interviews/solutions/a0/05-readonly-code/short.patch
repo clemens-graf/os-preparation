@@ -34,10 +34,10 @@ index 6aff17ae..403e7748 100644
    }
  
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..18c7121f 100644
+index 6e77ae40..56331d34 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
-@@ -29,6 +29,7 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -36,6 +36,7 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
    const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
    const pointer virt_page_end_addr = virt_page_start_addr + PAGE_SIZE;
    bool found_page_content = false;
@@ -45,7 +45,7 @@ index e9c4233f..18c7121f 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -39,6 +40,8 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -46,6 +47,8 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
    {
      if((*it).p_vaddr < virt_page_end_addr)
      {
@@ -54,8 +54,8 @@ index e9c4233f..18c7121f 100644
        if((*it).p_vaddr + (*it).p_filesz > virt_page_start_addr)
        {
          const pointer  virt_start_addr = ustl::max(virt_page_start_addr, (*it).p_vaddr);
-@@ -71,7 +74,7 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
-     Syscall::exit(666);
+@@ -78,7 +81,7 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+     return false;
    }
  
 -  bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);

@@ -1,5 +1,7 @@
 # A1-19 · waitpid
 
+> **Study task since the re-pin of 17 Nov:** your team implemented `waitpid` (syscall 2003). `task start a1-19` runs this card's test against **your team's** code – read it and explain it. Your team packs the status like Linux: the exit code is in bits 8–15, read it with `WEXITSTATUS(status)` (`wait.h`); the test does that (9999 arrives as `9999 & 0xff = 15`). The old reference solution for the code of 19 Oct is in `solution-old-f78faff3.patch`.
+
 **Time box 40 min · ★★★ · type S (syscall + kernel, processes)**
 
 **Theory first:** [concepts.pdf](../../concepts.pdf) §6 processes, waitpid, §5 exit & atexit

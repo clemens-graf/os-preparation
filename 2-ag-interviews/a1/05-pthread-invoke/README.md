@@ -59,7 +59,7 @@ Look the thread up under the process' thread lock, release the lock, then yield.
 
 ## Your team's code
 
-`Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadDataByTid(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
+`Scheduler.h`: `Thread* volatile preferred_ = nullptr;` + `yieldTo(thread)`; `Scheduler::schedule()` looks for `preferred_` first. The syscall finds the target with `findThreadData(id)->thread_` under `getThreadLock()` and calls `yieldTo` **after** releasing the lock.
 
 ## The other reading from the list: invoke with a function pointer
 

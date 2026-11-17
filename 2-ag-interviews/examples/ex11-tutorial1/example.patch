@@ -1,5 +1,5 @@
 diff --git a/common/include/console/debug.h b/common/include/console/debug.h
-index fdf613a1..386bb5e0 100644
+index 271ee633..02f35f57 100644
 --- a/common/include/console/debug.h
 +++ b/common/include/console/debug.h
 @@ -86,6 +86,8 @@ const size_t PSEUDOFS           = Ansi_Yellow;
@@ -12,10 +12,10 @@ index fdf613a1..386bb5e0 100644
  
  //group minix
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..51598d0f 100644
+index b82d8ca3..d50150b7 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
-@@ -18,6 +18,8 @@ class Syscall
+@@ -19,6 +19,8 @@ class Syscall
      static void pseudols(const char *pathname, char *buffer, size_t size);
  
      static size_t createprocess(size_t path, size_t sleep);
@@ -25,7 +25,7 @@ index 3b55c7a6..51598d0f 100644
  
      // process stuff
 diff --git a/common/include/kernel/Thread.h b/common/include/kernel/Thread.h
-index bf822dfb..1a6820d4 100644
+index 1aaeed44..5207b0ae 100644
 --- a/common/include/kernel/Thread.h
 +++ b/common/include/kernel/Thread.h
 @@ -2,6 +2,8 @@
@@ -37,7 +37,7 @@ index bf822dfb..1a6820d4 100644
  
  #define STACK_CANARY ((uint32)0xDEADDEAD ^ (uint32)(size_t)this)
  
-@@ -133,6 +135,8 @@ class Thread
+@@ -156,6 +158,8 @@ class Thread
      FileSystemInfo* working_dir_;
  
      ustl::string name_;
@@ -48,7 +48,7 @@ index bf822dfb..1a6820d4 100644
  };
  
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..444e4a4b 100644
+index 290b5459..99482337 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,7 @@
@@ -60,12 +60,12 @@ index db84270e..444e4a4b 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..b5fa1af9 100644
+index 439b092c..8a0b1388 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -112,6 +112,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_getppid:
-       return_value = getppid();
+@@ -161,6 +161,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_tutorial:
 +      tutorial((char*)arg1);
@@ -73,7 +73,7 @@ index 178fc3a2..b5fa1af9 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -502,6 +505,29 @@ void Syscall::trace()
+@@ -742,6 +745,29 @@ void Syscall::trace()
  {
    currentThread->printBacktrace();
  }
@@ -104,25 +104,25 @@ index 178fc3a2..b5fa1af9 100644
  size_t Syscall::getThreadCount()
  {
 diff --git a/common/source/kernel/Thread.cpp b/common/source/kernel/Thread.cpp
-index dadb421a..75e660e9 100644
+index 647ca195..91c67a1c 100644
 --- a/common/source/kernel/Thread.cpp
 +++ b/common/source/kernel/Thread.cpp
-@@ -33,7 +33,7 @@ extern "C" void threadStartHack()
- Thread::Thread(FileSystemInfo *working_dir, ustl::string name, Thread::TYPE type, UserProcess* process) :
+@@ -35,7 +35,7 @@ Thread::Thread(FileSystemInfo *working_dir, ustl::string name, Thread::TYPE type
      kernel_registers_(0), user_registers_(0), switch_to_userspace_(type == Thread::USER_THREAD ? 1 : 0),
      next_thread_in_lock_waiters_list_(0), lock_waiting_on_(0), holding_lock_list_(0), state_(Running), tid_(0),
--    process_(process), my_terminal_(0), working_dir_(working_dir), name_(ustl::move(name))
-+    process_(process), my_terminal_(0), working_dir_(working_dir), name_(ustl::move(name)), s_mutex{"s_mutex"}
+     process_(process), my_terminal_(0), cpu_cycles_(0), timed_sleep_deadline_(0), is_timed_sleep_(false),
+-    working_dir_(working_dir), name_(ustl::move(name))
++    working_dir_(working_dir), name_(ustl::move(name)), s_mutex{"s_mutex"}
  {
    debug(THREAD, "Thread ctor, this is %p, stack is %p, fs_info ptr: %p\n", this, kernel_stack_, working_dir_);
    ArchThreads::createKernelRegisters(kernel_registers_, (void*) (type == Thread::USER_THREAD ? 0 : threadStartHack), getKernelStackStartPointer());
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 901640e9..e7daab00 100644
+index 54687327..1570115d 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
-@@ -26,6 +26,8 @@ extern int getThreadCount(void);
+@@ -31,6 +31,8 @@ extern int getProcessCount(void);
   */
- extern int getProcessCount(void);
+ extern unsigned long getUsedKernelMemory(void);
  
 +extern int tutorial_syscall(const char* string);
 +
@@ -130,11 +130,11 @@ index 901640e9..e7daab00 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index befb9485..23dd2205 100644
+index 4c40ec43..0d350620 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
-@@ -15,6 +15,11 @@ void _start()
-   exit(main());
+@@ -15,6 +15,11 @@ void _start(int argc, char** argv)
+   exit(main(argc, argv));
  }
  
 +int tutorial_syscall(const char* string)

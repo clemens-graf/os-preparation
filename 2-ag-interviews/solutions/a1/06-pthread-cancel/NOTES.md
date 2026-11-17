@@ -9,7 +9,7 @@ Patch: [`solution.patch`](solution.patch) is **empty** – your team's `main` al
 size_t UserProcess::cancelThread(size_t tid)          // the canceller
 {
   ScopeLock lock(thread_lock_);
-  UserThreadData* thread_data = findThreadDataByTid(tid);
+  UserThreadData* thread_data = findThreadData(tid);
   if (!thread_data || thread_data->exited_) return -1;
   thread_data->requested_cancel_ = true;              // only a flag - the target ends itself
   return 0;
@@ -22,7 +22,7 @@ if (process && process->isCancelRequested(currentThread->getTID()))
 
 `pthread_testcancel` is an empty syscall: the check at the top of `syscallException` does the work.
 
-## Status on `f78faff3` (19 Oct): all 9 checks pass
+## Status on `4778e63b` (15 Nov): all 9 checks pass (the test now loops on `pthread_testcancel()` – `sched_yield` is no cancellation point any more)
 
 Your `feature/pthread-cancel-points` (18 Oct) is exactly the fix sketched below: `cancelThread`
 broadcasts `thread_exited_` after setting the flag; `joinThread` checks the caller's own
@@ -52,7 +52,7 @@ thread_exited_.broadcast();
 // isCancelRequested() would take it again: Mutexes are not recursive -> look it up directly)
 while (!thread_data->exited_)
 {
-  UserThreadData* self = findThreadDataByTid(currentThread->getTID());
+  UserThreadData* self = findThreadData(currentThread->getTID());
   if (self && self->requested_cancel_)
   {
     thread_data->joined_ = false;        // the target can be joined by someone else later

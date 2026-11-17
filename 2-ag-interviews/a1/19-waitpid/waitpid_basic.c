@@ -12,7 +12,7 @@ int main()
   int status = -1;
   printf(waitpid(child, &status, 0) == child ? "[PASS] waitpid returns the child's pid\n"
                                              : "[FAIL] waitpid failed\n");
-  printf(status == 42 ? "[PASS] the exit code arrives\n" : "[FAIL] status %d\n", status);
+  printf(WEXITSTATUS(status) == 42 ? "[PASS] the exit code arrives (WEXITSTATUS: bits 8-15)\n" : "[FAIL] status %d\n", status);
   printf(waitpid(child, &status, 0) == -1 ? "[PASS] a child can be waited for only once\n"
                                           : "[FAIL] waited twice\n");
 
@@ -24,7 +24,7 @@ int main()
     exit(7);
   }
   status = -1;
-  printf(waitpid(child, &status, 0) == child && status == 7 ? "[PASS] waitpid waits for a running child\n"
+  printf(waitpid(child, &status, 0) == child && WEXITSTATUS(status) == 7 ? "[PASS] waitpid waits for a running child\n"
                                                              : "[FAIL] did not wait\n");
 
   child = fork();
@@ -35,7 +35,7 @@ int main()
   }
   status = -1;
   waitpid(child, &status, 0);
-  printf(status == 9999 ? "[PASS] a killed child reports its exit code (9999)\n"
+  printf(WEXITSTATUS(status) == (9999 & 0xff) ? "[PASS] a killed child reports 9999 & 0xff = 15 (only 8 bits fit)\n"
                         : "[FAIL] killed child: status %d\n", status);
 
   printf(waitpid(12345, &status, 0) == -1 ? "[PASS] unknown pid rejected\n" : "[FAIL] unknown pid\n");

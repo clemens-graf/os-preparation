@@ -23,7 +23,7 @@ if (it != threads_.end())
 
 ```cpp
 // Syscall::pthreadInvoke
-{ ScopeLock lock(process->getThreadLock()); target = process->findThreadDataByTid(id)->thread_; ... }
+{ ScopeLock lock(process->getThreadLock()); target = process->findThreadData(id)->thread_; ... }
 Scheduler::instance()->yieldTo(target);          // after the release: never yield holding a lock
 ```
 

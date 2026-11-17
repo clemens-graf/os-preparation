@@ -6,7 +6,7 @@ Patch: [`solution.patch`](solution.patch) – on your team's `SubmissionD1` (`f0
 size_t UserProcess::threadCpuTime(size_t tid)
 {
   ScopeLock lock(thread_lock_);
-  UserThreadData* data = findThreadDataByTid(tid);
+  UserThreadData* data = findThreadData(tid);
   if (!data || !data->thread_)
     return (size_t) -1;                                       // unknown or ended
   if (data->thread_ == currentThread)

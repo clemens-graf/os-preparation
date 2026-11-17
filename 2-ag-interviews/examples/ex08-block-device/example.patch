@@ -1,19 +1,19 @@
 diff --git a/common/include/kernel/Syscall.h b/common/include/kernel/Syscall.h
-index 3b55c7a6..4375cf0b 100644
+index b82d8ca3..c4932ca9 100644
 --- a/common/include/kernel/Syscall.h
 +++ b/common/include/kernel/Syscall.h
 @@ -3,6 +3,8 @@
  #include <types.h>
- 
+ #include "time.h"
  
 +class Mutex;
 +
  class Syscall
  {
    public:
-@@ -38,6 +40,10 @@ class Syscall
-     static size_t pthreadCancel(size_t thread);
-     static size_t pthreadDetach(size_t thread);
+@@ -40,6 +42,10 @@ class Syscall
+     static size_t pthreadSetCancelState(int state, int *oldstate);
+     static size_t pthreadSetCancelType(int new_type, int *oldtype);
  
 +    // EX08
 +    static size_t diskNote(size_t write, size_t user_buffer);
@@ -21,9 +21,9 @@ index 3b55c7a6..4375cf0b 100644
 +
      static size_t getThreadCount();
      static size_t getProcessCount();
- 
+     static size_t getUsedKernelMemory();
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index db84270e..4ea70a55 100644
+index 290b5459..ff727b44 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -16,6 +16,9 @@
@@ -37,7 +37,7 @@ index db84270e..4ea70a55 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 178fc3a2..14511b76 100644
+index 439b092c..75e9ae18 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,11 @@
@@ -51,10 +51,10 @@ index 178fc3a2..14511b76 100644
 +#include "BDManager.h"
  #include "UserProcess.h"
  #include "UserThread.h"
- 
-@@ -112,6 +117,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
-     case sc_getppid:
-       return_value = getppid();
+ #include "Clock.h"
+@@ -161,6 +166,9 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+     case sc_execv:
+       return_value = execv((const char*) arg1, (char* const*) arg2);
        break;
 +    case sc_disknote:
 +      return_value = diskNote(arg1, arg2);
@@ -62,7 +62,7 @@ index 178fc3a2..14511b76 100644
      default:
        return_value = -1;
        debug(WARN, "unimplemented syscall %zd\n", syscall_number);
-@@ -503,6 +511,40 @@ void Syscall::trace()
+@@ -743,6 +751,40 @@ void Syscall::trace()
    currentThread->printBacktrace();
  }
  
@@ -104,13 +104,13 @@ index 178fc3a2..14511b76 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/main.cpp b/common/source/kernel/main.cpp
-index fd6819b0..50706408 100644
+index b27b4b1f..2f305abc 100644
 --- a/common/source/kernel/main.cpp
 +++ b/common/source/kernel/main.cpp
 @@ -25,6 +25,8 @@
- #include "Terminal.h"
  #include "outerrstream.h"
  #include "user_progs.h"
+ #include "Clock.h"
 +#include "Syscall.h"
 +#include "Mutex.h"
  
@@ -128,7 +128,7 @@ index fd6819b0..50706408 100644
    kprintf_init();
  
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h
-index 901640e9..817d7b1a 100644
+index 54687327..784ddc86 100644
 --- a/userspace/libc/include/nonstd.h
 +++ b/userspace/libc/include/nonstd.h
 @@ -1,5 +1,7 @@
@@ -139,9 +139,9 @@ index 901640e9..817d7b1a 100644
  #include "../../../common/include/kernel/syscall-definitions.h"
  
  #ifdef __cplusplus
-@@ -26,6 +28,9 @@ extern int getThreadCount(void);
+@@ -31,6 +33,9 @@ extern int getProcessCount(void);
   */
- extern int getProcessCount(void);
+ extern unsigned long getUsedKernelMemory(void);
  
 +// EX08: buffer must hold 512 bytes
 +extern int disknote(int write, char* buffer);
@@ -150,18 +150,18 @@ index 901640e9..817d7b1a 100644
  }
  #endif
 diff --git a/userspace/libc/src/nonstd.c b/userspace/libc/src/nonstd.c
-index befb9485..91316bc3 100644
+index 4c40ec43..05409596 100644
 --- a/userspace/libc/src/nonstd.c
 +++ b/userspace/libc/src/nonstd.c
 @@ -10,6 +10,11 @@ int createprocess(const char* path, int sleep)
  
- extern int main();
+ extern int main(int argc, char** argv);
  
 +int disknote(int write, char* buffer)
 +{
 +  return __syscall(sc_disknote, write, (size_t) buffer, 0x00, 0x00, 0x00);
 +}
 +
- void _start()
+ void _start(int argc, char** argv)
  {
-   exit(main());
+   exit(main(argc, argv));

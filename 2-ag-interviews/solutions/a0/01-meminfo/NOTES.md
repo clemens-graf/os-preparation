@@ -2,7 +2,7 @@
 
 Patch: [`solution.patch`](solution.patch) – for your team's code (`task solution`).
 
-Syscall number **1505** – your team's `mkdir` already has 1500.
+Syscall number **1507** – your team already uses 1500–1506 (`mkdir`, pthread).
 
 ## Files touched
 

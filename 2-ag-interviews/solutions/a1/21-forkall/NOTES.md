@@ -1,15 +1,16 @@
 # A1-21 forkall – solution notes
 
-Patch: [`solution.patch`](solution.patch) – on your team's code (`f78faff3`). Type S.
+Patch: [`solution.patch`](solution.patch) – on your team's code (`4778e63b`, 15 Nov). Type S.
 
 ## The plan
 
 ```cpp
 size_t UserProcess::forkall(UserThread* caller)
 {
-  Loader* child_loader = loadExecutable(...);            // disk i/o: before the lock
   {
-    ScopeLock lock(thread_lock_);                        // list, slots, page tables frozen
+    ScopeLock process_lock(process_lock_);               // your team's order: process_lock_ first
+    Loader* child_loader = loadExecutable(filename_.c_str());   // like fork (under process_lock_)
+    ScopeLock lock(thread_lock_);                        // then thread_lock_: list, slots frozen
     child = new UserProcess(..., new ArchMemory(*arch_memory_));   // deep copy: all stacks too
     child->next_stack_slot_ = next_stack_slot_;
     for (each UserThreadData* data in threads_)
@@ -33,8 +34,9 @@ size_t UserProcess::forkall(UserThread* caller)
       child->threads_.push_back(data_copy);
     }
   }
+  child->getFileDescriptorList().clone(fd_list_);         // open files, like fork
   ScopeLock child_lock(child->thread_lock_);              // nobody in the child may exit yet
-  child->startProcess(caller_copy);                       // ProcessRegistry + scheduler
+  Scheduler::instance()->addNewThread(caller_copy);
   for (other copies) Scheduler::instance()->addNewThread(copy);
   return child->getPID();
 }
@@ -58,21 +60,22 @@ before it returns.
   Hence the separate `in_syscall_` flag.
 - **Same tids:** `pthread_t` values are stored in user memory (the test's `spinner_tid`). With new
   tids the child could not join its own threads. Tids only have to be unique inside a process
-  (`findThreadDataByTid` searches one process).
+  (`findThreadData` searches one process).
 - **Records of ended threads** are copied too: in the parent they could still be joined – in the
   child as well.
 - **The child's lock while scheduling:** the caller's copy could run at once and call `exit()`;
   `exitProcess` kills every thread in the list – a thread that is not in the scheduler yet would
   never be cleaned up. With the child's `thread_lock_` held, `exitProcess` waits until all are known.
-- **Lock order** parent → child cannot deadlock: nobody else knows the child yet.
+- **Lock order** `process_lock_` → `thread_lock_` (the same as your team's `fork` and page fault handler);
+  parent → child cannot deadlock: nobody else knows the child yet.
 
-## The fork bug you find on the way
+## The fork bug you find on the way (fixed on 15 Nov)
 
 Your team's `UserThread(child_process, parent_thread)` does not copy `user_stack_top_` and
 `lowest_mapped_stack_vpn_` (they stay 0). `isUserStackFault` then never matches in the child: a
 forked child that needs a stack page the parent never touched dies with **666** (checked on
 `f78faff3`: a child with ~12 KiB of locals). forkall copies both; for `fork` the same two lines
-belong into the copy constructor.
+belong into the copy constructor – your team's `4778e63b` has exactly these two lines now.
 
 ## What is not perfect (say it before the tutor does)
 

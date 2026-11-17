@@ -1,2 +1,2 @@
-f78faff3bbbcefee66d63b05cc3e68e363d9d20c  osw26e3 main, 19 Oct 2026 (Merge branch 'fix/testcase-length-tortilias' into 'main')
+4778e63b16fcf09e85c4accbf0355bb22f632bd5  osw26e3 main, 15 Nov 2026 (Merge branch 'fix/thread-killing-exit' into 'main')
 # The team versions in team/ were made and tested on this commit. task.sh imports it as branch main.

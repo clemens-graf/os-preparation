@@ -299,7 +299,7 @@ A good run:
 | `status 4` + `leaking` | `exit` at the end found physical pages that were never freed | something mapped/allocated without freeing |
 | `status 5` | a run that should panic (ex12) did not | – |
 | `== expected 23 [PASS] lines, got 15` | a test program died half-way (it prints no `[FAIL]` then) | look for `EXIT: called, exit_code: 666/888/9999` above |
-| `EXIT: called, exit_code: 666` | the process touched an address no segment covers | a wrong pointer – in the test or in your kernel code |
+| `EXIT: called, exit_code: 9999` | the process touched an address no segment covers (or another invalid page fault) | a wrong pointer – in the test or in your kernel code |
 | `== BUILD FAILED` | compile error, shown above | full log: `/tmp/sweb-ag/make.log` |
 
 The whole kernel log of the last run is `/tmp/sweb-ag/run.log`:

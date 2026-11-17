@@ -34,20 +34,20 @@ index 6aff17ae..403e7748 100644
    }
  
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..1e29f483 100644
+index 6e77ae40..2561156c 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
-@@ -10,6 +10,9 @@
- #include "FileDescriptor.h"
+@@ -9,6 +9,9 @@
+ #include "File.h"
  #include "Scheduler.h"
  
 +// A0-05: ELF segment permission flag (p_flags): 1 = PF_X, 2 = PF_W, 4 = PF_R
 +#define ELF_PF_W 2
 +
- Loader::Loader(int fd) : fd_(fd), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
+ Loader::Loader(File* file) : file_(file), hdr_(0), phdrs_(), program_binary_lock_("Loader::program_binary_lock_"), userspace_debug_info_(0)
  {
-   debug(LOADER, "created Loader with file descriptor: %d\n", fd_);
-@@ -29,6 +32,7 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+   assert(file_ && "file needs to be open for Loader");
+@@ -36,6 +39,7 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
    const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
    const pointer virt_page_end_addr = virt_page_start_addr + PAGE_SIZE;
    bool found_page_content = false;
@@ -55,8 +55,8 @@ index e9c4233f..1e29f483 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -55,10 +59,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
-           Syscall::exit(999);
+@@ -62,10 +66,14 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+           return false;
          }
          found_page_content = true;
 +        if ((*it).p_flags & ELF_PF_W)
@@ -70,8 +70,8 @@ index e9c4233f..1e29f483 100644
        }
      }
    }
-@@ -71,7 +79,9 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
-     Syscall::exit(666);
+@@ -78,7 +86,9 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+     return false;
    }
  
 -  bool page_mapped = arch_memory_.mapPage(virt_page_start_addr / PAGE_SIZE, ppn, true);

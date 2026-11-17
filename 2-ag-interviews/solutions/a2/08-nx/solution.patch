@@ -12,17 +12,17 @@ index 87ebb9b7..f2c61108 100644
    /**
     * Print out the pagefault information. Check if the pagefault is valid, or the thread state is corrupt.
 diff --git a/common/source/kernel/Loader.cpp b/common/source/kernel/Loader.cpp
-index e9c4233f..c4a3ec63 100644
+index 6e77ae40..44e64d63 100644
 --- a/common/source/kernel/Loader.cpp
 +++ b/common/source/kernel/Loader.cpp
-@@ -23,12 +23,16 @@ Loader::~Loader()
+@@ -30,12 +30,16 @@ Loader::~Loader()
    hdr_ = nullptr;
  }
  
 +// A2-08: ELF segment permission flag (p_flags): 1 = PF_X, 2 = PF_W, 4 = PF_R
 +#define ELF_PF_X 1
 +
- void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
  {
    debug(LOADER, "Loader:loadPage: Request to load the page for address %p.\n", (void*)virtual_address);
    const pointer virt_page_start_addr = virtual_address & ~(PAGE_SIZE - 1);
@@ -32,8 +32,8 @@ index e9c4233f..c4a3ec63 100644
    // get a new page for the mapping
    size_t ppn = PageManager::instance()->allocPPN();
  
-@@ -55,10 +59,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
-           Syscall::exit(999);
+@@ -62,10 +66,14 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+           return false;
          }
          found_page_content = true;
 +        if ((*it).p_flags & ELF_PF_X)
@@ -47,7 +47,7 @@ index e9c4233f..c4a3ec63 100644
        }
      }
    }
-@@ -77,6 +85,14 @@ void Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
+@@ -84,6 +92,14 @@ bool Loader::loadPage(pointer virtual_address, ArchMemory& arch_memory_)
      debug(LOADER, "Loader::loadPage: The page has been mapped by someone else.\n");
      PageManager::instance()->freePPN(ppn);
    }
@@ -60,14 +60,14 @@ index e9c4233f..c4a3ec63 100644
 +    m.pt[m.pti].execution_disabled = 1;
 +  }
    debug(LOADER, "Loader::loadPage: Load request for address %p has been successfully finished.\n", (void*)virtual_address);
+   return true;
  }
- 
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index e32f2cda..ae7c10d2 100644
+index 2973d144..843f1a75 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -340,6 +340,8 @@ bool UserProcess::mapStackPage(size_t ppn, size_t vpn, size_t user_access)
- {
+@@ -624,6 +624,8 @@ bool UserProcess::mapStackPage(size_t ppn, size_t vpn, size_t user_access)
+   assert(process_lock_.isHeldBy(currentThread));
    bool vpn_mapped = arch_memory_->mapPage(vpn, ppn, user_access);
    assert(vpn_mapped && "Virtual page for stack was already mapped - this should never happen");
 +  ArchMemoryMapping m = arch_memory_->resolveMapping(vpn);   // A2-08: a stack is data - never executable
@@ -76,7 +76,7 @@ index e32f2cda..ae7c10d2 100644
  }
  
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 2dfb14e4..443d9a93 100644
+index 6d909f90..c1c52662 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -14,7 +14,7 @@ extern "C" void arch_contextSwitch();

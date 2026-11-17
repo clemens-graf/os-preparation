@@ -1,7 +1,7 @@
 # A1-04 thread flagging – solution notes
 
 Patch: [`solution.patch`](solution.patch) – on your team's code. Finding a thread by id (also
-A1-05, A1-07): `process->findThreadDataByTid(id)->thread_` while holding `getThreadLock()` –
+A1-05, A1-07): `process->findThreadData(id)->thread_` while holding `getThreadLock()` –
 `exitThread` sets `thread_` to `nullptr` under that lock, so the pointer stays valid while you hold it.
 
 ## The scheduler change

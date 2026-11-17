@@ -5,7 +5,7 @@
 void* yielder(void* arg)
 {
   while (1)
-    sched_yield();                         // every syscall is a cancellation point
+    pthread_testcancel();                  // a cancellation point (sched_yield is none: POSIX list)
   return 0;
 }
 
@@ -31,7 +31,7 @@ void* computer(void* arg)
 {
   while (!go_on)
     spins++;                               // no syscall: cannot be cancelled here
-  sched_yield();                           // first cancellation point
+  pthread_testcancel();                    // first cancellation point
   after_syscall = 1;                       // must never run
   return 0;
 }
@@ -76,7 +76,7 @@ int main()
                         : "[FAIL] thread stopped without a cancellation point\n");
   go_on = 1;
   pthread_join(t, &value);
-  printf(value == PTHREAD_CANCELED && !after_syscall ? "[PASS] cancelled at its next syscall\n"
+  printf(value == PTHREAD_CANCELED && !after_syscall ? "[PASS] cancelled at its next cancellation point\n"
                                                      : "[FAIL] not cancelled at the syscall\n");
 
   printf(pthread_cancel(12345) == -1 ? "[PASS] unknown thread rejected\n" : "[FAIL] unknown thread accepted\n");

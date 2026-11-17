@@ -21,7 +21,7 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 04 | [thread flagging: twice as often](04-thread-flag/) | E + S | *thread-flagging* | 01 | 30 min | ★★☆ |
 | 05 | [pthread_invoke: directed yield](05-pthread-invoke/) | E + S | `pthread_invoke` (the switch itself: A1-22) | 01 | 30 min | ★★☆ |
 | 06 | [pthread_cancel (deferred)](06-pthread-cancel/) | S (study) | (mandatory A1) | 01 | 45 min | ★★★ |
-| 07 | [thread runtime + clock()](07-thread-runtime/) | E + S | `clock`-extension | 01 | 30 min | ★★☆ |
+| 07 | [thread runtime + clock()](07-thread-runtime/) – *retired: see A1-25* | E + S | `clock`-extension | 01 | – | – |
 | 08 | [snapshot & revive](08-snapshot/) | A + S | `pthread_snapshot & revive` | – | 40 min | ★★★ |
 | 09 | [vtop / ptov](09-vtop-ptov/) | S | *vpn to ppn and ppn to vpn* | – | 25 min | ★★☆ |
 | 10 | [a page shared by two processes](10-shared-page/) | S + E | *simple shm* | – | 45 min | ★★★ |
@@ -32,8 +32,8 @@ A0 of 2026 (that one is [A0-13](../a0/13-atexit/)). Before you start a task, cla
 | 15 | [spinlock + mutex in user space](15-spinlock/) | **U** | libc stub | 01 | 25 min | ★★☆ |
 | 16 | [semaphores in user space](16-semaphore/) | **U** | libc stub | 15 | 25 min | ★★☆ |
 | 17 | [condition variables in user space](17-cond/) | **U** | libc stub | 15 | 25 min | ★★☆ |
-| 18 | [sleep + uptime](18-sleep/) | S + E | libc stub | – | 25 min | ★★☆ |
-| 19 | [waitpid](19-waitpid/) | S | libc stub (processes) | – | 40 min | ★★★ |
+| 18 | [sleep + uptime](18-sleep/) – *retired: your team has sleep* | S + E | libc stub | – | – | – |
+| 19 | [waitpid](19-waitpid/) | S (study) | your team's, since 17 Nov | – | 40 min | ★★★ |
 | 20 | [pthread_detach](20-detach/) | S (study) | your own, merged 18 Oct | – | 25 min | ★★☆ |
 | 21 | [forkall](21-forkall/) | S | `forkall` | – | 45 min | ★★★ |
 | 22 | [pthread_switch: the context switch itself](22-pthread-switch/) | A + U | `pthread_switch` | – | 40 min | ★★★ |
