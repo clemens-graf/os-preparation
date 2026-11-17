@@ -45,33 +45,27 @@ index 290b5459..aa4f9ab4 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..9587e01a 100644
+index 439b092c..07ee06b2 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
-@@ -114,6 +114,21 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
+@@ -114,6 +114,15 @@ size_t Syscall::syscallException(size_t syscall_number, size_t arg1, size_t arg2
      case sc_pthread_equal:
        return_value = pthreadEqual((size_t)arg1, (size_t)arg2);
        break;
 +    case sc_barrier_init:
-+    {
-+      size_t id = (arg2 == 0 || arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierInit(arg2);
-+      if (id == (size_t) -1)
-+        return_value = -1;
-+      else
-+        *(size_t*) arg1 = id;                  // the id lives in the program's pthread_barrier_t
++      return_value = process->barrierInit(arg1);       // arg1 = count, returns the id
 +      break;
-+    }
 +    case sc_barrier_wait:
-+      return_value = (arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierWait(*(size_t*) arg1);
++      return_value = process->barrierWait(arg1);       // arg1 = id
 +      break;
 +    case sc_barrier_destroy:
-+      return_value = (arg1 == 0 || arg1 >= USER_BREAK) ? (size_t) -1 : process->barrierDestroy(*(size_t*) arg1);
++      return_value = process->barrierDestroy(arg1);    // arg1 = id
 +      break;
      case sc_pthread_join:
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..e3993efb 100644
+index 2973d144..c9879af2 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -13,6 +13,7 @@
@@ -82,13 +76,15 @@ index 2973d144..e3993efb 100644
  
  UserProcess::UserProcess(ustl::string minixfs_filename, FileSystemInfo* fs_info, uint32 terminal_number, Loader* loader, size_t ppid, ArchMemory* arch_memory) :
    filename_(minixfs_filename), working_dir_(fs_info), terminal_number_(terminal_number), loader_(loader),
-@@ -936,3 +937,47 @@ void UserProcess::addCpuCycles(uint64 cycles)
+@@ -936,3 +937,49 @@ void UserProcess::addCpuCycles(uint64 cycles)
  {
    cpu_cycles_ += cycles;
  }
 +
 +size_t UserProcess::barrierInit(size_t count)
 +{
++  if (count == 0)
++    return (size_t) -1;
 +  ScopeLock lock(thread_lock_);
 +  for (size_t i = 0; i < 16; ++i)
 +  {
@@ -157,10 +153,10 @@ index acdce2f0..45e2b4bc 100644
                                const pthread_mutexattr_t *attr);
  
 diff --git a/userspace/libc/src/pthread.c b/userspace/libc/src/pthread.c
-index 75e67a42..b81b2862 100644
+index 75e67a42..77968eb4 100644
 --- a/userspace/libc/src/pthread.c
 +++ b/userspace/libc/src/pthread.c
-@@ -240,3 +240,19 @@ int pthread_setcanceltype(int type, int *oldtype)
+@@ -240,3 +240,23 @@ int pthread_setcanceltype(int type, int *oldtype)
    }
    return __syscall(sc_pthread_setcanceltype, (size_t)type, (size_t)oldtype, 0x00, 0x00, 0x00);
  }
@@ -168,15 +164,19 @@ index 75e67a42..b81b2862 100644
 +int pthread_barrier_init(pthread_barrier_t* barrier, const pthread_barrierattr_t* attr, unsigned int count)
 +{
 +  (void) attr;
-+  return __syscall(sc_barrier_init, (size_t) barrier, count, 0x00, 0x00, 0x00);
++  size_t id = __syscall(sc_barrier_init, count, 0x00, 0x00, 0x00, 0x00);
++  if (id == (size_t) -1)
++    return -1;
++  *barrier = id;                 // libc stores the kernel's id: the kernel never touches user memory
++  return 0;
 +}
 +
 +int pthread_barrier_wait(pthread_barrier_t* barrier)
 +{
-+  return __syscall(sc_barrier_wait, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++  return __syscall(sc_barrier_wait, *barrier, 0x00, 0x00, 0x00, 0x00);
 +}
 +
 +int pthread_barrier_destroy(pthread_barrier_t* barrier)
 +{
-+  return __syscall(sc_barrier_destroy, (size_t) barrier, 0x00, 0x00, 0x00, 0x00);
++  return __syscall(sc_barrier_destroy, *barrier, 0x00, 0x00, 0x00, 0x00);
 +}

@@ -49,7 +49,31 @@ round must wake.
 [`short.patch`](short.patch) – **91 lines** instead of 142, passes the same test. Get it with
 `task short a1-03` (branch `short/…`, then `task test`).
 
-What is shorter: uses `thread_lock_` instead of a separate barrier lock; the id is read/written straight from the program's `pthread_barrier_t`; no helper functions in `Syscall`.
+What is simpler:
+- `thread_lock_` + one Condition instead of a separate barrier lock.
+- **libc keeps the id**, the kernel only sees numbers: `pthread_barrier_init` gets the id back from
+  the syscall and writes it into `*barrier` itself; `wait`/`destroy` pass `*barrier` by value. So the
+  kernel never touches user memory – no pointer checks, and the three `case`s are one line each:
 
-Use it to see the **core** of the task. In the interview, the full solution's extra checks are what
-a tutor asks about ("what if the pointer is invalid / two threads at once?").
+```cpp
+// libc
+size_t id = __syscall(sc_barrier_init, count, 0x00, 0x00, 0x00, 0x00);
+if (id == (size_t) -1)
+  return -1;
+*barrier = id;
+...
+return __syscall(sc_barrier_wait, *barrier, 0x00, 0x00, 0x00, 0x00);
+
+// Syscall.cpp
+case sc_barrier_wait:
+  return_value = process->barrierWait(arg1);       // arg1 = id
+  break;
+```
+
+- The kernel part is already the minimum: a table of `{count, waiting, round}`, the last thread
+  resets `waiting`, increments `round` and broadcasts; the others wait `while (round == my_round)`.
+  Without `round`, a fast thread entering the next round could make the slow ones sleep forever.
+
+A tutor may ask: "what if the program passes a bad id?" – the kernel checks the id (0, > 16, free
+slot) and returns -1. A bad *pointer* only crashes the program itself, in libc – like any bad pointer
+it dereferences.
