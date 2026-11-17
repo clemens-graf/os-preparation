@@ -337,7 +337,7 @@ code (present? write? user mode? instruction fetch?). The handler can:
   \node[b] (h) at (0,-4.0) {\code{PageFaultHandler::handlePageFault}};
   \node[r] (k) at (-4.6,-5.5) {invalid: null page, kernel\\address, already present\\$\to$ exit 9999};
   \node[g] (m) at (0,-5.5) {stack / heap / sbrk / mmap:\\map a zeroed frame};
-  \node[g] (l) at (4.6,-5.5) {code / data: \code{loadPage}\\(no segment $\to$ exit 666)};
+  \node[g] (l) at (4.6,-5.5) {code / data: \code{loadPage}\\(no segment $\to$ exit 9999)};
   \node[b] (ret) at (2.3,-7.0) {return from the handler: the same instruction runs again};
   \draw[a] (a) -- (q);
   \draw[a] (q) -- node[above,font=\scriptsize] {yes} (ok);
@@ -354,8 +354,9 @@ code (present? write? user mode? instruction fetch?). The handler can:
 
 \inteam \code{pageFaultHandler} (\file{InterruptUtils.cpp}) $\to$ \code{PageFaultHandler::handlePageFault}:
 \code{checkPageFaultIsValid} (null page, kernel address, present page $\to$ exit 9999); then stack
-growth (\code{isUserStackFault}, under \code{thread\_lock\_}), guard page (kill), else
-\code{Loader::loadPage} (no segment $\to$ exit 666).
+growth (\code{isUserStackFault}), guard page (kill), else \code{Loader::loadPage} -- all under
+\code{process\_lock\_}, then \code{thread\_lock\_}. \code{loadPage} returns \code{false} when no segment
+covers the address; the handler then releases both locks and calls \code{Syscall::exit(9999)}.
 
 \pitfalls Returning from the handler without fixing the cause: the instruction faults again,
 forever. Taking a lock in the handler that the faulting code already holds (deadlock). Exiting while
@@ -363,11 +364,12 @@ holding a lock.
 
 \begin{selfcheck}
 \item Why does the first instruction of every program page-fault?
-\item Exit code 666 vs.\ 9999 in SWEB?
+\item Why does the handler release its locks \emph{before} \code{exit(9999)}?
 \item A syscall writes into a user buffer that is not mapped yet. Who handles that fault?
 \end{selfcheck}
-\answers{1. nothing is loaded before -- the code page is loaded on demand. 2. 666: no ELF segment
-covers the address; 9999: invalid fault (null, kernel address, protection). 3. the same page fault
+\answers{1. nothing is loaded before -- the code page is loaded on demand. 2. \code{exit} ends every
+thread and takes the process's locks itself -- holding them would deadlock. (Until 15 Nov: 666 for
+``no segment'', now 9999 for every bad fault.) 3. the same page fault
 handler -- the fault comes from kernel mode, but the address is a user address.}
 \begin{taskex}
   A0-03, A1-12 & ex03 stack growth (hooking into \code{handlePageFault}) \\
@@ -491,12 +493,15 @@ is an \emph{orphan}; nobody can wait for it any more.
 \end{center}
 
 \inteam \code{UserProcess::fork} (deep copy via the \code{ArchMemory} copy constructor, child thread
-with \code{rax = 0}), \code{UserProcess::exec}; pids from \code{ProcessRegistry}. \code{waitpid} is still a stub in \file{wait.c} (19 Oct); the course task A1-19 keeps the exit codes in a fixed
-table in the \code{ProcessRegistry}, filled in \code{\textasciitilde UserProcess}.
+with \code{rax = 0}), \code{UserProcess::exec}; pids from \code{ProcessRegistry}. \code{waitpid} (2003): the parent keeps a \code{ChildData} per child
+(\code{pid\_}, \code{is\_zombie\_}, \code{exit\_code\_}) under \code{child\_lock\_}, waits on
+\code{child\_exited\_}; the status is packed like Linux (\code{WEXITSTATUS}: bits 8--15). The shell
+starts programs with \code{fork} + \code{execv}.
 
 \pitfalls Keeping the exit code in the process object (it is deleted). Copying all threads in fork
 (POSIX copies only the caller --- copying all of them is \emph{forkall}, A1-21). Forgetting to copy a
-thread's stack bookkeeping: your team's \code{fork} child cannot grow its stack (666).
+thread's stack bookkeeping (\code{user\_stack\_top\_}, \code{lowest\_mapped\_stack\_vpn\_}): the child
+cannot grow its stack -- your team's \code{fork} had this bug until 15 Nov.
 Destroying the old address space in exec before the new program is loaded.
 
 \begin{selfcheck}
