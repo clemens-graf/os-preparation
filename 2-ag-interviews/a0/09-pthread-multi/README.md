@@ -77,7 +77,7 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) â
   `rdi`, `rsi`, `rdx` yourself before `Scheduler::instance()->addNewThread`.
 - `UserThread::pushToStack()`: the new thread has only its top stack page mapped
   (`getUserStackLowestMappedVpn()`), enough for two arrays of 16 pointers; write through
-  `getAddressSpace().checkAddressValid` under `getThreadLock()`.
+  `getAddressSpace().checkAddressValid` under `getProcessLock()`.
 - Number 1552 is free.
 
 ## Questions a tutor might ask

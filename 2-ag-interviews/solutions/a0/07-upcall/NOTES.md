@@ -17,7 +17,7 @@ size_t Syscall::upcall(size_t function, size_t argument)
 
   UserProcess* process = currentThread->getProcess();
   {
-    ScopeLock lock(process->getThreadLock());
+    ScopeLock lock(process->getProcessLock());
     pointer slot = process->getAddressSpace().checkAddressValid(rsp);
     if (!slot)
       return (size_t) -1;

@@ -20,7 +20,7 @@ stays zero, and the shutdown leak check is clean.
 
 ## Your team's code
 
-Your team's `loadPage` runs **without** the page-table lock – "map, then clear `writeable`" would leave a moment where every process could write into the shared zero page. The team solution gives `ArchMemory::mapPage` a `writeable` parameter (like A0-05) and maps read-only in one step. `copyOnWrite(vpn)` in `UserProcess` (under `thread_lock_`), called first in the page fault handler for present + writing faults.
+Your team's `loadPage` runs under `process_lock_`, but a lock does not stop user code: "map, then clear `writeable`" would leave a moment where another running thread could write into the shared zero page. The team solution gives `ArchMemory::mapPage` a `writeable` parameter (like A0-05) and maps read-only in one step. `copyOnWrite(vpn)` in `UserProcess` (under `process_lock_`), called first in the page fault handler for present + writing faults.
 
 ## Hints
 

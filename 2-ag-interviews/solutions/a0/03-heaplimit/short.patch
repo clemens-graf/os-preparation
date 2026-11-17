@@ -60,7 +60,7 @@ index 439b092c..876688ec 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..3fcb8d4c 100644
+index 2973d144..47e5fdf0 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -13,6 +13,7 @@
@@ -78,7 +78,7 @@ index 2973d144..3fcb8d4c 100644
 +
 +bool UserProcess::mapHeapPage(size_t vpn)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  if (vpn * PAGE_SIZE >= HEAP_START + heap_size_)
 +    return false;                                   // above the limit
 +  size_t ppn = PageManager::instance()->allocPPN();
@@ -89,7 +89,7 @@ index 2973d144..3fcb8d4c 100644
 +
 +void UserProcess::setHeapLimit(size_t size)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  for (size_t vpn = (HEAP_START + size) / PAGE_SIZE; vpn < (HEAP_START + heap_size_) / PAGE_SIZE; vpn++)
 +    if (arch_memory_->resolveMapping(vpn).page_size != 0)   // shrinking: remove the mapped pages above
 +      arch_memory_->unmapPage(vpn);

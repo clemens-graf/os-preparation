@@ -23,7 +23,7 @@ if (address / PAGE_SIZE == MAGIC_PAGE / PAGE_SIZE)
 
 bool UserProcess::mapReadOnlyPage(size_t vpn, size_t ppn)
 {
-  ScopeLock lock(thread_lock_);
+  ScopeLock lock(process_lock_);
   if (!arch_memory_->mapPage(vpn, ppn, 1))
     return false;
   ArchMemoryMapping m = arch_memory_->resolveMapping(vpn);

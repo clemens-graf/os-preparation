@@ -27,7 +27,7 @@ index 290b5459..2f3ea23c 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..868e28af 100644
+index 439b092c..9d32f052 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,10 @@
@@ -73,9 +73,9 @@ index 439b092c..868e28af 100644
 +  memcpy(kernel_view, greeting, sizeof(greeting)); // strcpy is banned in SWEB (it asserts)
 +
 +  // 3. map it into the process (user_access = 1, otherwise only the kernel could use it)
-+  process->getThreadLock().acquire();
++  process->getProcessLock().acquire();           // page tables: process_lock_
 +  bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
-+  process->getThreadLock().release();
++  process->getProcessLock().release();
 +
 +  if (!mapped)                                 // already mapped by an earlier call:
 +    PageManager::instance()->freePPN(ppn);     // keep the old page, give ours back

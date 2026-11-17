@@ -48,18 +48,18 @@ Unmap the pages from `roundup(new_break)` to `roundup(old_break)`, then flush th
 <details><summary>Open only if the hints were not enough</summary>
 
 1. Same three pieces as A0-03: a per-process break `brk_` (starts at the heap start) in `UserProcess`, a syscall that moves it, and the page fault handler that maps on demand.
-2. Syscall `sbrk(increment)` (1700, the libc stub in `unistd.c` already exists): under `thread_lock_` remember the old break, compute the new one.
+2. Syscall `sbrk(increment)` (1700, the libc stub in `unistd.c` already exists): under `process_lock_` remember the old break, compute the new one.
 3. Refuse a new break below the start or above the maximum (also for a negative increment that wraps around): return -1.
 4. Shrinking: unmap every page that is now completely above the new break, flush the TLB.
 5. Store the new break and return the **old** one.
-6. Page fault: an address in the heap region → under `thread_lock_` check "below the break?" and map a zeroed frame in the **same** critical section; above → kill (after the lock).
+6. Page fault: an address in the heap region → under `process_lock_` check "below the break?" and map a zeroed frame in the **same** critical section; above → kill (after the lock).
 7. `task test`.
 
 </details>
 
 ## Your team's code
 
-Like A0-03: `brk_ = BRK_START`, `mapBrkPage(vpn)` and `sbrk(increment)` in `UserProcess` (under `thread_lock_`). The heap case goes **first** in the page fault handler's valid branch, before it takes `thread_lock_` (`mapBrkPage` takes it itself), then `return`. The libc `sbrk` stub is in `userspace/libc/src/unistd.c`.
+Like A0-03: `brk_ = BRK_START`, `mapBrkPage(vpn)` and `sbrk(increment)` in `UserProcess` (under `process_lock_`). The heap case goes **first** in the page fault handler's valid branch, before it takes `process_lock_` (`mapBrkPage` takes it itself), then `return`. The libc `sbrk` stub is in `userspace/libc/src/unistd.c`.
 
 ## Questions a tutor might ask
 
@@ -79,6 +79,6 @@ The old break is the **start of the new memory**: `p = sbrk(4096)` gives you exa
 
 <details><summary>Two threads call sbrk at the same time – what does your lock guarantee?</summary>
 
-Reading the old break, checking the new one and storing it is one critical section under `thread_lock_` (the same lock the page fault handler uses for mapping heap pages). Two concurrent `sbrk(+n)` therefore get **disjoint** ranges, and a shrink can't happen between a fault's "below the break?" check and its `mapPage`.
+Reading the old break, checking the new one and storing it is one critical section under `process_lock_` (the same lock the page fault handler uses for mapping heap pages). Two concurrent `sbrk(+n)` therefore get **disjoint** ranges, and a shrink can't happen between a fault's "below the break?" check and its `mapPage`.
 
 </details>

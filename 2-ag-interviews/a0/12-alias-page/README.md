@@ -41,9 +41,9 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 
 - **Never** copy the tutorial's `(UserProcess*) currentThread`: in your team's code `UserProcess`
   is no `Thread` – the cast compiles and reads garbage. Use `currentThread->getProcess()`, the page
-  tables are `process->getAddressSpace()`, the lock `process->getThreadLock()`.
+  tables are `process->getAddressSpace()`, the lock `process->getProcessLock()`.
 - The address space belongs to the `UserProcess`: `~UserProcess` does `delete arch_memory_`. So the
-  alias list goes into `UserProcess` too (`addAlias(vpn)` under `thread_lock_`), and
+  alias list goes into `UserProcess` too (`addAlias(vpn)` under `process_lock_`), and
   `~UserProcess` unmaps the aliases (`unmapPage(vpn, false)`) **right before** `delete arch_memory_`.
 - 1560/1561 are free.
 
@@ -84,8 +84,8 @@ right place. `unmapPage` always frees: give it a parameter
 
 <details><summary>5 – locking</summary>
 
-The page-table lock: your team's `process->getThreadLock()` – the page fault handler takes it
-for stack pages too. Hold it around the ownership walk **and** `mapPage` (one critical section)
+The page-table lock: your team's `process->getProcessLock()` (`process_lock_`) – the page fault
+handler takes it for every fault. Hold it around the ownership walk **and** `mapPage` (one critical section)
 and while you add to the alias list. Not needed in `~UserProcess`: no thread of the process is
 left.
 </details>

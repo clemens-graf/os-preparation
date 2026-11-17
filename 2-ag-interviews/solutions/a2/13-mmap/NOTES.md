@@ -35,5 +35,5 @@ bool UserProcess::mapMmapPage(size_t vpn)
 - `munmap`: `unmapPage` frees the frames itself; `flushTlb()` because rights were removed.
 - The addresses are never reused (`mmap_next_vpn_` only grows, with a one-page gap): a stale
   pointer into an old mapping faults instead of silently hitting a new one.
-- Fault after `munmap`: the vpn is in no mapping → not handled here → `loadPage` → no segment → 666.
+- Fault after `munmap`: the vpn is in no mapping → not handled here → `loadPage` → no segment → 9999.
 - `fd` arrives as `(size_t) (ssize_t) -1` – compare with `(size_t) -1`.

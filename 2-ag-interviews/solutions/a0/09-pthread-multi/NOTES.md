@@ -58,7 +58,7 @@ static void pthreadMultiStart(void* (**functions)(void*), void** arguments, size
 
 ## Locking
 
-`pushToStack` writes into the new thread's stack page → under `getThreadLock()`. The thread's
+`pushToStack` writes into the new thread's stack page → under `getProcessLock()`. The thread's
 registers are changed without a lock: it is not in the scheduler yet – nobody else can see
 it. That changes the moment `addNewThread` runs, so everything is set up before.
 

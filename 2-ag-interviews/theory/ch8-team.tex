@@ -15,17 +15,19 @@ changing it. Every file with its contents: \file{ATLAS.md}.
 process and thread & \code{class UserProcess} (no thread), \code{class UserThread : public Thread}; \code{create}, \code{createThread}, \code{fork}, \code{exec} \\
 the calling process & \code{currentThread->getProcess()} \\
 page tables & \code{process->getAddressSpace()} --- owned by the \code{UserProcess}, deleted in \code{\textasciitilde UserProcess} \\
-page-table lock & \code{process->getThreadLock()} (\code{thread\_lock\_}) --- the page fault handler holds it for stack pages, \textbf{not} around \code{loadPage} \\
-the loader & \code{process->getLoader()} (a \code{Loader\&}): \code{loadPage(address, getAddressSpace())} \\
+locks & \code{process->getProcessLock()} (\code{process\_lock\_}: address space, loader, files) \textbf{before} \code{process->getThreadLock()} (\code{thread\_lock\_}: \code{threads\_}, records, stack slots); the page fault handler holds both for stack pages, only \code{process\_lock\_} around \code{loadPage} \\
+the loader & \code{process->getLoader()} (a \code{Loader\&}): \code{loadPage(address, getAddressSpace())} returns \code{false} if no segment covers it $\to$ the handler calls \code{exit(9999)} \\
 per-process state & members of \code{UserProcess} \\
 per-thread state & members of \code{UserThread}: \code{(UserThread*) currentThread} \\
-a thread by id & \code{findThreadData(tid)} under \code{thread\_lock\_} $\to$ \code{UserThreadData} (\code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{detached\_}) \\
-join / cancel / detach & \code{joinThread} (cancellation point: \code{JOIN\_CANCELED}), \code{cancelThread} (flag + broadcast), \code{detachThread} \\
+a thread by id & \code{findThreadData(tid)} under \code{thread\_lock\_} $\to$ \code{UserThreadData} (\code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{detached\_}, \code{cancel\_enabled\_}); \code{removeThreadData(tid)} removes \emph{and deletes} it \\
+join / cancel / detach & \code{joinThread} (cancellation point: \code{JOIN\_CANCELED}), \code{cancelThread} (flag + broadcast; deferred or asynchronous), \code{detachThread}; cancellation points = \code{Syscall::isCancellationPoint} (POSIX list --- not \code{sched\_yield}) \\
 stacks & a slot per thread (\code{USERSTACK\_PAGES} = 4 + guard page), grown in the page fault handler \\
-exit & \code{exitProcess} kills all threads (POSIX) \\
-syscall numbers taken & 1000--1003 \code{pthread\_create/exit/self/equal}, 1500 \code{mkdir}, 1501--1504 \code{pthread\_join/cancel/testcancel/detach}, 1998/1999, 2000--2002 \code{fork}\ldots, 2500 \code{execv} \\
+exit & \code{exitProcess} kills all threads (POSIX); a bad page fault ends the whole process (9999) \\
+processes & \code{UserProcess::create} (load, first thread, scheduler), \code{fork} (deep copy, files cloned), \code{execv}, \code{waitpid} (\code{ChildData} per child, status like Linux: \code{WEXITSTATUS}); the shell runs programs with \code{fork} + \code{execv} \\
+time & class \code{Clock} (TSC), \code{clock\_gettime}, \code{nanosleep} / \code{sleep} (\code{Scheduler::timedSleepUntil}) \\
+syscall numbers taken & 1000--1003 \code{pthread\_create/exit/self/equal}, 1100--1102 clock, 1200 \code{nanosleep}, 1250 rtc, 1500 \code{mkdir}, 1501--1506 \code{pthread\_join/cancel/testcancel/detach/setcancelstate/setcanceltype}, 1998/1999, 2000--2003 \code{fork/getpid/getppid/waitpid}, 2500 \code{execv}, 2999 \\
 libc & \code{atexit} works (your A0 version, \code{\_\_runAtexitFunctions} in \code{exit}) \\
-libc stubs & \code{malloc}/\code{free}, \code{sem\_*}, \code{pthread\_mutex\_*}, \code{pthread\_spin\_*}, \code{sleep}, \code{clock}, \code{waitpid}, \code{mmap}, \ldots{} (\file{ATLAS.md}, section 5) \\
+libc stubs & \code{malloc}/\code{free}, \code{sem\_*}, \code{pthread\_mutex\_*}, \code{pthread\_spin\_*}, \code{mmap}, \ldots{} (\file{ATLAS.md}, section 5) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -37,20 +39,19 @@ The tutorials were written for upstream SWEB, where the process \emph{is} its th
 \section*{Found in your team's code}
 
 \begin{itemize}
-\item A thread sleeping in \code{pthread\_join} panics the kernel when another thread ends the
-  process (\code{exitProcess} kills it, it stays in the waiters list of \code{thread\_exited\_}).
+\item \code{createThread} has no thread limit, and stack slots are never reused
+  (\code{next\_stack\_slot\_++}).
+\item Fixed by 15 Nov: a thread sleeping in \code{pthread\_join} no longer panics the kernel when
+  the process ends; the \code{fork} child copies \code{user\_stack\_top\_} /
+  \code{lowest\_mapped\_stack\_vpn\_} (before, it could not grow its stack); \code{loadPage} now
+  runs under \code{process\_lock\_}.
 \item Fixed on 18 Oct (\code{pthread-cancel-points}): a thread sleeping in \code{pthread\_join} can
-  be cancelled now --- \code{cancelThread} broadcasts, the wait loop checks the caller's flag.
-\item \code{fork}: the child's \code{UserThread} copy does not get \code{user\_stack\_top\_} /
-  \code{lowest\_mapped\_stack\_vpn\_} --- a forked child that needs a new stack page is killed
-  with 666. Fix: copy both in the copy constructor.
-\item \code{loadPage} maps without the page-table lock; \code{createThread} has no thread limit;
-  \code{mkdir} starts with \code{-1U}.
+  be cancelled --- \code{cancelThread} broadcasts, the wait loop checks the caller's flag.
 \end{itemize}
 
 \begin{infobox}[title=\textbf{Before the interview: 15 minutes in the team repo}]
 \begin{enumerate}
-\item Where is the page-table lock? Which locks does \code{UserProcess} have, what do they protect?
+\item Which locks does \code{UserProcess} have (\code{process\_lock\_}, \code{thread\_lock\_}, \code{child\_lock\_}), what do they protect, in which order?
 \item Where does \code{pthread\_create} map the stack, set the registers, add the thread?
 \item Where are a process's threads listed, and who frees the address space when?
 \item Which libc functions are stubs, and which of them need the kernel?

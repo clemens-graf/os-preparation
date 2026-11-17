@@ -26,8 +26,8 @@ Done when 3 checks pass, both test programs are killed at their write, and `mult
 The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
 - `Loader::loadPage(address, arch_memory_)` gets the address space as a **parameter** in your
-  team's code (the `Loader` no longer owns it), and the page fault handler calls it **without**
-  holding `thread_lock_`. So the elegant fix is atomic: give `ArchMemory::mapPage` a parameter
+  team's code (the `Loader` no longer owns it); the page fault handler calls it holding
+  `process_lock_` – but a lock does not stop user code of another thread. So the elegant fix is atomic: give `ArchMemory::mapPage` a parameter
   `bool writeable = true` and map a code page read-only right away – no window in which another
   thread could see it writable, no lock needed for that.
 

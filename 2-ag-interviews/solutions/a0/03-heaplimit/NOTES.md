@@ -6,7 +6,7 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 
 | File | What |
 |---|---|
-| `UserProcess.h` | `HEAP_START`, `HEAP_MAX_SIZE`; `size_t heap_size_` (per process, under `thread_lock_`); `mapHeapPage(vpn)`, `setHeapLimit(size)` |
+| `UserProcess.h` | `HEAP_START`, `HEAP_MAX_SIZE`; `size_t heap_size_` (per process, under `process_lock_`); `mapHeapPage(vpn)`, `setHeapLimit(size)` |
 | `UserProcess.cpp` | init `heap_size_(0)` (initializer order = declaration order, `-Werror=reorder`!), the two methods |
 | `PageFaultHandler.cpp` | new branch before `loadPage` for heap addresses |
 | `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_heaplimit 1520`, `heapLimit(size)` → `currentThread->getProcess()->setHeapLimit(size)` |
@@ -14,7 +14,7 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 
 ## The page fault side
 
-First in the valid branch of `handlePageFault` – before your team's code takes `thread_lock_`
+First in the valid branch of `handlePageFault` – before your team's code takes `process_lock_`
 for stack growth (`mapHeapPage` takes it itself):
 
 ```cpp
@@ -28,10 +28,10 @@ if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)
 bool UserProcess::mapHeapPage(size_t vpn)   // per-process state: UserProcess
 {
   size_t ppn = PageManager::instance()->allocPPN();
-  thread_lock_.acquire();
+  process_lock_.acquire();
   bool inside = vpn * PAGE_SIZE < HEAP_START + heap_size_;
   bool mapped = inside && arch_memory_->mapPage(vpn, ppn, 1);
-  thread_lock_.release();
+  process_lock_.release();
   if (!mapped)
     PageManager::instance()->freePPN(ppn);
   return inside;

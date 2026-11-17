@@ -67,7 +67,7 @@ return length;
 - **Read user memory directly, not via `checkAddressValid`:** the kernel runs with the process's
   page tables; an unloaded user page page-faults and the Loader maps it – exactly as for the
   program itself. `checkAddressValid` would wrongly refuse a string on a page that is merely not
-  loaded yet. An address that no segment covers still kills the process (exit 666), as
+  loaded yet. An address that no segment covers still kills the process (exit 9999), as
   everywhere in SWEB – the card only promises safety at `USER_BREAK`.
 - **Copy first, then use:** after the loop only the kernel copy is used (and printed). The
   tutorial printed the *user* string again – a second, unbounded read that another thread
@@ -102,7 +102,7 @@ nothing that can sleep or allocate under a SpinLock.
 - **Range up front:** the length is unknown until you have read up to the NUL.
 - **Unloaded page:** a page fault in kernel mode on a user address – legal, the Loader maps the
   page; an address without a segment: the process is killed (`No section refers to the given
-  address`, exit 666).
+  address`, exit 9999).
 - **Kernel copy:** another thread can change the user string between check and use (TOCTOU).
 - **Lock:** see "Locking".
 - **Debug flag:** one line in `debug.h`; remove `| OUTPUT_ENABLED` to silence it.

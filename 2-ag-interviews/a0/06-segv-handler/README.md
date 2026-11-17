@@ -32,24 +32,25 @@ Done when 5 checks pass, `segv_handler_return` exits with **139** and the other 
 The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
 - The registered handler is **per-process state → `UserProcess`**: `segv_entry_`, `segv_handler_`
-  and `deliverSegv(registers, address)` (under `thread_lock_`, stack slot via
+  and `deliverSegv(registers, address)` (under `process_lock_`, then `thread_lock_`; stack slot via
   `arch_memory_->checkAddressValid`).
-- `Loader::loadPage(address, arch_memory)` returns `bool` (false = no segment) instead of
-  `Syscall::exit(666)`.
-- Your page fault handler: if `loadPage` succeeded → `return`; afterwards one common place for
-  "invalid fault or no segment": `if (user && process->deliverSegv(currentThread->user_registers_,
-  address))` → continue in the handler, else kill as before. (A guard-page hit stays a kill: the
-  stack is broken, the handler would have none.)
+- Since 15 Nov your team's `Loader::loadPage` already returns `bool` (false = no segment), and the
+  page fault handler collects every failure in `is_exit` and calls `Syscall::exit(9999)` **after**
+  releasing its locks. That is exactly the place: `if (is_exit && user &&
+  process->deliverSegv(currentThread->user_registers_, address)) return;` – plus the same for the
+  "invalid fault" branch (null page, kernel address). A guard-page hit is a kill too (the stack is
+  broken – `deliverSegv` finds no mapped stack slot and refuses).
 
 
 ## Hints
 
 <details><summary>1 – where are segfaults "handled" today?</summary>
 
-Two places kill the process: `PageFaultHandler::handlePageFault` (invalid fault →
-`Syscall::exit(9999)`) and `Loader::loadPage` (no segment → `Syscall::exit(666)`). The
-second one is hidden – the fault looked valid to the page fault handler. Make `loadPage`
-report failure (return `false`) and let the page fault handler decide.
+Two places in `PageFaultHandler::handlePageFault` call `Syscall::exit(9999)`: the "invalid
+fault" branch (null page, kernel address, present page) and the end of the valid branch, when
+`is_exit` is set (stack page failed, guard page, or `loadPage` returned `false` – no segment). Both
+run without any lock held: put your check right before each `exit`. (In base SWEB the second one is
+hidden inside `Loader::loadPage` as `exit(666)` – your team already moved it out.)
 </details>
 
 <details><summary>2 – how does the thread "continue in the handler"?</summary>
@@ -78,8 +79,8 @@ and write through that kernel address. If not – kill as before.
 <details><summary>5 – locking</summary>
 
 The handler is per-process state (your `UserProcess`), read in the page fault handler and
-written by the syscall – one lock (the solution uses the page-table lock, since the stack check needs it
-anyway). The one-shot reset must happen in the same critical section as the read.
+written by the syscall – one lock (the solution uses `thread_lock_`; the stack check reads the page
+tables, so `deliverSegv` takes `process_lock_` first, as everywhere in your team's code). The one-shot reset must happen in the same critical section as the read.
 </details>
 
 ## Questions a tutor might ask

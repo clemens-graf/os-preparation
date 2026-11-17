@@ -26,10 +26,10 @@ Done when 3 checks pass and both programs are killed at their write (`pagefault 
 
 The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
-- Your page fault handler takes `thread_lock_` and handles stack growth and guard pages in its
+- Your page fault handler takes `process_lock_` and handles stack growth and guard pages in its
   valid branch – put the magic-page case **first** in that branch and `return` afterwards.
 - Map + clear-writable in one critical section: a helper `UserProcess::mapReadOnlyPage(vpn, ppn)`
-  (`ScopeLock lock(thread_lock_)`, `arch_memory_->mapPage(...)`, then clear `writeable`).
+  (`ScopeLock lock(process_lock_)`, `arch_memory_->mapPage(...)`, then clear `writeable`).
 - `currentThread->getProcess()->getFileName().c_str()` is the program's file name. (Not `currentThread->getName()`: since 15 Nov your shell starts programs with `fork` + `execv`, and `execv` changes `filename_` but not the thread's name – it stays `/usr/shell.sweb`.)
 
 

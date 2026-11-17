@@ -180,7 +180,7 @@ size_t UserProcess::shmAttach(size_t key)
   size_t ppn = SharedPages::instance()->acquire(key);     // 1. count + 1
   bool already;
   {
-    ScopeLock lock(thread_lock_);                         // 2. then map (other lock)
+    ScopeLock lock(process_lock_);                         // 2. then map (other lock)
     already = shm_attached_[key];
     if (!already)
     {
@@ -199,7 +199,7 @@ size_t UserProcess::shmDetach(size_t key)
   if (key == 0 || key >= SHM_MAX_KEYS)
     return (size_t) -1;
   {
-    ScopeLock lock(thread_lock_);                         // 1. unmap, keep the page
+    ScopeLock lock(process_lock_);                         // 1. unmap, keep the page
     if (!shm_attached_[key])
       return (size_t) -1;
     arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);

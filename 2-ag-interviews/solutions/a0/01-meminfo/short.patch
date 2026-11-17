@@ -48,7 +48,7 @@ index 6aff17ae..930e96f4 100644
 +  return count;
 +}
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 290b5459..300e693f 100644
+index 290b5459..54a36d26 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -44,6 +44,7 @@
@@ -60,7 +60,7 @@ index 290b5459..300e693f 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..a7386ce6 100644
+index 439b092c..b150d686 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -11,6 +11,8 @@
@@ -85,7 +85,7 @@ index 439b092c..a7386ce6 100644
 +      }
 +      size_t process_pages;
 +      {
-+        ScopeLock lock(process->getThreadLock());
++        ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +        process_pages = process->getAddressSpace().countUserPages();
 +      }
 +      size_t* info = (size_t*) arg1;                             // user memory: only without the lock

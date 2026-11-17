@@ -4,18 +4,18 @@ Where is the big switch over all syscall numbers?|Syscall::syscallException|comm
 Where are the syscall numbers defined (for kernel AND libc)?|syscall-definitions.h|common/include/kernel/syscall-definitions.h
 Which registers carry the syscall number and arguments?|rax = number, rbx rcx rdx rsi rdi = args, result in rax|arch/x86/64/userspace/syscalls.c
 Where does a page fault end up in C, and where is it decided what to do?|pageFaultHandler (InterruptUtils.cpp) -> PageFaultHandler::handlePageFault|common/source/mm/PageFaultHandler.cpp
-Which lock protects the page tables of a process in your team's code?|thread_lock_: process->getThreadLock()|common/include/kernel/UserProcess.h
+Which lock protects the page tables of a process in your team's code?|process_lock_: process->getProcessLock() (thread_lock_ after it: threads, records, stack slots)|common/include/kernel/UserProcess.h
 Where are stack pages of a thread added on demand?|handlePageFault: isUserStackFault -> mapStackPage|common/source/mm/PageFaultHandler.cpp
-Where is a page loaded from the ELF binary (exit 666 if no segment)?|Loader::loadPage(address, arch_memory)|common/source/kernel/Loader.cpp
-Where are F9-F12 handled, and where would you add F3?|Console::handleKey|common/source/console/Console.cpp
+Where is a page loaded from the ELF binary (returns false if no segment -> exit 9999)?|Loader::loadPage(address, arch_memory)|common/source/kernel/Loader.cpp
+Where are F7-F12 handled, and where would you add F3?|Console::handleKey|common/source/console/Console.cpp
 Where is the next thread chosen?|Scheduler::schedule (round robin over threads_)|common/source/kernel/Scheduler.cpp
 What runs on every timer tick?|irqHandler_0 -> Scheduler::incTicks + schedule|arch/x86/64/source/InterruptUtils.cpp
 Where do you create a new kernel thread at boot?|startup(): Scheduler::instance()->addNewThread(new X)|common/source/kernel/main.cpp
 Where is a process deleted, and what frees its pages?|~UserProcess (last thread gone) -> delete arch_memory_ -> ~ArchMemory|common/source/kernel/UserProcess.cpp
 Where does pthread_join wait, and who wakes it?|joinThread: thread_exited_.wait(); exitThread broadcasts|common/source/kernel/UserProcess.cpp
-How do you get a thread of your process by id?|process->findThreadDataByTid(tid)->thread_ (hold thread_lock_)|common/source/kernel/UserProcess.cpp
+How do you get a thread of your process by id?|process->findThreadData(tid)->thread_ (hold thread_lock_)|common/source/kernel/UserProcess.cpp
 Where are malloc, free, calloc, realloc - and what do they do now?|stdlib.c - stubs, they return 0|userspace/libc/src/stdlib.c
-Which pthread functions are stubs?|mutex_*, cond_*, spin_*, setcancelstate/type (detach and equal work now)|userspace/libc/src/pthread.c
+Which pthread functions are stubs?|mutex_*, cond_*, spin_* (detach, equal, setcancelstate/type work now)|userspace/libc/src/pthread.c
 Where is the "check pointer + copy string from user space" helper?|Syscall::copyUserString|common/source/kernel/Syscall.cpp
 Where are the bits of a page-table entry (present, writeable, NX, free bits)?|PageTableEntry|arch/x86/64/include/paging-definitions.h
 How do you read a physical page from the kernel?|(char*) ArchMemory::getIdentAddressOfPPN(ppn)|arch/x86/64/include/ArchMemory.h
@@ -27,8 +27,8 @@ TASK: "malloc and free should work" - type, start?|U: stdlib.c - a static pool +
 TASK: "add strncpy to the libc" - type, start?|U: declare in string.h, implement in string.c|A0-14
 TASK: "pthread_mutex_lock must really lock" - type, start?|U: pthread.c - one atomic test-and-set + sched_yield|A1-15
 TASK: "a syscall that returns the number of free pages" - type, start?|S: the six places, PageManager::getNumFreePages|syscall-definitions.h, A0-01
-TASK: "sleep(seconds) should work" - type, start?|S + E: a syscall that waits until Scheduler::getTicks() reached the target|unistd.c stub, A1-18
-TASK: "waitpid returns the child's exit code" - type, start?|S: exit code must outlive the process - a table in ProcessRegistry, filled in ~UserProcess|wait.c stub, A1-19
+TASK: "sleep(seconds) should work" - type, start?|S + E: a syscall that waits until a target time (your team: nanosleep, Scheduler::timedSleepUntil)|unistd.c, A1-18 (retired: your team has it)
+TASK: "waitpid returns the child's exit code" - type, start?|S: exit code must outlive the child - your team: ChildData in the parent (child_lock_, child_exited_), status via WEXITSTATUS|wait.c, A1-19 (study)
 TASK: "pages of the heap are mapped on first access" - type, start?|S + E: limit in UserProcess, a new case FIRST in handlePageFault|PageFaultHandler.cpp, A0-03
 TASK: "code pages must be read-only" - type, start?|E: Loader::loadPage maps with writeable = false for segments without PF_W|Loader.cpp, A0-05
 TASK: "when F3 is pressed, do X with the current process" - type, start?|E: Console::handleKey sets a flag, the top of syscallException does the work|Console.cpp, ex07, A2-06

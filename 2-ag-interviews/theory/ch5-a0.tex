@@ -29,7 +29,7 @@ A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 
 \item The six places of a syscall, and the path \code{int \$0x80} $\to$ \code{syscallHandler}
   $\to$ \code{syscallException} (\S\ref{sec:syscall}).
 \item The page fault path and where a new case goes (before \code{loadPage}); the two places
-  that kill on a segfault (\code{handlePageFault} 9999, \code{Loader::loadPage} 666).
+  that end the process on a segfault (invalid fault, or \code{Loader::loadPage} returns \code{false}: both \code{exit(9999)} in \code{handlePageFault}).
 \item \code{allocPPN} $\to$ (fill via ident mapping) $\to$ \code{mapPage(vpn, ppn, 1)}; what
   \code{unmapPage} frees; when to flush the TLB.
 \item \code{user\_registers\_} during a syscall/page fault = the state the thread continues
@@ -38,8 +38,8 @@ A0 tutorial 2 (7 Oct): physical page of a variable, map it a second time & ex12 
   \code{createUserRegisters}, \code{setAddressSpace}, \code{addNewThread}; destructor in the
   CleanupThread.
 \item Per-process state: where (\code{UserProcess}) and which lock.
-\item The page-table lock: \code{thread\_lock\_} (\code{getThreadLock()}) --- and that \code{loadPage}
-  maps without it.
+\item The page-table lock: \code{process\_lock\_} (\code{getProcessLock()}) --- the page fault handler
+  holds it for every fault (also around \code{loadPage}); \code{thread\_lock\_} comes after it.
 \item Address arithmetic: \code{vpn = addr >> 12}, \code{offset = addr \& 0xfff},
   \code{addr = (vpn << 12) + offset}; a frame mapped twice is freed twice at exit.
 \end{enumerate}
@@ -56,7 +56,7 @@ Your team's \code{pthread\_create} (A0-08 is a study task: explain it):
   \node[box] (a) {\textbf{user}: \code{pthread\_create(\&t, 0, f, arg)} $\to$
      \code{\_\_syscall(sc\_pthread\_create, \&t, pthread\_start, f, arg)}};
   \node[box, below=3mm of a] (b) {\textbf{kernel}: \code{Syscall::pthreadCreate} checks the pointers;
-     \code{process->createThread(entry, true, f, arg)} under \code{thread\_lock\_}};
+     \code{process->createThread(entry, true, f, arg)} (takes \code{process\_lock\_}, then \code{thread\_lock\_})};
   \node[box, below=3mm of b] (c) {\code{allocateNewStack}: a slot (4 pages + guard), one page mapped;
      \code{new UserThread(\ldots)}: \code{createUserRegisters(rip = pthread\_start, rsp = top)},
      \code{setThreadArguments(rdi = f, rsi = arg)}, \code{setAddressSpace}; \code{registerThread}: \code{UserThreadData}, tid};
@@ -141,7 +141,7 @@ itself had finished correctly; the backtrace names the CleanupThread.
   mapping an address that is in use --- return \code{-1}, asserts are for kernel bugs;
 \item \code{page\_ppn} of an unmapped page is 0, a real frame number --- check
   \code{m.page\_size == PAGE\_SIZE}, else \code{-1} (an untouched page is unmapped: lazy loading);
-\item no page-table lock --- in your team's code \code{getThreadLock()};
+\item no page-table lock --- in your team's code \code{getProcessLock()};
 \item the double free: remember the alias vpns, unmap them with \code{unmapPage(vpn, false)} in
   \code{\textasciitilde UserProcess}, right before \code{delete arch\_memory\_};
 \item \code{(UserProcess*)currentThread}: wrong in your team's code (compiles, reads garbage) ---

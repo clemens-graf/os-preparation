@@ -12,7 +12,7 @@ Syscall number **1507** – your team already uses 1500–1506 (`mkdir`, pthread
 | `common/include/kernel/Syscall.h` | `static size_t memInfo(size_t user_info);` |
 | `common/source/kernel/Syscall.cpp` | `case sc_meminfo:` + `memInfo()` |
 | `arch/x86/64/include/ArchMemory.h`, `.../source/ArchMemory.cpp` | `countUserPages()` – the page-table walk |
-| (no new lock) | your team's `UserProcess::thread_lock_` (`getThreadLock()`) protects the page tables |
+| (no new lock) | your team's `UserProcess::process_lock_` (`getProcessLock()`) protects the page tables |
 | `userspace/libc/include/nonstd.h` | `#include "types.h"`, `struct meminfo`, declaration |
 | `userspace/libc/src/nonstd.c` | wrapper: `__syscall(sc_meminfo, (size_t) info, 0, 0, 0, 0)` |
 
@@ -29,7 +29,7 @@ size_t Syscall::memInfo(size_t user_info)
   info.free_pages = PageManager::instance()->getNumFreePages();
   {
     UserProcess* process = currentThread->getProcess();
-    ScopeLock lock(process->getThreadLock());
+    ScopeLock lock(process->getProcessLock());
     info.process_pages = process->getAddressSpace().countUserPages();
   }
   *(MemInfo*) user_info = info;
@@ -52,12 +52,12 @@ size_t Syscall::memInfo(size_t user_info)
 
 | Data | Lock | Why |
 |---|---|---|
-| page tables of the process (`getAddressSpace()`) | your team's `thread_lock_` (`getThreadLock()`, Mutex) | another thread of the process (A1) or a page fault could map/unmap during the walk; `unmapPage` even frees page-table pages – we would read freed memory |
+| page tables of the process (`getAddressSpace()`) | your team's `process_lock_` (`getProcessLock()`, Mutex) | another thread of the process (A1) or a page fault could map/unmap during the walk; `unmapPage` even frees page-table pages – we would read freed memory |
 | `PageManager` counters | `PageManager`'s own SpinLock inside the getters | the two numbers are not read atomically together – fine for statistics |
 
 The lock is a **Mutex**, not a SpinLock: the critical sections may be long (walk) and in
 other places allocate memory. Upstream SWEB has no lock for the page tables at all (a process has
-only one thread there) – your team uses `thread_lock_` since a process can have several.
+only one thread there) – your team uses `process_lock_` since a process can have several.
 
 ## Pitfalls
 
@@ -74,7 +74,7 @@ only one thread there) – your team uses `thread_lock_` since a process can hav
   kernel too.
 - *Unmapped page?* The kernel write page-faults in kernel mode on a user address →
   `checkPageFaultIsValid` accepts it → `loadPage`: loaded if a segment covers it, otherwise
-  the process is killed (exit 666). Above `USER_BREAK`: we return -1 before touching it.
+  the process is killed (exit 9999). Above `USER_BREAK`: we return -1 before touching it.
 - *Why only 2 pages at the start?* Lazy loading: the `UserThread` constructor maps only the stack page;
   every code/data page is loaded on its first page fault.
 

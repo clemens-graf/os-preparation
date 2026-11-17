@@ -131,7 +131,7 @@ A buffer has a known size, so you check `[buffer, buffer + size)` once. A string
 
 <details><summary>What happens in the kernel when the user string lies on a page that was not loaded yet? And on an address no segment covers?</summary>
 
-The kernel's read page-faults on a user address – that's legal: the page fault handler maps it (`loadPage`) and the read is repeated. If no segment covers the address, the process is killed (666) – the same as if user code had read it.
+The kernel's read page-faults on a user address – that's legal: the page fault handler maps it (`loadPage`) and the read is repeated. If no segment covers the address, the process is killed (9999) – the same as if user code had read it.
 
 </details>
 

@@ -27,7 +27,7 @@ index 290b5459..6c15d8c7 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..9db3ee0a 100644
+index 439b092c..b2c6a691 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -69,7 +69,7 @@ index 439b092c..9db3ee0a 100644
 +
 +  UserProcess* process = currentThread->getProcess();
 +  {
-+    ScopeLock lock(process->getThreadLock());
++    ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +    pointer slot = process->getAddressSpace().checkAddressValid(rsp);  // is that stack slot mapped?
 +    if (!slot)
 +      return (size_t) -1;

@@ -234,7 +234,7 @@ Nothing is lost: the old attempt (including uncommitted changes) is kept as
 Every task and example starts from **your team's code**: the commit in `team/BASE` of your
 team repo `osw26e3`, imported into the training copy as branch `main` (`task` does that by
 itself the first time; it only *reads* `repos/osw26e3`). That is the code you have in the
-interview: `currentThread->getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThread`.
+interview: `currentThread->getProcess()`, `getAddressSpace()`, `getProcessLock()` (page tables) and `getThreadLock()` (threads), `UserThread`.
 
 ```bash
 task team setup                         # import the team code again (e.g. after team/BASE changed)
@@ -298,7 +298,7 @@ A good run:
 | `status 3` | SWEB did not even reach the shell | crash during boot, or the shell is missing from the disk image (build again) |
 | `status 4` + `leaking` | `exit` at the end found physical pages that were never freed | something mapped/allocated without freeing |
 | `status 5` | a run that should panic (ex12) did not | – |
-| `== expected 23 [PASS] lines, got 15` | a test program died half-way (it prints no `[FAIL]` then) | look for `EXIT: called, exit_code: 666/888/9999` above |
+| `== expected 23 [PASS] lines, got 15` | a test program died half-way (it prints no `[FAIL]` then) | look for `EXIT: called, exit_code: 9999/888/999` above |
 | `EXIT: called, exit_code: 9999` | the process touched an address no segment covers (or another invalid page fault) | a wrong pointer – in the test or in your kernel code |
 | `== BUILD FAILED` | compile error, shown above | full log: `/tmp/sweb-ag/make.log` |
 

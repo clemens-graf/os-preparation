@@ -15,7 +15,7 @@ base on top of A0-08; in the interview it is your team's implementation.
 \textbf{Question} & \textbf{Your team's code} \\
 \midrule
 Which threads does a process have? & \code{UserProcess::threads\_}: one \code{UserThreadData} per thread --- \code{tid\_}, \code{exit\_value\_}, \code{exited\_}, \code{joined\_}, \code{requested\_cancel\_}, \code{thread\_} (\code{nullptr} once it exited) \\
-Which lock? & \code{thread\_lock\_} (Mutex, \code{getThreadLock()}) for all of it --- also the stack slots and the page tables; \code{thread\_exited\_} (Condition), broadcast in \code{exitThread} \\
+Which lock? & \code{thread\_lock\_} (Mutex, \code{getThreadLock()}) for all of it --- also the stack slots; the page tables have \code{process\_lock\_} (taken \emph{before} \code{thread\_lock\_}); \code{thread\_exited\_} (Condition), broadcast in \code{exitThread} \\
 Where does the exit value survive the thread? & in its \code{UserThreadData} --- the thread object is deleted by the CleanupThread at an unknown time \\
 When is a thread object freed? & \code{exitThread} frees the stack, stores the value, sets \code{thread\_ = nullptr}, then \code{kill()}; the CleanupThread deletes it, \code{\textasciitilde UserThread} calls \code{threadExited()} (the last one deletes the process) \\
 How do I use another thread safely? & \code{findThreadData(tid)} under \code{thread\_lock\_}, use \code{thread\_} only while holding it: \code{exitThread} clears it under the same lock \\

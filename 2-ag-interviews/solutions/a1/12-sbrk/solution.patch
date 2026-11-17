@@ -1,5 +1,5 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 33fc6354..c169b71d 100644
+index 33fc6354..0fd8ae3a 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -25,6 +25,9 @@
@@ -36,7 +36,7 @@ index 33fc6354..c169b71d 100644
      ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
      ustl::list<ChildData*> children_;
 +
-+    size_t brk_ = BRK_START;       // A1-12: the program break (thread_lock_, like the page tables)
++    size_t brk_ = BRK_START;       // A1-12: the program break (process_lock_, like the page tables)
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
 index 290b5459..6248591f 100644
@@ -65,7 +65,7 @@ index 439b092c..e5de054e 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..39f92b6b 100644
+index 2973d144..a53ce03c 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -12,6 +12,7 @@
@@ -85,13 +85,13 @@ index 2973d144..39f92b6b 100644
 +bool UserProcess::mapBrkPage(size_t vpn)
 +{
 +  size_t ppn = PageManager::instance()->allocPPN();     // before the lock: keeps it short
-+  thread_lock_.acquire();
++  process_lock_.acquire();   // page tables: process_lock_
 +  // check and map in ONE critical section - sbrk() could shrink the heap in between otherwise
 +  bool below = vpn * PAGE_SIZE < brk_;
 +  bool mapped = false;
 +  if (below)
 +    mapped = arch_memory_->mapPage(vpn, ppn, 1);         // false: another thread mapped it first
-+  thread_lock_.release();
++  process_lock_.release();
 +  if (!mapped)
 +    PageManager::instance()->freePPN(ppn);              // above the break, or another thread was faster
 +  return below;
@@ -99,7 +99,7 @@ index 2973d144..39f92b6b 100644
 +
 +size_t UserProcess::sbrk(ssize_t increment)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  size_t old_brk = brk_;
 +  size_t new_brk = old_brk + increment;
 +  if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)   // also catches wrap-around
@@ -120,7 +120,7 @@ index 2973d144..39f92b6b 100644
 +  return old_brk;
 +}
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 6d909f90..d9bfdc6c 100644
+index 6d909f90..602e5352 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -72,6 +72,16 @@ inline void PageFaultHandler::handlePageFault(size_t address, bool user,
@@ -129,7 +129,7 @@ index 6d909f90..d9bfdc6c 100644
    {
 +    if (address >= BRK_START && address < BRK_START + BRK_MAX)   // A1-12: the heap, before the lock
 +    {
-+      if (!currentThread->getProcess()->mapBrkPage(address / PAGE_SIZE))   // takes thread_lock_ itself
++      if (!currentThread->getProcess()->mapBrkPage(address / PAGE_SIZE))   // takes process_lock_ itself
 +      {
 +        debug(PAGEFAULT, "access above the program break\n");
 +        Syscall::exit(9997);                     // never exit while holding a lock

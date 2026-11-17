@@ -8,7 +8,7 @@ Patch: [`solution.patch`](solution.patch).
 |---|---|
 | `SharedPages` (key → ppn + reference count), created in `startup()` | new `common/{include,source}/mm/SharedPages.*` |
 | `unmapPage(vpn, free_physical_page = true)` | `ArchMemory` |
-| `shm_attached_` bit mask per process | `UserProcess` (under `thread_lock_`) |
+| `shm_attached_` bit mask per process | `UserProcess` (under `process_lock_`) |
 | cleanup at exit | `UserProcess::~UserProcess` |
 | syscalls | `shmAttach`, `shmDetach` |
 
@@ -17,7 +17,7 @@ Patch: [`solution.patch`](solution.patch).
 ```cpp
 // attach: 1. reference (global lock)  2. map (page-table lock) - never both at once
 size_t ppn = SharedPages::instance()->acquire(key);        // creates the page if needed
-lock thread_lock_; if not yet attached: mapPage + set bit; unlock
+lock process_lock_; if not yet attached: mapPage + set bit; unlock
 if (it was attached already) SharedPages::instance()->release(key);   // keep only one reference
 
 // detach: 1. unmap WITHOUT freeing, flush TLB (page-table lock)  2. release (global lock)
@@ -35,7 +35,7 @@ if (it was attached already) SharedPages::instance()->release(key);   // keep on
 
 ## Locking summary
 
-Two locks, never nested: `SharedPages::lock_` (table + counts) and `UserProcess::thread_lock_`.
+Two locks, never nested: `SharedPages::lock_` (table + counts) and `UserProcess::process_lock_`.
 
 ## Variants
 

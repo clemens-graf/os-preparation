@@ -27,7 +27,7 @@ index 290b5459..c82ecbe9 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..398c6f75 100644
+index 439b092c..a39d1f5f 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -61,7 +61,7 @@ index 439b092c..398c6f75 100644
 +    return (size_t) -1;
 +
 +  UserProcess* process = currentThread->getProcess();
-+  ScopeLock lock(process->getThreadLock());   // released automatically at every return
++  ScopeLock lock(process->getProcessLock());  // page tables: process_lock_, released at every return
 +
 +  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
 +  if (m.page_size != PAGE_SIZE)                // not mapped (yet) - m.pt may even be null

@@ -43,7 +43,7 @@ task solution a0-01    # -> branch solution/a0-01-meminfo
 |---|---|
 | the calling process | `currentThread->getProcess()` (a `UserProcess*`) |
 | its page tables | `process->getAddressSpace()` (an `ArchMemory&`, owned by the `UserProcess`; `~UserProcess` deletes it) |
-| the page-table lock | `process->getThreadLock()` – the per-process Mutex `thread_lock_`; also protects `threads_` and the stack slots. The page fault handler holds it for stack pages, **not** around `loadPage` |
+| the page-table lock | `process->getProcessLock()` – the per-process Mutex `process_lock_` (also loader, file name, working dir). `thread_lock_` (`getThreadLock()`) protects `threads_`, the records and the stack slots. Order: `process_lock_` first. The page fault handler holds `process_lock_` for every fault, both for stack pages |
 | the ELF loader | `process->getLoader()` (a `Loader&`): `loadPage(address, getAddressSpace())` |
 | per-process state | members of `UserProcess` |
 | per-thread state | members of `UserThread` – `(UserThread*) currentThread` |

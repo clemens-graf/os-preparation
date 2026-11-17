@@ -72,7 +72,7 @@ index b82d8ca3..34c701aa 100644
  
      // process stuff
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
-index 290b5459..fad76e86 100644
+index 290b5459..4fd9c47f 100644
 --- a/common/include/kernel/syscall-definitions.h
 +++ b/common/include/kernel/syscall-definitions.h
 @@ -23,6 +23,7 @@
@@ -84,7 +84,7 @@ index 290b5459..fad76e86 100644
  #define sc_pthread_exit 1001
  #define sc_pthread_self 1002
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..f8979a09 100644
+index 439b092c..40d2d2b2 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -129,7 +129,7 @@ index 439b092c..f8979a09 100644
 +  info.free_pages = PageManager::instance()->getNumFreePages();
 +  {
 +    UserProcess* process = currentThread->getProcess();
-+    ScopeLock lock(process->getThreadLock());      // no thread may change the tables during the walk
++    ScopeLock lock(process->getProcessLock());     // page tables: process_lock_ (no thread may change them during the walk)
 +    info.process_pages = process->getAddressSpace().countUserPages();
 +  }
 +  *(MemInfo*) user_info = info;                     // one copy into user memory, after all locks are released

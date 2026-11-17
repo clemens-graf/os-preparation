@@ -34,7 +34,7 @@ Notes:        Put HEAP_START into nonstd.h so that tests can use it.
 <details><summary>1 – where does a heap access end up today?</summary>
 
 `PageFaultHandler::handlePageFault` → the address is "valid" (user, below `USER_BREAK`,
-not present) → `Loader::loadPage` → no ELF segment covers it → `Syscall::exit(666)`. You
+not present) → `Loader::loadPage` → no ELF segment covers it → returns `false` → `Syscall::exit(9999)`. You
 need a new branch *before* `loadPage` for addresses in the heap region.
 </details>
 
@@ -59,8 +59,8 @@ that also protects the page tables). And: never call `Syscall::exit` while holdi
 1. Add the constants (`HEAP_START`, the maximum size) and a per-process `heap_size_` (start 0) to `UserProcess.h`.
 2. Add two methods to `UserProcess`: one that sets the limit, one that maps a heap page on demand.
 3. Syscall plumbing for `heaplimit(size)`: it rounds up to whole pages and calls the set-limit method.
-4. Set-limit: under `thread_lock_`: if the heap shrinks, unmap every heap page above the new limit and flush the TLB; store the new size.
-5. Map-on-demand: allocate a frame **before** the lock; under `thread_lock_`: check "below the limit?" and `mapPage` **in the same critical section**; after the lock free the frame if it was not used.
+4. Set-limit: under `process_lock_`: if the heap shrinks, unmap every heap page above the new limit and flush the TLB; store the new size.
+5. Map-on-demand: allocate a frame **before** the lock; under `process_lock_`: check "below the limit?" and `mapPage` **in the same critical section**; after the lock free the frame if it was not used.
 6. Page fault handler: in the valid branch, **first** (before the stack check takes the lock): an address inside the heap region → call map-on-demand; outside the limit → kill the process (after releasing every lock); then `return`.
 7. `task test` – the test touches pages below and above the limit and shrinks it.
 
@@ -73,9 +73,9 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 - The heap limit is **per-process state → `UserProcess`** (`currentThread->getProcess()`):
   `heap_size_`, `mapHeapPage(vpn)` (check the limit and map, for the page fault handler) and
   `setHeapLimit(size)` (unmap everything above the new limit). Inside `UserProcess`:
-  `arch_memory_->…` and `thread_lock_`.
+  `arch_memory_->…` and `process_lock_`.
 - Your page fault handler (`PageFaultHandler.cpp`) is longer now: in the valid branch it takes
-  `thread_lock_`, grows the stack (`isUserStackFault`), checks guard pages, and only then calls
+  `process_lock_`, grows the stack (`isUserStackFault`), checks guard pages, and only then calls
   `getLoader().loadPage(address, getAddressSpace())`. Put the heap case **first** in the valid
   branch (before it takes the lock – `mapHeapPage` takes it itself) and `return` afterwards.
 
@@ -85,13 +85,13 @@ Answer each one out loud first – then open it to compare.
 
 <details><summary>Walk me through what happens on the first write to <code>HEAP_START + 5000</code>.</summary>
 
-CPU: #PF (not present, user, write) → `arch_pageFaultHandler` (asm, saves registers, `cr2` = address) → `pageFaultHandler` → `PageFaultHandler::enterPageFault` → `handlePageFault` → valid → **heap branch first**: `mapHeapPage(vpn)`: `allocPPN` (zeroed), under `thread_lock_`: below the limit? → `mapPage` → return. Back in user mode the same write instruction runs again and succeeds.
+CPU: #PF (not present, user, write) → `arch_pageFaultHandler` (asm, saves registers, `cr2` = address) → `pageFaultHandler` → `PageFaultHandler::enterPageFault` → `handlePageFault` → valid → **heap branch first**: `mapHeapPage(vpn)`: `allocPPN` (zeroed), under `process_lock_`: below the limit? → `mapPage` → return. Back in user mode the same write instruction runs again and succeeds.
 
 </details>
 
 <details><summary>Two threads touch the same new heap page at the same moment – what happens?</summary>
 
-Both fault, both allocate a frame, both take `thread_lock_` one after the other. The first maps; for the second `mapPage` returns `false` – it frees its frame and returns "inside" too. Both threads continue, the page is mapped once.
+Both fault, both allocate a frame, both take `process_lock_` one after the other. The first maps; for the second `mapPage` returns `false` – it frees its frame and returns "inside" too. Both threads continue, the page is mapped once.
 
 </details>
 

@@ -1,5 +1,5 @@
 diff --git a/arch/x86/64/include/ArchMemory.h b/arch/x86/64/include/ArchMemory.h
-index 19431844..384a8a4f 100644
+index 19431844..9093663b 100644
 --- a/arch/x86/64/include/ArchMemory.h
 +++ b/arch/x86/64/include/ArchMemory.h
 @@ -85,6 +85,12 @@ class ArchMemory
@@ -8,7 +8,7 @@ index 19431844..384a8a4f 100644
  
 +    /**
 +     * A1-09: the lowest user virtual page that maps physical page ppn, 0 if none
-+     * (caller must hold the lock that protects this ArchMemory: process->getThreadLock())
++     * (caller must hold the lock that protects this ArchMemory: process->getProcessLock())
 +     */
 +    size_t findVirtualPage(size_t ppn);
 +
@@ -83,7 +83,7 @@ index 290b5459..8246ad31 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..3b5c75e3 100644
+index 439b092c..940946df 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -11,6 +11,8 @@
@@ -119,7 +119,7 @@ index 439b092c..3b5c75e3 100644
 +  if (address >= USER_BREAK)
 +    return (size_t) -1;
 +  UserProcess* process = currentThread->getProcess();
-+  ScopeLock lock(process->getThreadLock());          // the page-table lock of your team's code
++  ScopeLock lock(process->getProcessLock());         // the page-table lock of your team's code
 +  ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
 +  if (m.page_size != PAGE_SIZE)
 +    return (size_t) -1;
@@ -132,7 +132,7 @@ index 439b092c..3b5c75e3 100644
 +  if (ppn == 0 || ppn >= PageManager::instance()->getTotalNumPages())
 +    return 0;
 +  UserProcess* process = currentThread->getProcess();
-+  ScopeLock lock(process->getThreadLock());
++  ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +  return process->getAddressSpace().findVirtualPage(ppn) * PAGE_SIZE;
 +}
 diff --git a/userspace/libc/include/nonstd.h b/userspace/libc/include/nonstd.h

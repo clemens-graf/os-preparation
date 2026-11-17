@@ -101,7 +101,7 @@ index 439b092c..36b7a2f2 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..23378348 100644
+index 2973d144..dfd13a58 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -11,6 +11,7 @@
@@ -112,13 +112,14 @@ index 2973d144..23378348 100644
  #include "Mutex.h"
  #include "ArchMemory.h"
  
-@@ -936,3 +937,30 @@ void UserProcess::addCpuCycles(uint64 cycles)
+@@ -936,3 +937,31 @@ void UserProcess::addCpuCycles(uint64 cycles)
  {
    cpu_cycles_ += cycles;
  }
 +
 +bool UserProcess::deliverSegv(ArchThreadRegisters* registers, size_t address)
 +{
++  ScopeLock process_lock(process_lock_);   // page tables (checkAddressValid): process_lock_ first
 +  ScopeLock lock(thread_lock_);
 +  if (!segv_handler_)
 +    return false;

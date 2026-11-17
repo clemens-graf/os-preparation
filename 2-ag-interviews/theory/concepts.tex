@@ -283,7 +283,7 @@ program that reserves 100\,MiB but uses 1\,MiB only costs 1\,MiB.
 
 \inteam Per-process state belongs into \code{UserProcess} (\code{brk\_}); the page fault handler's
 new case goes \emph{first} in the valid branch of \code{handlePageFault}, before it takes
-\code{thread\_lock\_}. The libc \code{sbrk} stub is in \file{unistd.c}. A0-03 (heaplimit) is the
+\code{process\_lock\_} (your \code{mapBrkPage} takes it itself). The libc \code{sbrk} stub is in \file{unistd.c}. A0-03 (heaplimit) is the
 same pattern with a fixed size instead of a moving break.
 
 \pitfalls Mapping pages in the syscall instead of on demand. Checking ``below the limit'' and mapping
@@ -1024,8 +1024,8 @@ address space, runs, ends, and leaves a small record behind until somebody has j
   later. Detach: nobody will join, the record goes when the thread ends.
 \item \textbf{Per-thread data} for a task (A0-11, A1-07, A1-08) goes into \code{UserThread} (or
   \code{Thread}); reach it with \code{(UserThread*) currentThread}.
-\item \textbf{The lock:} \code{process->getThreadLock()} protects the thread list, the stack slots
-  and the page tables.
+\item \textbf{The locks:} \code{process->getProcessLock()} protects the page tables (and loader,
+  files); \code{process->getThreadLock()} the thread list, the records and the stack slots --- process lock first.
 \end{itemize}
 
 \begin{selfcheck}

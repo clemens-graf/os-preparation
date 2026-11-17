@@ -40,7 +40,7 @@ Per mapping: first vpn, number of pages, writable. A small array in `UserProcess
 
 `mapMmapPage(vpn)`: `allocPPN` before the lock; under `thread_lock_`: is vpn inside a mapping?
 then `mapPage` (and clear `writeable` for read-only ones – same critical section); release;
-`freePPN` if nothing was mapped. Not inside → return false, the handler goes on (→ 666).
+`freePPN` if nothing was mapped. Not inside → return false, the handler goes on (→ `loadPage` fails → 9999).
 </details>
 
 <details><summary>3 – munmap</summary>

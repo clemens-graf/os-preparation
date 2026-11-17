@@ -67,7 +67,7 @@ page-table lock) and write through the returned kernel address.
 2. Refuse a function address of 0 or `>= USER_BREAK`.
 3. Take the calling thread's saved user registers (`currentThread->user_registers_`).
 4. Compute the new stack pointer: old `rsp` minus 128 (red zone), round down to a multiple of 16, minus 8 (room for the return address).
-5. Under `thread_lock_`: check that this stack address is mapped (`checkAddressValid`) – it gives you a kernel address for the slot; not mapped → return -1.
+5. Under `process_lock_`: check that this stack address is mapped (`checkAddressValid`) – it gives you a kernel address for the slot; not mapped → return -1.
 6. Write the **old `rip`** into that slot (the return address: the instruction after the syscall).
 7. Set `rsp` to the new value, `rip` to the function, `rdi` to the argument. Return 0.
 8. `task test` – the function runs and returns into the program as if it had been called.
@@ -80,7 +80,7 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 
 - The registers are per thread: `currentThread->user_registers_`.
 - The stack check: `process->getAddressSpace().checkAddressValid(rsp)` under
-  `process->getThreadLock()` (`UserProcess* process = currentThread->getProcess();`).
+  `process->getProcessLock()` (`UserProcess* process = currentThread->getProcess();`).
 
 ## Questions a tutor might ask
 

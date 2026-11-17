@@ -1,6 +1,6 @@
 # Anki deck – AG interviews
 
-**[`ag-interviews.apkg`](ag-interviews.apkg)** – 269 cards about **your team's code** (the commit
+**[`ag-interviews.apkg`](ag-interviews.apkg)** – 273 cards about **your team's code** (the commit
 in `../team/BASE`), deck `OS AG` with 9 sub-decks:
 
 | Sub-deck | Cards about |
@@ -8,7 +8,7 @@ in `../team/BASE`), deck `OS AG` with 9 sub-decks:
 | 1 Triage | the five task types, "task X – which type, which file first?" |
 | 2 Where is what | the call chains and places from [ATLAS.md](../ATLAS.md) |
 | 2b Every file | **every file** of your team's x86-64 code: "what is in …?" and "which file …?" – kernel, memory, interrupts, drivers, console, file systems, util, libc, tests, build |
-| 3 Team API | `getProcess()`, `getAddressSpace()`, `getThreadLock()`, `UserThreadData`, … |
+| 3 Team API | `getProcess()`, `getAddressSpace()`, `getProcessLock()`, `getThreadLock()`, `UserThreadData`, … |
 | 4 Locking | the rules the tutors ask about |
 | 5 Traps | the bugs that cost time in the interview |
 | 6 Tasks | the key idea of the important tasks |

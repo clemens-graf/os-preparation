@@ -141,7 +141,7 @@ or come up as a question:
 | `va` is not checked against `USER_BREAK` | `map_address(0xffffffff80100000, ppn)` reaches the kernel half of the page tables | `-1` for `va >= USER_BREAK` |
 | `assert(mapped)` | a user program can crash the kernel on purpose: map an address that is already mapped (tested: `map_address` onto kernel text → `Assertion mapped failed`) | return `-1`; an `assert` is for kernel bugs, never for bad user input |
 | `get_physical_address` returns `m.page_ppn` blindly | 0 for a page that is not mapped (yet) – but 0 is a real frame number; a kernel address returns the kernel's frame | `-1` unless `va < USER_BREAK` and `m.page_size == PAGE_SIZE` |
-| no lock around `arch_memory_` | fine while a process has one thread; with threads (A1) two syscalls or page faults change the tables at once | `process->getThreadLock()` (ex02), around the check **and** the `mapPage` |
+| no lock around `arch_memory_` | fine while a process has one thread; with threads (A1) two syscalls or page faults change the tables at once | `process->getProcessLock()` (ex02), around the check **and** the `mapPage` |
 | `(UserProcess*)currentThread` | wrong in your team's code, where a thread is not a process – compiles, reads garbage | `currentThread->getProcess()->getAddressSpace()` |
 | `*address = 1;` in `tutorial2.c` | writes byte `0x242` of the page that holds `global` – whatever variable lives there is overwritten | compute the alias of `global` first (as the tutorial does afterwards) |
 | kernel `map_address` returns nothing, the libc wrapper returns `size_t` | the user always gets 0, also on failure | return `0` / `-1` |

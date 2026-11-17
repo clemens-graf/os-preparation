@@ -134,7 +134,7 @@ syscall at all** – it is [A0-13](a0/13-atexit/) now; A0-14 and A1-14 … A1-17
 ## Interview vs. training repo
 
 In the interview you work in **your team repo** – and so does this course: every card, hint, note
-and solution uses your team's names (`getProcess()`, `getAddressSpace()`, `getThreadLock()`,
+and solution uses your team's names (`getProcess()`, `getAddressSpace()`, `getProcessLock()`, `getThreadLock()`,
 `UserThread`, state in `UserProcess`). The tutorials (ex11, ex12) were written for upstream SWEB;
 [`team/README.md`](team/README.md) shows how to read them. Spend 15 minutes in the team repo
 itself before the interview – [`ATLAS.md`](ATLAS.md) is the map, `task quiz` trains finding things.

@@ -78,7 +78,7 @@ computer-science background.
   heap). It returns where the break was before = where the new memory starts.\\
 \textbf{Demand paging} & The kernel gives a page real RAM only at its \emph{first touch} (via a
   page fault), not when it is asked for. RAM is only spent on pages that are really used.\\
-\textbf{Lock} & A rule ``only one thread at a time in here''. Here: \code{thread\_lock\_} protects the
+\textbf{Lock} & A rule ``only one thread at a time in here''. Here: \code{process\_lock\_} protects the
   break and the page table of one process.\\
 \textbf{TLB} & A small cache in the CPU that remembers recent ``page $\to$ RAM'' answers. After
   removing a mapping it must be emptied (``flushed''), or the CPU keeps using the old answer.\\
@@ -310,7 +310,7 @@ size_t sbrk(ssize_t increment);
 
 \why{Why in \code{UserProcess}?}
 The break belongs to \textbf{one process} and is shared by all its threads, so the methods that use it
-belong to that process too. They also need \code{arch\_memory\_} and \code{thread\_lock\_}, which are
+belong to that process too. They also need \code{arch\_memory\_} and \code{process\_lock\_}, which are
 private members of \code{UserProcess} -- only its own methods can access them.
 
 \why{\code{mapBrkPage(size\_t vpn)}}
@@ -339,7 +339,7 @@ size_t brk_ = BRK_START;
         start value directly here means you do not have to change the long constructor.
   \item \textbf{The trailing \code{\_}:} the naming style of the file for members (\code{threads\_},
         \code{running\_threads\_}).
-  \item \textbf{Protected by \code{thread\_lock\_}:} whoever reads or writes \code{brk\_} must hold that
+  \item \textbf{Protected by \code{process\_lock\_}:} whoever reads or writes \code{brk\_} must hold that
         lock. The compiler does not enforce this -- it is a rule you keep yourself.
 \end{itemize}
 
@@ -426,7 +426,7 @@ At the end of the file:
 \begin{lstlisting}[style=cpp,numbers=left,numberstyle=\tiny\color{headgray}]
 size_t UserProcess::sbrk(ssize_t increment)
 {
-  ScopeLock lock(thread_lock_);
+  ScopeLock lock(process_lock_);
   size_t old_brk = brk_;
   size_t new_brk = old_brk + increment;
   if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)
@@ -449,7 +449,7 @@ size_t UserProcess::sbrk(ssize_t increment)
 
 \begin{description}
   \item[Line 3 -- the lock.] \code{brk\_} and the page tables are shared by all threads of the process.
-        \code{ScopeLock} takes \code{thread\_lock\_} here and releases it automatically at \emph{every}
+        \code{ScopeLock} takes \code{process\_lock\_} here and releases it automatically at \emph{every}
         \code{return} -- you cannot forget to unlock. (If the compiler does not know \code{ScopeLock}, add
         \code{\#include "ScopeLock.h"} at the top.)
   \item[Line 4 -- remember the old break.] \code{sbrk} returns the \textbf{old} break: it is exactly where
@@ -497,12 +497,12 @@ still crashes -- steps 6 and 7 fix that.}
 bool UserProcess::mapBrkPage(size_t vpn)
 {
   size_t ppn = PageManager::instance()->allocPPN();
-  thread_lock_.acquire();
+  process_lock_.acquire();
   bool below = vpn * PAGE_SIZE < brk_;
   bool mapped = false;
   if (below)
     mapped = arch_memory_->mapPage(vpn, ppn, 1);
-  thread_lock_.release();
+  process_lock_.release();
   if (!mapped)
     PageManager::instance()->freePPN(ppn);
   return below;
@@ -514,7 +514,7 @@ bool UserProcess::mapBrkPage(size_t vpn)
         \emph{size}, not a page number!) finds a free page of RAM and \textbf{fills it with zeros}. Zeros
         matter: otherwise the program could read old data of another program -- a security hole.
         It is done \emph{before} the lock: \code{allocPPN} has its own lock and searches the whole RAM, so
-        \code{thread\_lock\_} is held only briefly.
+        \code{process\_lock\_} is held only briefly.
   \item[Line 4 -- lock.] Check and map must be \textbf{one} critical section: otherwise another thread
         could call \code{sbrk} and shrink the break between ``is it below?'' and ``map it'' -- and a page
         would end up mapped above the break.
@@ -562,10 +562,10 @@ if (address >= BRK_START && address < BRK_START + BRK_MAX)
         The check uses the \textbf{maximum} region, not the current break: an access above the break is
         still a heap access -- a forbidden one, which you must recognise to kill the process. Without this
         check it would fall through to \code{loadPage}, which finds no section of the binary there
-        (exit 666).
+        (returns \code{false} $\to$ exit 9999).
   \item[Line 3 -- ask \code{mapBrkPage}.] With the \textbf{page number} \code{address / PAGE\_SIZE}.
-        It takes \code{thread\_lock\_} itself -- that is why this \code{if} must come \emph{before} the
-        handler's own \code{getThreadLock()}\allowbreak\code{.acquire()} further down. Taking a \code{Mutex} twice is a deadlock.
+        It takes \code{process\_lock\_} itself -- that is why this \code{if} must come \emph{before} the
+        handler's own \code{getProcessLock()}\allowbreak\code{.acquire()} further down. Taking a \code{Mutex} twice is a deadlock.
   \item[Lines 5--6 -- above the break.] End the process. \code{mapBrkPage} has already released the lock --
         \textbf{never} call \code{exit} while holding a lock: the thread ends, the lock is never released,
         and every other thread of the process hangs.
@@ -617,7 +617,7 @@ Why round \emph{up} when shrinking? & a page still partly below the break is in 
 Why \code{resolveMapping} before \code{unmapPage}? & not every page was touched; \code{unmapPage} panics on an unmapped page\\
 Why \code{flushTlb}? & the CPU may still cache the old translation and write into freed RAM\\
 Why \code{ssize\_t} for the increment? & it can be negative\\
-Why is \code{allocPPN} outside the lock? & it is slow and has its own lock; \code{thread\_lock\_} stays short\\
+Why is \code{allocPPN} outside the lock? & it is slow and has its own lock; \code{process\_lock\_} stays short\\
 Two threads touch the same new page at once? & both fault; the second \code{mapPage} returns false $\to$ \code{freePPN}, still allowed\\
 What about \code{fork}? & the child copies the pages and should copy \code{brk\_} too\\
 What do real systems use? & \code{mmap} for big allocations; \code{sbrk} for the classic heap\\

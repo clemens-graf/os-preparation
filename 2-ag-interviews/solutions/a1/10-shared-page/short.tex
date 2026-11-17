@@ -35,8 +35,8 @@ lines of logic & $\approx$ 90 & $\approx$ 45\\
 
 \smallskip
 \textbf{The one rule that keeps it deadlock-free:} wherever both locks are needed, take
-\code{shm\_lock} \textbf{first}, then \code{thread\_lock\_}. Nothing else in the kernel takes \code{shm\_lock}, so
-no thread can ever hold \code{thread\_lock\_} and wait for \code{shm\_lock}.
+\code{shm\_lock} \textbf{first}, then \code{process\_lock\_}. Nothing else in the kernel takes \code{shm\_lock}, so
+no thread can ever hold \code{process\_lock\_} and wait for \code{shm\_lock}.
 
 % =====================================================================================
 \step{1 -- Plumbing}{syscall-definitions.h · nonstd.h · nonstd.c · Syscall.cpp}
@@ -131,7 +131,7 @@ size_t UserProcess::shmAttach(size_t key)
     return 0;
   size_t vpn = SHM_BASE / PAGE_SIZE + key;
   ScopeLock global(*shm_lock);          // 1st lock
-  ScopeLock local(thread_lock_);        // 2nd lock - always in this order
+  ScopeLock local(process_lock_);        // 2nd lock - always in this order
   if (!shm_attached_[key])
   {
     if (shm_refs[key] == 0)
@@ -154,7 +154,7 @@ size_t UserProcess::shmDetach(size_t key)
   if (key == 0 || key >= SHM_KEYS)
     return (size_t) -1;
   ScopeLock global(*shm_lock);
-  ScopeLock local(thread_lock_);
+  ScopeLock local(process_lock_);
   if (!shm_attached_[key])
     return (size_t) -1;
   arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);   // keep the physical page
@@ -189,14 +189,14 @@ Between \code{delete loader\_;} and \code{delete arch\_memory\_;}:
   \item \textbf{Why:} \code{delete arch\_memory\_} frees every mapped page -- also a shared page the other process
         still uses, if this one ends without detaching.
   \item The extra \code{\{ \}} ends the \code{ScopeLock} before \code{delete arch\_memory\_}.
-  \item No \code{thread\_lock\_} here: the process is being deleted, none of its threads runs any more.
+  \item No \code{process\_lock\_} here: the process is being deleted, none of its threads runs any more.
 \end{itemize}
 
 \begin{keybox}[title={Remember}]
 \begin{enumerate}
   \item Count the users per key; free the page only at 0.
   \item Unmapping a shared page never frees it (\code{false}).
-  \item Two locks: always \code{shm\_lock} first, then \code{thread\_lock\_} -- the same order everywhere.
+  \item Two locks: always \code{shm\_lock} first, then \code{process\_lock\_} -- the same order everywhere.
 \end{enumerate}
 \end{keybox}
 

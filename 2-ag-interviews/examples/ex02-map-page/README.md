@@ -26,9 +26,9 @@ size_t ppn = PageManager::instance()->allocPPN();               // 1. a physical
 char* kernel_view = (char*) ArchMemory::getIdentAddressOfPPN(ppn);
 memcpy(kernel_view, greeting, sizeof(greeting));                 // 2. fill it via the ident mapping
 
-process->getThreadLock().acquire();
+process->getProcessLock().acquire();
 bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);         // 3. map it (user_access = 1)
-process->getThreadLock().release();
+process->getProcessLock().release();
 
 if (!mapped)                                                     // 4. already mapped: give it back
   PageManager::instance()->freePPN(ppn);
@@ -44,18 +44,22 @@ if (!mapped)                                                     // 4. already m
 ## The page-table lock
 
 Two threads of a process must not change its page tables at the same time. In your team's code
-that lock already exists: **`process->getThreadLock()`**, the per-process Mutex your page fault
-handler takes when it maps stack pages. Every A0 solution uses it around `mapPage`/`unmapPage`:
+that lock already exists: **`process->getProcessLock()`** (`process_lock_`, "protects … `arch_memory_`"
+in `UserProcess.h`), the per-process Mutex your page fault handler takes for every fault. Every A0
+solution uses it around `mapPage`/`unmapPage`:
 
 ```cpp
 UserProcess* process = currentThread->getProcess();
-process->getThreadLock().acquire();
+process->getProcessLock().acquire();
 bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
-process->getThreadLock().release();
+process->getProcessLock().release();
 ```
 
+(`thread_lock_` is the other per-process lock – thread list, records, stack slots. If you need
+both: `process_lock_` first, like your team's code.)
+
 A Mutex (not a SpinLock): the critical sections can be long and may allocate. Lock order:
-`thread_lock_` → PageManager's lock (taken inside `mapPage` when it needs a new page table).
+`process_lock_` → PageManager's lock (taken inside `mapPage` when it needs a new page table).
 Never the other way round.
 
 ## Traps

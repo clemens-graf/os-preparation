@@ -82,7 +82,7 @@ The solution is in [`../solutions/a0/`](../solutions/a0/) – `NOTES.md` explain
 
 - Syscall numbers: A0 uses your block 1500–1999 (1505 for meminfo – 1500 is your `mkdir`, 1501 your `pthread_join`), the
   examples 1400–1499.
-- Your team's names: `currentThread->getProcess()`, its `getAddressSpace()` and `getThreadLock()`, per-process state in
+- Your team's names: `currentThread->getProcess()`, its `getAddressSpace()`, `getProcessLock()` (page tables) and `getThreadLock()` (threads), per-process state in
   `UserProcess`, per-thread state in `UserThread` – the full list: [`../team/README.md`](../team/README.md).
 - Return `-1` on error as `(size_t) -1` in the kernel – **not** `-1U` (that is
   `0xFFFFFFFF`, which user space does not see as `-1`).

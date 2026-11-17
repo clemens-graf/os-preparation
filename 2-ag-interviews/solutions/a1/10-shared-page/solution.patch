@@ -33,7 +33,7 @@ index 6aff17ae..e26ee123 100644
    bool empty = checkAndRemove<PageTableEntry>(getIdentAddressOfPPN(m.pt_ppn), m.pti);
    if (empty)
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 33fc6354..1a72456f 100644
+index 33fc6354..5c07c2fd 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -234,6 +234,11 @@ class UserProcess
@@ -53,7 +53,7 @@ index 33fc6354..1a72456f 100644
      ustl::list<UserThreadData*> threads_; // TODO: delete threads from list to save some mem, now set to 0 if pthread_exit is called
      ustl::list<ChildData*> children_;
 +
-+    bool shm_attached_[16] = {};   // A1-10: [k] = shared page k is mapped (16 = SHM_MAX_KEYS; thread_lock_)
++    bool shm_attached_[16] = {};   // A1-10: [k] = shared page k is mapped (16 = SHM_MAX_KEYS; process_lock_)
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
 index 290b5459..c9875c83 100644
@@ -128,7 +128,7 @@ index 439b092c..6a9da2c5 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..11290de7 100644
+index 2973d144..4b2f5f7a 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -12,7 +12,9 @@
@@ -175,7 +175,7 @@ index 2973d144..11290de7 100644
 +  // 2. then map it under the page-table lock - never holding both locks at once
 +  bool already;
 +  {
-+    ScopeLock lock(thread_lock_);
++    ScopeLock lock(process_lock_);   // page tables: process_lock_
 +    already = shm_attached_[key];
 +    if (!already)
 +    {
@@ -194,7 +194,7 @@ index 2973d144..11290de7 100644
 +  if (key == 0 || key >= SHM_MAX_KEYS)
 +    return (size_t) -1;
 +  {
-+    ScopeLock lock(thread_lock_);
++    ScopeLock lock(process_lock_);   // page tables: process_lock_
 +    if (!shm_attached_[key])
 +      return (size_t) -1;
 +    arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);   // NOT freed: others may use it

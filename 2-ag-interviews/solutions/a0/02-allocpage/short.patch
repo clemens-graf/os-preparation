@@ -12,7 +12,7 @@ index 290b5459..9f0e4d37 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..29353b0c 100644
+index 439b092c..5f0bff21 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -11,6 +11,8 @@
@@ -31,7 +31,7 @@ index 439b092c..29353b0c 100644
 +    case sc_allocpage:                             // the lowest free page of 512 at 0x500000000000
 +    {
 +      size_t first = 0x500000000000ULL / PAGE_SIZE;
-+      ScopeLock lock(process->getThreadLock());
++      ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +      return_value = 0;
 +      for (size_t vpn = first; vpn < first + 512 && return_value == 0; ++vpn)
 +      {
@@ -46,7 +46,7 @@ index 439b092c..29353b0c 100644
 +    case sc_freepage:
 +    {
 +      size_t vpn = arg1 / PAGE_SIZE;
-+      ScopeLock lock(process->getThreadLock());
++      ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +      if (arg1 % PAGE_SIZE != 0 || vpn < 0x500000000000ULL / PAGE_SIZE || vpn >= 0x500000000000ULL / PAGE_SIZE + 512
 +          || process->getAddressSpace().resolveMapping(vpn).page_size == 0)
 +      {

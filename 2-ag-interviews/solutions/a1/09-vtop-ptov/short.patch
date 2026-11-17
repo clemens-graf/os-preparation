@@ -60,7 +60,7 @@ index 290b5459..ff2f1b8c 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..0193242c 100644
+index 439b092c..86a478f0 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -11,6 +11,7 @@
@@ -81,7 +81,7 @@ index 439b092c..0193242c 100644
 +        return_value = -1;
 +      else
 +      {
-+        ScopeLock lock(currentThread->getProcess()->getThreadLock());
++        ScopeLock lock(currentThread->getProcess()->getProcessLock());   // page tables: process_lock_
 +        ArchMemoryMapping m = currentThread->getProcess()->getAddressSpace().resolveMapping(arg1 / PAGE_SIZE);
 +        return_value = m.page_size == PAGE_SIZE ? m.page_ppn : (size_t) -1;
 +      }
@@ -89,7 +89,7 @@ index 439b092c..0193242c 100644
 +    }
 +    case sc_ptov:
 +    {
-+      ScopeLock lock(currentThread->getProcess()->getThreadLock());
++      ScopeLock lock(currentThread->getProcess()->getProcessLock());   // page tables: process_lock_
 +      return_value = currentThread->getProcess()->getAddressSpace().findVirtualPage(arg1) * PAGE_SIZE;
 +      break;
 +    }

@@ -1,5 +1,5 @@
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 33fc6354..54593dd8 100644
+index 33fc6354..780fa3ee 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -92,6 +92,12 @@ class UserProcess
@@ -7,7 +7,7 @@ index 33fc6354..54593dd8 100644
      void setCpuCycles(uint64 new_cycles) {cpu_cycles_ = new_cycles;}
  
 +    /**
-+     * A0-04: maps ppn read-only at vpn (map + clear the writable bit under thread_lock_)
++     * A0-04: maps ppn read-only at vpn (map + clear the writable bit under process_lock_)
 +     * @return false if vpn was already mapped (then nothing changes)
 +     */
 +    bool mapReadOnlyPage(size_t vpn, size_t ppn);
@@ -16,7 +16,7 @@ index 33fc6354..54593dd8 100644
       * Tries to create the process with its address space.
       * If this fails to create (invalid executable etc.) then it does not create one!
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..cec2c7de 100644
+index 2973d144..92b425cb 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -11,6 +11,7 @@
@@ -34,7 +34,7 @@ index 2973d144..cec2c7de 100644
 +
 +bool UserProcess::mapReadOnlyPage(size_t vpn, size_t ppn)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  if (!arch_memory_->mapPage(vpn, ppn, 1))  // mapPage always maps writable ...
 +    return false;
 +  // ... so clear the bit before releasing the lock: no other thread of this process

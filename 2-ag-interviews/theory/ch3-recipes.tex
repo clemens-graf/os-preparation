@@ -101,23 +101,23 @@ at exit. A frame you map a second time (an alias, a shared page) must be unmappe
 // map a fresh page (outside the lock: allocate; inside: map)
 UserProcess* process = currentThread->getProcess();
 size_t ppn = PageManager::instance()->allocPPN();
-process->getThreadLock().acquire();      // your team's page-table lock
+process->getProcessLock().acquire();     // your team's page-table lock (process_lock_)
 bool mapped = process->getAddressSpace().mapPage(vpn, ppn, 1);
 if (mapped && read_only)
 {
   ArchMemoryMapping m = process->getAddressSpace().resolveMapping(vpn);
   m.pt[m.pti].writeable = 0;            // same critical section as mapPage
 }
-process->getThreadLock().release();
+process->getProcessLock().release();
 if (!mapped)
   PageManager::instance()->freePPN(ppn); // someone else mapped it first
 
 // unmap
-process->getThreadLock().acquire();
+process->getProcessLock().acquire();
 if (process->getAddressSpace().resolveMapping(vpn).page_size)
   process->getAddressSpace().unmapPage(vpn);   // frees the ppn - don't free it again
 ArchMemory::flushTlb();
-process->getThreadLock().release();
+process->getProcessLock().release();
 \end{lstlisting}
 
 \textbf{TLB rule:} after \emph{removing} rights (unmap, read-only, NX, swap out) flush the TLB;
@@ -150,8 +150,8 @@ entries, PML4 index \code{0 .. 255} only (user half).
   \code{fetch} (instruction fetch), \code{switch\_to\_us}.
 \item Faults with \code{present == 1} never reach the valid branch: \code{checkPageFaultIsValid}
   rejects them. A protection case (copy-on-write, A2) needs a branch \emph{before} that check.
-\item The ``kill'' exits: 9999 invalid fault (page fault handler), 666 no segment
-  (\code{Loader::loadPage}), 999 file read failed, 888 CPU exception.
+\item The ``kill'' exits: 9999 invalid fault or no segment (page fault handler; \code{loadPage}
+  returns \code{false}), 999 file read failed, 888 CPU exception. (Base SWEB: 666 for no segment.)
 \item Returning without fixing the cause $\to$ the same fault again, forever.
 \end{itemize}
 
@@ -288,7 +288,7 @@ make them members of a singleton that is created at boot.
 \midrule
 \code{Maybe you are dereferencing a null-pointer} & fault below 4096 \\
 \code{pagefault even though the address is mapped} & write to read-only / user access to a kernel-only page \\
-\code{No section refers to the given address} & \code{loadPage}: address not in any ELF segment (exit 666) \\
+\code{No section refers to the given address} & \code{loadPage}: address not in any ELF segment (returns \code{false} $\to$ exit 9999) \\
 \code{You are accessing a kernel address in user-mode} & user pointer $\geq$ \code{USER\_BREAK} \\
 \code{Double free PPN} / \code{Page modified after free} & \code{freePPN} twice / write after free \\
 \code{thread is holding unrelated locks while waiting on a condition variable} & \code{wait()} with another lock held \\

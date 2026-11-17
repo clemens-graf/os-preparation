@@ -119,7 +119,7 @@ index 439b092c..6bb431b3 100644
 +  return 0;
 +}
 diff --git a/common/source/kernel/UserThread.cpp b/common/source/kernel/UserThread.cpp
-index 1b1ddbca..03b599f5 100644
+index 1b1ddbca..2ca94171 100644
 --- a/common/source/kernel/UserThread.cpp
 +++ b/common/source/kernel/UserThread.cpp
 @@ -1,3 +1,4 @@
@@ -142,7 +142,7 @@ index 1b1ddbca..03b599f5 100644
 +  // write through the ident mapping, page by page: correct no matter which address space
 +  // is active right now (for a thread of the same process it is ours - in fork it would not be)
 +  UserProcess* process = getProcess();
-+  ScopeLock lock(process->getThreadLock());
++  ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +  size_t done = 0;
 +  while (done < size)                                       // page by page: the stack may span two pages
 +  {

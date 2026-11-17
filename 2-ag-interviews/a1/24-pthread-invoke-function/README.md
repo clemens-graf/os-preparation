@@ -43,7 +43,7 @@ thread, its registers are complete, and the result of its syscall is known.
 
 `rip = function`, `rdi = arg`, and a **return address** on its user stack: `rsp` below the red zone
 (128 bytes), aligned so that `rsp % 16 == 8` at the function's first instruction, the return address
-written at `rsp` (via `checkAddressValid`, under `thread_lock_`).
+written at `rsp` (via `checkAddressValid`, under `process_lock_` and then `thread_lock_`).
 </details>
 
 <details><summary>3 – how to come back with ALL registers</summary>

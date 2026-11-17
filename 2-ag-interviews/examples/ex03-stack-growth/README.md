@@ -3,7 +3,7 @@
 Your team's code already grows the stack: a fault inside a thread's stack slot maps pages down to
 the fault address, a fault on the guard page below kills the process. But a slot has only
 `USERSTACK_PAGES` = **4 pages** (16 KiB): the test's 40 KiB local array runs past the guard page
-and the process is killed (exit 666 – the address belongs to no stack and no segment).
+and the process is killed (exit 9999 – the address belongs to no stack and no segment).
 This example walks through how your page fault handler grows the stack, and raises the limit to
 16 pages. Test: `ex_pagefault.sweb` (2 checks).
 

@@ -23,7 +23,7 @@ counted and freed, the program's own stack and code page swapped out, slots free
 
 ## Your team's code
 
-`SwapManager` (new, `common/{include,source}/mm/`, `init()` in `startup()` after `doDeviceDetection`). `swapOut(vpn)` / `swapIn(vpn)` in `UserProcess` under `thread_lock_` (your page-table lock). The swap-in case goes **first** in the page fault handler's valid branch (before the stack/guard checks and `loadPage`), then `return`. `~UserProcess` frees the slots before `delete arch_memory_`.
+`SwapManager` (new, `common/{include,source}/mm/`, `init()` in `startup()` after `doDeviceDetection`). `swapOut(vpn)` / `swapIn(vpn)` in `UserProcess` under `process_lock_` (your page-table lock). The swap-in case goes **first** in the page fault handler's valid branch (before the stack/guard checks and `loadPage`), then `return`. `~UserProcess` frees the slots before `delete arch_memory_`.
 
 ## Hints
 

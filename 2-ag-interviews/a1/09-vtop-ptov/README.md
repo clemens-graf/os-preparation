@@ -43,18 +43,18 @@ indices *are* the virtual page number: `((pml4i*512 + pdpti)*512 + pdi)*512 + pt
 
 1. Syscall plumbing for two syscalls (1670 `vtop`, 1671 `ptov`): numbers, declarations in `Syscall.h` (take the address as `size_t`), two `case`s, the libc wrappers in `nonstd.h/.c` (`ssize_t vtop(void*)`, `void* ptov(size_t)`).
 2. `vtop`: refuse addresses `>= USER_BREAK` with -1.
-3. Take the process's `thread_lock_`, call `resolveMapping` with the **page number** (address / page size).
+3. Take the process's `process_lock_`, call `resolveMapping` with the **page number** (address / page size).
 4. If the result's page size is not one page, the page is not mapped: return -1. Otherwise return its `page_ppn`.
 5. `ptov`: add a public method to `ArchMemory` that searches the page tables: copy the four nested loops of `~ArchMemory` (lower half only), but **only read** – no `present = 0`, no freeing.
 6. In the innermost loop: present and the same ppn → rebuild the vpn from the four indices (each level multiplies by 512) and return it. After all loops: return "not found" (-1).
-7. In the syscall: take `thread_lock_`, call the search; not found → return 0 (NULL), else return vpn × page size.
+7. In the syscall: take `process_lock_`, call the search; not found → return 0 (NULL), else return vpn × page size.
 8. `task test`: 8 checks, including "a page that was never touched has no ppn yet".
 
 </details>
 
 ## Your team's code
 
-`process->getAddressSpace().resolveMapping(vpn)` under `process->getThreadLock()`; `ptov` needs a new walk `ArchMemory::findVirtualPage(ppn)` (a copy of the destructor's loops, `public:` in `ArchMemory.h`).
+`process->getAddressSpace().resolveMapping(vpn)` under `process->getProcessLock()` (`process_lock_` protects `arch_memory_`); `ptov` needs a new walk `ArchMemory::findVirtualPage(ppn)` (a copy of the destructor's loops, `public:` in `ArchMemory.h`).
 
 ## Questions a tutor might ask
 

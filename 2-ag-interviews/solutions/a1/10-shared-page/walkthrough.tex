@@ -100,7 +100,7 @@ So: a new parameter for \code{unmapPage} -- \emph{remove, but do not free} (step
 \begin{center}
 \begin{tikzpicture}[font=\footnotesize, box/.style={draw,rounded corners=2pt,align=center,inner sep=4pt}]
   \node[box,fill=warnbg,text width=4.2cm] (a) at (0,0) {\textbf{1.} \code{shm\_lock}\\protects the two arrays\\(one for the whole kernel)};
-  \node[box,fill=newbg,text width=4.2cm] (b) at (6,0) {\textbf{2.} \code{thread\_lock\_}\\protects this process's page table\\and \code{shm\_attached\_}};
+  \node[box,fill=newbg,text width=4.2cm] (b) at (6,0) {\textbf{2.} \code{process\_lock\_}\\protects this process's page table\\and \code{shm\_attached\_}};
   \draw[-{Stealth},thick] (a) -- node[above,font=\scriptsize] {then} (b);
 \end{tikzpicture}
 \end{center}
@@ -288,7 +288,7 @@ size_t UserProcess::shmAttach(size_t key)
     return 0;
   size_t vpn = SHM_BASE / PAGE_SIZE + key;
   ScopeLock global(*shm_lock);
-  ScopeLock local(thread_lock_);
+  ScopeLock local(process_lock_);
   if (!shm_attached_[key])
   {
     if (shm_refs[key] == 0)
@@ -330,7 +330,7 @@ size_t UserProcess::shmDetach(size_t key)
   if (key == 0 || key >= SHM_KEYS)
     return (size_t) -1;
   ScopeLock global(*shm_lock);
-  ScopeLock local(thread_lock_);
+  ScopeLock local(process_lock_);
   if (!shm_attached_[key])
     return (size_t) -1;
   arch_memory_->unmapPage(SHM_BASE / PAGE_SIZE + key, false);
@@ -379,7 +379,7 @@ Between \code{delete loader\_;} and \code{delete arch\_memory\_;}:
   \item[Why at all] A program may end \emph{without} \code{shm\_detach} (the test's second child does).
         Then \code{delete arch\_memory\_} would free every mapped page -- also the shared one (picture 3).
   \item[1, 12] An extra block: the lock of line 2 is released at line 12, before \code{delete arch\_memory\_}.
-  \item[2] The table lock (we change \code{shm\_refs}). No \code{thread\_lock\_}: the process is being deleted,
+  \item[2] The table lock (we change \code{shm\_refs}). No \code{process\_lock\_}: the process is being deleted,
         none of its threads runs any more.
   \item[3] Go through all keys 1--15.
   \item[5--6] Skip the keys this process does not have.
@@ -414,7 +414,7 @@ no leak at the end & step 7: the parent ends attached, its count is dropped and 
 \begin{enumerate}
   \item One RAM page in several page tables; two arrays remember the page and \textbf{count the users} per key.
   \item Removing a shared page \textbf{never frees} it -- only the last user (count 0) frees it, also at process exit.
-  \item Two locks, \textbf{always \code{shm\_lock} first}, then \code{thread\_lock\_} -- that rules out a deadlock.
+  \item Two locks, \textbf{always \code{shm\_lock} first}, then \code{process\_lock\_} -- that rules out a deadlock.
 \end{enumerate}
 \end{keybox}
 

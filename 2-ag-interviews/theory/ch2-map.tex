@@ -16,7 +16,7 @@ use the tables as a lookup during practice.
 \file{common/source/kernel/Syscall.cpp} & \code{syscallException}: the big switch; all syscall implementations \\
 \file{common/source/mm/PageFaultHandler.cpp} & \code{enterPageFault}, \code{checkPageFaultIsValid}, \code{handlePageFault} \\
 \file{common/source/kernel/Loader.cpp} & the ELF binary of a process, \code{loadPage} (lazy loading), owns the address space \code{arch\_memory\_} \\
-\file{common/source/kernel/UserProcess.cpp} & the process: loader, address space (\code{getAddressSpace()}), \code{thread\_lock\_}, threads; \code{create}, \code{createThread}, \code{fork}, \code{exitThread}/\code{exitProcess} \\
+\file{common/source/kernel/UserProcess.cpp} & the process: loader, address space (\code{getAddressSpace()}), \code{process\_lock\_} (address space) before \code{thread\_lock\_} (threads), threads; \code{create}, \code{createThread}, \code{fork}, \code{exitThread}/\code{exitProcess} \\
 \file{common/source/kernel/UserThread.cpp} & a user thread: first stack page, user registers, address space (your team's code) \\
 \file{common/source/kernel/Thread.cpp} & \code{Thread}: kernel stack, registers, state, \code{kill()} \\
 \file{common/source/kernel/Scheduler.cpp} & thread list, \code{schedule()} (round robin), \code{yield}, \code{sleep}/\code{wake}, cleanup \\
@@ -65,7 +65,7 @@ Page fault (\#PF, vector 14) &
 $\to$ \code{pageFaultHandler(address, error)} (\file{InterruptUtils.cpp}): decodes present / write / user / fetch
 $\to$ \code{PageFaultHandler::enterPageFault} (kernel registers, interrupts \textbf{on})
 $\to$ \code{handlePageFault}: \code{checkPageFaultIsValid}? no: backtrace + \code{Syscall::exit(9999)};
-yes: your team's handler first grows the stack (\code{isUserStackFault}, under \code{thread\_lock\_}) or kills on a guard page, otherwise \code{process->getLoader().loadPage(address, process->getAddressSpace())} (\file{Loader.cpp}): no segment covers it $\to$ \code{Syscall::exit(666)}
+yes: your team's handler (under \code{process\_lock\_}) first grows the stack (\code{isUserStackFault}, also under \code{thread\_lock\_}) or kills on a guard page, otherwise \code{process->getLoader().loadPage(address, process->getAddressSpace())} (\file{Loader.cpp}): no segment covers it $\to$ returns \code{false} $\to$ \code{Syscall::exit(9999)}
 $\to$ back: the faulting instruction is executed again. \\
 \addlinespace
 CPU exception (div by 0, \#GP, \ldots) &
@@ -143,7 +143,7 @@ That is not true in the timer interrupt, in \code{schedule()}, or in the keyboar
 \midrule
 \code{Thread} & kernel stack (\code{kernel\_stack\_}, 8 KiB), \code{kernel\_registers\_}, \code{user\_registers\_} (user threads), \code{switch\_to\_userspace\_}, state (\code{Running}/\code{Sleeping}/\code{ToBeDestroyed}), its process (\code{getProcess()}, \code{getLoader()}), terminal \\
 \code{UserThread} & a user thread (\code{: public Thread}): user registers set up in its constructor; its stack slot (\code{getUserStackTopVpn}, \ldots) \\
-\code{UserProcess} & the process (no thread): owns the \code{Loader}, \textbf{the address space} (\code{getAddressSpace()}), \code{thread\_lock\_}, the thread list (\code{UserThreadData}), working dir, file descriptor. Base SWEB: \emph{is} the one thread of a process (\code{: public Thread}) \\
+\code{UserProcess} & the process (no thread): owns the \code{Loader}, \textbf{the address space} (\code{getAddressSpace()}), \code{process\_lock\_} and \code{thread\_lock\_}, the thread list (\code{UserThreadData}), working dir, file descriptor. Base SWEB: \emph{is} the one thread of a process (\code{: public Thread}) \\
 \code{Loader} & the binary (\code{fd\_}, ELF header, \code{phdrs\_}), \code{program\_binary\_lock\_}, and \code{arch\_memory\_} --- \textbf{the address space} \\
 \code{ArchMemory} & the PML4 of one address space (\code{page\_map\_level\_4\_}) and everything below it \\
 \code{PageManager} & which physical pages are free (bitmap), SpinLock \\

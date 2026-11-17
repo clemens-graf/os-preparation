@@ -24,14 +24,14 @@ Notes:        Two threads calling allocpage at the same time must get different 
 
 `task start a0-02`, implement, `task test`.
 Done when all 10 checks pass and the last access to a freed page kills the process
-(`No section refers to the given address` / exit code 666).
+(`No section refers to the given address` / exit code 9999).
 
 ## Your team's code
 
 The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) – the code you have in the interview.
 
 - `UserProcess* process = currentThread->getProcess();` – then `process->getAddressSpace()`
-  (`mapPage`, `resolveMapping`, `unmapPage`) and `process->getThreadLock()` around search + map.
+  (`mapPage`, `resolveMapping`, `unmapPage`) and `process->getProcessLock()` around search + map.
 - 1510/1511 are free in your team's syscall list.
 
 
@@ -86,7 +86,7 @@ The CPU caches translations in the **TLB**. After `unmapPage` the old entry may 
 
 <details><summary>Your lock protects what exactly? Show the critical section.</summary>
 
-`thread_lock_` protects the page tables: **"find a free slot" and "map it" in one critical section**. Otherwise two threads both see slot 7 free, both map it – one `mapPage` fails, but its caller already returned slot 7 as its own. `allocPPN` can stay outside (keeps the section short).
+`process_lock_` (`process->getProcessLock()`) protects the page tables: **"find a free slot" and "map it" in one critical section**. Otherwise two threads both see slot 7 free, both map it – one `mapPage` fails, but its caller already returned slot 7 as its own. `allocPPN` can stay outside (keeps the section short).
 
 </details>
 

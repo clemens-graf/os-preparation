@@ -33,8 +33,8 @@ for (each phdr)
   }
 }
 ...
-// your team's loadPage gets the address space as a parameter and runs WITHOUT thread_lock_:
-// map read-only in ONE step - no moment in which another thread could see the page writable
+// your team's loadPage gets the address space as a parameter and runs under process_lock_ - but a
+// lock does not stop user code: map read-only in ONE step, no moment another thread sees it writable
 bool page_mapped = arch_memory_.mapPage(vpn, ppn, true, writable);
 ```
 

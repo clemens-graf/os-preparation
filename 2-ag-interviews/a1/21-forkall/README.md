@@ -45,9 +45,9 @@ does **not** copy them – see 4), and the bookkeeping `registerThread` does: `r
 
 <details><summary>2 – which lock, and how long?</summary>
 
-The parent's `thread_lock_` while you copy the address space and walk `threads_` – the list, the
-stack slots and the page tables must not change underneath you. `loadExecutable` reads the disk:
-do it **before** taking the lock. Add the copies to the scheduler at the end – while holding the
+The parent's `process_lock_` (address space, loader – like your team's `fork`, which also loads the
+binary under it) and then `thread_lock_` (the list, the stack slots) while you copy the address space
+and walk `threads_` – nothing may change underneath you. Add the copies to the scheduler at the end – while holding the
 **child's** `thread_lock_`, so a copy that calls `exit()` at once cannot kill threads the scheduler
 does not know yet.
 </details>
@@ -62,11 +62,12 @@ no kernel half of that syscall, so it must return -1: set the copy's `rax`). Mar
 must re-execute the faulting instruction with the original `rax`.)
 </details>
 
-<details><summary>4 – a bug you will find in your team's fork</summary>
+<details><summary>4 – a bug your team's fork had (fixed on 15 Nov)</summary>
 
-`UserThread(child, parent)` leaves `user_stack_top_` and `lowest_mapped_stack_vpn_` at 0. In the
-child the page fault handler then does not see a stack fault as one – a child that needs one more
-stack page is killed with 666. Copy both (`setUserStackTop`, `setUserStackLowestMappedVpn`).
+Until 15 Nov `UserThread(child, parent)` left `user_stack_top_` and `lowest_mapped_stack_vpn_` at 0.
+In the child the page fault handler then did not see a stack fault as one – a child that needed one
+more stack page was killed. Your team's copy constructor copies both now – look at how, your
+thread copies need the same.
 </details>
 
 ## Level 3 – step by step (no code)
@@ -76,7 +77,7 @@ stack page is killed with 666. Copy both (`setUserStackTop`, `setUserStackLowest
 1. Add a flag "inside a syscall" to `UserThread`; set it at the top of `Syscall::syscallException`, clear it before it returns.
 2. Syscall plumbing for `forkall` (1720) and a method `UserProcess::forkall(caller)` next to `fork`.
 3. Load the binary for the child **before** taking any lock (disk I/O).
-4. Under the parent's `thread_lock_`: create the child process with a deep copy of the address space; copy the stack slot counter.
+4. Under the parent's `process_lock_`, then `thread_lock_`: create the child process with a deep copy of the address space; copy the stack slot counter.
 5. For every record of the parent: copy the record (same tid, value, flags; not "joined"). If its thread still runs: copy the thread with the copy constructor, give it the same tid, copy its stack top and lowest mapped stack page, set `rax` (caller: 0; a thread inside a syscall: -1; others: unchanged), register it in the child (counter, flag). Add the record to the child's list.
 6. Release the parent's lock. Take the **child's** lock, start the child with the caller's copy, add every other copy to the scheduler, release.
 7. Return the child's pid (the caller's copy gets 0 from its `rax`). `task test`.

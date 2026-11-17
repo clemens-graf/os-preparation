@@ -29,7 +29,7 @@ index 290b5459..a8d17662 100644
  
  // Tortillas test system setup: https://github.com/PointerDilemma/Tortillas
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
-index 439b092c..603f8ba4 100644
+index 439b092c..bfec8006 100644
 --- a/common/source/kernel/Syscall.cpp
 +++ b/common/source/kernel/Syscall.cpp
 @@ -7,6 +7,9 @@
@@ -72,7 +72,7 @@ index 439b092c..603f8ba4 100644
 +  {
 +    // search + map must be ONE critical section: otherwise two threads find the same free
 +    // slot, the second mapPage() fails and its caller gets an address it does not own
-+    ScopeLock lock(process->getThreadLock());
++    ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +    for (size_t vpn = first_vpn; vpn < first_vpn + ALLOC_REGION_PAGES; ++vpn)
 +    {
 +      if (process->getAddressSpace().resolveMapping(vpn).page_size != 0)
@@ -96,7 +96,7 @@ index 439b092c..603f8ba4 100644
 +    return (size_t) -1;                                  // above the region
 +
 +  UserProcess* process = currentThread->getProcess();
-+  ScopeLock lock(process->getThreadLock());
++  ScopeLock lock(process->getProcessLock());   // page tables: process_lock_
 +  if (process->getAddressSpace().resolveMapping(address / PAGE_SIZE).page_size == 0)
 +    return (size_t) -1;                                  // not mapped: double free
 +  process->getAddressSpace().unmapPage(address / PAGE_SIZE);   // also frees the physical page

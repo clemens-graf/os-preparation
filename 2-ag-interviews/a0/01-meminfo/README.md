@@ -34,9 +34,9 @@ The task starts from your team's `main` (`osw26e3`, the commit in `team/BASE`) �
 - The page tables of the calling process: `currentThread->getProcess()->getAddressSpace()`
   (an `ArchMemory&` – the address space belongs to the `UserProcess`, not to the `Loader`).
 - `countUserPages()` goes into `ArchMemory` (`arch/x86/64/`), your team has not touched it.
-- The lock: **`process->getThreadLock()`** – your team's per-process Mutex. The page fault handler
-  already holds it while it maps stack pages, so it is the lock that protects the page tables.
-  `ScopeLock lock(process->getThreadLock());` around the walk.
+- The lock: **`process->getProcessLock()`** – your team's per-process Mutex `process_lock_`
+  ("protects: … `arch_memory_`" in `UserProcess.h`). The page fault handler holds it for every fault.
+  `ScopeLock lock(process->getProcessLock());` around the walk.
 - Number 1507: 1500 is your `mkdir`, 1501–1506 your `pthread_join`/`cancel`/`testcancel`/`detach`/`setcancelstate`/`setcanceltype`.
 
 
@@ -64,7 +64,7 @@ space (`PAGE_MAP_LEVEL_4_ENTRIES / 2`).
 
 Another thread of the process (A1!) or a page fault could change the page tables while
 you walk them – and `unmapPage` even frees page-table pages. Protect the page tables with
-a per-process lock (your team's `process->getThreadLock()`) and
+a per-process lock (your team's `process->getProcessLock()`) and
 hold it during the walk. Copy the result into user memory *after* releasing it.
 </details>
 
@@ -86,7 +86,7 @@ The kernel runs with the **process's own page tables** (`cr3` of the running pro
 
 <details><summary>What happens if <code>info</code> points to an unmapped user page? To an address above <code>USER_BREAK</code>?</summary>
 
-**Unmapped user page:** the kernel's write page-faults; the fault is on a user address, so `checkPageFaultIsValid` accepts it and `loadPage` maps it if a segment covers it – otherwise the process is killed (666). That is why you write the result *after* releasing the lock. **Above `USER_BREAK`:** the syscall must return -1 before touching it – otherwise a user could make the kernel overwrite kernel memory. Check without overflow: `info >= USER_BREAK - sizeof(MemInfo)`.
+**Unmapped user page:** the kernel's write page-faults; the fault is on a user address, so `checkPageFaultIsValid` accepts it and `loadPage` maps it if a segment covers it – otherwise the process is killed (9999). That is why you write the result *after* releasing the lock. **Above `USER_BREAK`:** the syscall must return -1 before touching it – otherwise a user could make the kernel overwrite kernel memory. Check without overflow: `info >= USER_BREAK - sizeof(MemInfo)`.
 
 </details>
 
@@ -104,6 +104,6 @@ The **page-table pages themselves** (PML4, PDPT, PD, PT – they are frames too,
 
 <details><summary>Your walk takes a lock – which one, what does it protect, who else takes it?</summary>
 
-`process->getThreadLock()` (`thread_lock_`, a Mutex). It protects the page tables (and the thread list, the stack slots) of this process. Also taken by: the page fault handler for stack growth, `createThread`, `exitThread`/`joinThread`, every task that maps or unmaps pages. Without it another thread could unmap (and free!) a page table while you walk it.
+`process->getProcessLock()` (`process_lock_`, a Mutex). It protects the page tables (and the loader, the file name, the working directory) of this process; `process_lock_` is for the thread list and the stack slots, always taken **after** it. Also taken by: the page fault handler (every fault), `createThread`, `exitThread`, `fork`, every task that maps or unmaps pages. Without it another thread could unmap (and free!) a page table while you walk it.
 
 </details>

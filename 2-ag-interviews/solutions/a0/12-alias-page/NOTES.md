@@ -11,7 +11,7 @@ Starting point: the tutorial version, [ex12](../../../examples/ex12-tutorial2/).
 | `getPhysicalAddress`, `mapAddress` + two `case`s | `Syscall.h`, `Syscall.cpp` |
 | `mapsPhysicalPage(ppn)`: walk the user half | `ArchMemory` |
 | `unmapPage(vpn, free_physical_page = true)` | `ArchMemory` |
-| `alias_vpns_` + `addAlias(vpn)` (the lock: your team's `thread_lock_`) | `UserProcess.h` |
+| `alias_vpns_` + `addAlias(vpn)` (the lock: your team's `process_lock_`) | `UserProcess.h` |
 | unmap the aliases without freeing | `~UserProcess`, right before `delete arch_memory_` |
 | wrappers, `#include "types.h"` | `nonstd.h`, `nonstd.c` |
 
@@ -23,10 +23,10 @@ size_t Syscall::getPhysicalAddress(size_t address)
   if (address >= USER_BREAK)
     return (size_t) -1;
   UserProcess* process = currentThread->getProcess();
-  process->getThreadLock().acquire();
+  process->getProcessLock().acquire();
   ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
   size_t ppn = (m.page_size == PAGE_SIZE) ? m.page_ppn : (size_t) -1;
-  process->getThreadLock().release();
+  process->getProcessLock().release();
   return ppn;
 }
 
@@ -36,12 +36,12 @@ size_t Syscall::mapAddress(size_t address, size_t ppn)
     return (size_t) -1;
   size_t vpn = address / PAGE_SIZE;
   UserProcess* process = currentThread->getProcess();
-  process->getThreadLock().acquire();
+  process->getProcessLock().acquire();
   bool mapped = process->getAddressSpace().mapsPhysicalPage(ppn)    // only frames of this process
                 && process->getAddressSpace().mapPage(vpn, ppn, 1);   // false: vpn already mapped
   if (mapped)
     process->addAlias(vpn);                                     // ~UserProcess unmaps it, no free
-  process->getThreadLock().release();
+  process->getProcessLock().release();
   return mapped ? 0 : (size_t) -1;
 }
 ```
@@ -77,7 +77,7 @@ delete arch_memory_;
 
 ## Locking
 
-One lock: your team's `UserProcess::thread_lock_` (`getThreadLock()`, a Mutex). The page fault
+One lock: your team's `UserProcess::process_lock_` (`getProcessLock()`, a Mutex). The page fault
 handler already takes it when it maps stack pages, so it is the page-table lock of your code. It
 protects the page tables and `alias_vpns_`. Critical sections:
 
@@ -87,11 +87,11 @@ protects the page tables and `alias_vpns_`. Critical sections:
   between, another thread of the process could unmap and free the frame after the check (with
   a syscall like A0-02's `freepage`), and the new alias would point to a frame that now belongs
   to somebody else;
-- (your team's `Loader::loadPage` maps **without** the lock – the page fault handler releases
-  `thread_lock_` before it calls it. A gap a tutor may point at; it is your team's code.)
+- (your team's `Loader::loadPage` maps under `process_lock_` – since 15 Nov; before, it ran without
+  the page-table lock.)
 
 `~UserProcess` takes no lock: no thread of the process exists any more. Lock order:
-`thread_lock_` → PageManager's lock (taken inside `mapPage` for new page tables) → the
+`process_lock_` → PageManager's lock (taken inside `mapPage` for new page tables) → the
 kernel heap lock (`push_back`). Never the other way round.
 
 ## Pitfalls

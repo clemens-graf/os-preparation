@@ -45,7 +45,7 @@ File details: [ATLAS.md](ATLAS.md).
 4. **Where does the state live?** Per process → `UserProcess.h`; per thread → `UserThread.h`;
    per page → a free bit in the page-table entry or a list in the process; whole kernel →
    a static member / global; user side → a `static` variable in the libc file.
-5. **Who else touches it at the same time?** Other threads of the process → `getThreadLock()`;
+5. **Who else touches it at the same time?** Other threads of the process → `getProcessLock()` for page tables, `getThreadLock()` for threads/records;
    the page fault handler → the same lock; a key handler / timer → a flag (no lock in an interrupt).
 6. **Write the file list down** (3–6 files), then: plumbing → build → logic → test.
 
@@ -102,7 +102,7 @@ ArchThreadRegisters* r = currentThread->user_registers_;
 size_t rsp = r->rsp - 128;        // skip the red zone
 rsp = rsp - rsp % 16;             // 16-byte alignment
 rsp = rsp - sizeof(size_t);       // room for 1 value
-pointer slot = process->getAddressSpace().checkAddressValid(rsp);   // mapped? (under getThreadLock())
+pointer slot = process->getAddressSpace().checkAddressValid(rsp);   // mapped? (under getProcessLock())
 if (!slot) return (size_t) -1;
 *(size_t*) slot = r->rip;     // "push" the old rip as return address (via the kernel's mapping)
 r->rsp = rsp;

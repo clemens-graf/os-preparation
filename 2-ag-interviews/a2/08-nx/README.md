@@ -17,7 +17,7 @@ the program, and `mult.sweb` still works.
 
 ## Your team's code
 
-Your team's `Loader::loadPage(address, arch_memory)` runs **without** the page-table lock: set NX right after `mapPage` (or give `mapPage` an NX parameter, like A0-05's `writeable`). Stack pages: `UserProcess::mapStackPage` (every stack page goes through it – also the ones the page fault handler adds).
+Your team's `Loader::loadPage(address, arch_memory)` runs under `process_lock_` (the page-table lock) – but a lock does not stop user code of another thread: set NX right after `mapPage`, before anything can run on that page (or give `mapPage` an NX parameter, like A0-05's `writeable`). Stack pages: `UserProcess::mapStackPage` (every stack page goes through it – also the ones the page fault handler adds).
 
 ## Hints
 

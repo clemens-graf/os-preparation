@@ -24,7 +24,7 @@ size_t Syscall::protectPage(size_t address, size_t writable)
     return (size_t) -1;
 
   UserProcess* process = currentThread->getProcess();
-  ScopeLock lock(process->getThreadLock());   // released automatically at every return
+  ScopeLock lock(process->getProcessLock());   // released automatically at every return
 
   ArchMemoryMapping m = process->getAddressSpace().resolveMapping(address / PAGE_SIZE);
   if (m.page_size != PAGE_SIZE)                // not mapped (yet) - m.pt may even be null

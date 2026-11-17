@@ -57,7 +57,7 @@ index 439b092c..e5de054e 100644
        return_value = pthreadJoin(arg1, (void**)arg2);
        break;
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..0668a7f8 100644
+index 2973d144..46469c1b 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -13,6 +13,7 @@
@@ -75,7 +75,7 @@ index 2973d144..0668a7f8 100644
 +
 +size_t UserProcess::sbrk(ssize_t increment)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  size_t old_brk = brk_;
 +  size_t new_brk = old_brk + increment;
 +  if (new_brk < BRK_START || new_brk > BRK_START + BRK_MAX)
@@ -92,7 +92,7 @@ index 2973d144..0668a7f8 100644
 +
 +bool UserProcess::mapBrkPage(size_t vpn)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  if (vpn * PAGE_SIZE >= brk_)
 +    return false;
 +  size_t ppn = PageManager::instance()->allocPPN();

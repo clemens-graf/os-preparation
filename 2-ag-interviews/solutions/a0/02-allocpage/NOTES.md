@@ -5,7 +5,7 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 ## Files touched
 
 `syscall-definitions.h` (1510, 1511), `Syscall.h`, `Syscall.cpp` (two cases, `allocPage`,
-`freePage`), `nonstd.h/.c` (wrappers). The lock: your team's `getThreadLock()`.
+`freePage`), `nonstd.h/.c` (wrappers). The lock: your team's `getProcessLock()`.
 
 ## The code
 
@@ -17,7 +17,7 @@ size_t Syscall::allocPage()
   size_t ppn = PageManager::instance()->allocPPN();      // outside the lock
 
   {
-    ScopeLock lock(process->getThreadLock());
+    ScopeLock lock(process->getProcessLock());
     for (size_t vpn = first_vpn; vpn < first_vpn + ALLOC_REGION_PAGES; ++vpn)
     {
       if (process->getAddressSpace().resolveMapping(vpn).page_size != 0)
@@ -37,7 +37,7 @@ size_t Syscall::freePage(size_t address)
       address >= ALLOC_REGION_START + ALLOC_REGION_PAGES * PAGE_SIZE)
     return (size_t) -1;
   UserProcess* process = currentThread->getProcess();
-  ScopeLock lock(process->getThreadLock());
+  ScopeLock lock(process->getProcessLock());
   if (process->getAddressSpace().resolveMapping(address / PAGE_SIZE).page_size == 0)
     return (size_t) -1;
   process->getAddressSpace().unmapPage(address / PAGE_SIZE);  // frees the physical page too

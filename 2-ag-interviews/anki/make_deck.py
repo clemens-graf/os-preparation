@@ -130,10 +130,10 @@ DECKS["2 Where is what"] = [
      + c("mapStackPage") + " down to the fault (under " + c("thread_lock_") + ").", "where pf stack"),
     ("Where is a page loaded from the ELF binary? What if no segment covers it?",
      c("Loader::loadPage(address, arch_memory)") + " (common/source/kernel/Loader.cpp) – "
-     "no segment → " + c("Syscall::exit(666)"), "where loader"),
+     "no segment → returns " + c("false") + " → the handler calls " + c("Syscall::exit(9999)") + " (base SWEB: exit 666 inside loadPage)", "where loader"),
     ("Where are the F-keys handled? Which are free?",
-     c("Console::handleKey") + " (common/source/console/Console.cpp). F9–F12 are debug output, "
-     "Shift+Fn switches terminals – F2–F8 are free.", "where key"),
+     c("Console::handleKey") + " (common/source/console/Console.cpp). F7–F12 are debug output in your team's code (F8 = live processes), "
+     "Shift+Fn switches terminals – F1–F6 are free.", "where key"),
     ("Where is the next thread chosen?",
      c("Scheduler::schedule()") + " – round robin over " + c("threads_") + ", the first "
      + c("schedulable()") + " one, then rotate.", "where scheduler"),
@@ -165,8 +165,7 @@ DECKS["2 Where is what"] = [
      + " (idea1 = /usr, idea2 = unused swap partition).", "where disk"),
     ("Which libc functions are only stubs in your team's code?",
      c("malloc/free/calloc/realloc") + ", " + c("sem_*") + ", "
-     + c("pthread_mutex_* / cond_* / spin_*") + ", " + c("pthread_setcancelstate/type") + ", " + c("sleep") + ", "
-     + c("clock") + ", " + c("brk/sbrk") + ", " + c("waitpid") + ", " + c("mmap/munmap/shm_*/mprotect")
+     + c("pthread_mutex_* / cond_* / spin_*") + ", " + c("brk/sbrk") + ", " + c("mmap/munmap/shm_*/mprotect")
      + " – and " + c("strcpy/strncpy/strcat") + " are missing completely (ATLAS.md §5).", "where libc"),
 ]
 
@@ -177,10 +176,11 @@ DECKS["3 Team API"] = [
      "api"),
     ("The page tables of the calling process?", c("currentThread->getProcess()->getAddressSpace()")
      + " – an " + c("ArchMemory&") + ", owned by the UserProcess.", "api"),
-    ("The page-table lock in your team's code?", c("process->getThreadLock()") + " – the Mutex "
-     + c("thread_lock_") + "; also protects " + c("threads_") + " and the stack slots.", "api lock"),
-    ("Does your team's loadPage hold the page-table lock?", "<b>No</b> – the page fault handler "
-     "releases " + c("thread_lock_") + " before " + c("loadPage") + ". Read-only/zero pages: map "
+    ("The page-table lock in your team's code?", c("process->getProcessLock()") + " – the Mutex "
+     + c("process_lock_") + " (also loader, files). " + c("thread_lock_") + " protects " + c("threads_")
+     + ", the records and the stack slots – always <b>after</b> " + c("process_lock_") + ".", "api lock"),
+    ("Does your team's loadPage hold the page-table lock?", "<b>Yes</b> (since 15 Nov) – the page fault handler "
+     "holds " + c("process_lock_") + " around " + c("loadPage") + " (not " + c("thread_lock_") + "). A lock does not stop user code of other threads – read-only/zero pages: map "
      "them with " + c("mapPage(…, writeable)") + " in one step.", "api lock loader"),
     ("Per-process state goes where? Per-thread state?", "per process → member of "
      + c("UserProcess") + "; per user thread → member of " + c("UserThread") + " ("
@@ -197,11 +197,13 @@ DECKS["3 Team API"] = [
      + " – the ident mapping, works without any user mapping.", "api memory"),
     ("Get / give back a physical page?", c("PageManager::instance()->allocPPN()") + " (zeroed) / "
      + c("freePPN(ppn)") + " – never after " + c("unmapPage") + " (double free).", "api memory"),
-    ("Find a thread of your process by id?", c("process->findThreadDataByTid(tid)") + " under "
-     + c("thread_lock_") + " → " + c("UserThreadData") + "; " + c("->thread_") + " is nullptr once it exited.",
+    ("Find a thread of your process by id?", c("process->findThreadData(tid)") + " under "
+     + c("thread_lock_") + " → " + c("UserThreadData") + "; " + c("->thread_") + " is nullptr once it exited. "
+     + c("removeThreadData(tid)") + " removes <b>and deletes</b> it.",
      "api threads"),
     ("Fields of UserThreadData?", c("thread_") + ", " + c("exit_value_") + ", " + c("tid_") + ", "
-     + c("exited_") + ", " + c("joined_") + ", " + c("requested_cancel_") + ", " + c("detached_"), "api threads"),
+     + c("exited_") + ", " + c("joined_") + ", " + c("requested_cancel_") + ", " + c("detached_") + ", "
+     + c("cancel_enabled_") + ", " + c("type_"), "api threads"),
     ("How does pthread_join wait in your team's code?", c("while (!thread_data->exited_) thread_exited_.wait();")
      + " – " + c("exitThread") + " broadcasts " + c("thread_exited_") + ".", "api threads"),
     ("What does exitProcess do?", "kills every other thread of the process (" + c("kill()")
@@ -233,7 +235,7 @@ DECKS["4 Locking"] = [
     ("Never call Syscall::exit while …?", "holding a lock – the thread dies, the lock is never released.",
      "lock"),
     ("Why write user memory only after releasing the lock?", "writing user memory can page-fault; "
-     "the page fault handler takes " + c("thread_lock_") + " → deadlock if you hold it.", "lock"),
+     "the page fault handler takes " + c("process_lock_") + " and " + c("thread_lock_") + " → deadlock if you hold one.", "lock"),
     ("Mutex or SpinLock for your code?", "Mutex (sleeps) – SpinLock only for very short sections, "
      "never allocate (" + c("new") + ") while holding one.", "lock"),
     ("Locks with interrupts off (interrupt handler, schedule())?", "impossible – set an atomic flag, "
@@ -244,8 +246,8 @@ DECKS["4 Locking"] = [
      "again (another thread was faster) – and wake-ups may be spurious.", "lock condition"),
     ("ScopeLock?", c("ScopeLock lock(mutex);") + " – acquired in the constructor, released at the end "
      "of the scope (every return).", "lock"),
-    ("Two locks – what rule?", "always the same order everywhere (e.g. " + c("thread_lock_")
-     + " → PageManager), or never hold both.", "lock"),
+    ("Two locks – what rule?", "always the same order everywhere (your team: " + c("process_lock_")
+     + " → " + c("thread_lock_") + " → PageManager), or never hold both.", "lock"),
     ("Removing rights (unmap, read-only, swap-out) – what else?", c("ArchMemory::flushTlb()")
      + " – inside the critical section, before anyone relies on the change.", "lock tlb"),
     ("Why does a user-space lock need an atomic instruction?", "between reading 0 and writing 1 the "
@@ -279,8 +281,8 @@ DECKS["5 Traps"] = [
      + c("(void*) __syscall(…)"), "trap"),
     ("New Mutex member: compile error -Werror=reorder?", "the initializer list must follow the "
      "declaration order – or use a default member initializer " + c('Mutex m_{"name"};'), "trap"),
-    ("Exit codes 666 vs 9999?", "666: " + c("loadPage") + " found no segment for the address · 9999: "
-     "invalid page fault (null pointer, kernel address, protection).", "trap pf"),
+    ("Exit codes 666 vs 9999?", "your team (since 15 Nov): <b>9999</b> for every bad page fault – invalid (null pointer, kernel address, "
+     "protection) or no segment (" + c("loadPage") + " returns false). Base SWEB: 666 = no segment, inside loadPage.", "trap pf"),
     ("strncpy with a source of n or more characters?", "writes exactly n bytes and <b>no</b> "
      "terminating NUL.", "trap libc"),
     ("Same page fault 10 times in a row?", "your handler returned without fixing the cause – "
@@ -299,7 +301,7 @@ DECKS["6 Tasks"] = [
      "find the same free slot. freepage: aligned? in region? mapped? → " + c("unmapPage") + " + "
      + c("flushTlb") + ", no " + c("freePPN") + ".", "task a0"),
     ("A0-03 heaplimit – where is the heap mapped?", "in the page fault handler, <b>first</b> in the "
-     "valid branch: " + c("mapHeapPage(vpn)") + " checks the limit and maps under " + c("thread_lock_")
+     "valid branch: " + c("mapHeapPage(vpn)") + " checks the limit and maps under " + c("process_lock_")
      + "; shrinking unmaps + flushTlb.", "task a0"),
     ("A0-12 alias page – why a kernel panic at exit?", "one frame mapped twice is freed twice by "
      + c("~ArchMemory") + " ('Double free PPN') – unmap the alias with " + c("unmapPage(vpn, false)")
@@ -320,25 +322,25 @@ DECKS["6 Tasks"] = [
      + c("(struct BlockHeader*) ptr - 1"), "task a1 U"),
     ("A1-17 condition variable – the lost wake-up?", "read the generation <b>before</b> releasing the "
      "mutex; a signal between unlock and check then still changes the number.", "task a1 U"),
-    ("A1-19 waitpid – where does the exit code live?", "in the " + c("ProcessRegistry")
-     + " (fixed table) – " + c("~UserProcess") + " runs long after exit; " + c("Syscall::exit")
-     + " stores " + c("exit_code_") + " first.", "task a1"),
+    ("A1-19 waitpid – where does the exit code live?", "your team's code: the parent keeps a " + c("ChildData")
+     + " per child (" + c("pid_, is_zombie_, exit_code_") + ") under " + c("child_lock_") + ", waits on " + c("child_exited_")
+     + "; " + c("ProcessRegistry::notifyChildExited") + " fills it. Status like Linux: " + c("WEXITSTATUS(status)") + ".", "task a1"),
     ("A1-20 pthread_detach – what is freed when?", "the UserThreadData: at once if the thread "
      "already ended, else in " + c("exitThread") + "; join of a detached thread → -1 (your "
      + c("detachThread") + ", syscall 1504).", "task a1"),
     ("A1-21 forkall – what makes a thread, and what does the child copy?", "a thread = its saved registers "
      "(" + c("user_registers_") + ") + its stack (in the address space). Copy every " + c("UserThreadData")
      + " (same tid) and every live thread (" + c("UserThread(child, original)") + " + stack top), under "
-     + c("thread_lock_") + "; a thread inside a syscall gets rax = -1.", "task a1"),
+     + c("process_lock_") + " then " + c("thread_lock_") + "; a thread inside a syscall gets rax = -1.", "task a1"),
     ("A1-23 pthread_switch(a, b) – what changes, under which lock?", "the ids swap in <b>two</b> places: the records ("
      + c("UserThreadData::tid_") + ", searched by join/cancel/detach) and the thread objects (" + c("Thread::setTID")
      + ", read by pthread_self) – all under " + c("thread_lock_") + "; refused for a == b, unknown ids, or while joined.", "task a1"),
     ("A1-22 context switch – which registers, and where is rip?", "only the callee-saved " + c("rbx rbp r12–r15")
      + " (+ " + c("rsp") + "): push them, save rsp, load the other rsp, pop, " + c("ret")
      + ". rip is the return address on the stack.", "task a1"),
-    ("Bug in your team's fork (19 Oct)?", "the child's " + c("UserThread") + " copy does not get "
-     + c("user_stack_top_") + " / " + c("lowest_mapped_stack_vpn_") + " → a child that needs a new stack "
-     "page is killed with 666.", "api threads"),
+    ("Bug in your team's fork until 15 Nov?", "the child's " + c("UserThread") + " copy did not get "
+     + c("user_stack_top_") + " / " + c("lowest_mapped_stack_vpn_") + " → a child that needed a new stack "
+     "page was killed. Fixed: the copy constructor copies both.", "api threads"),
     ("A2-01 swap – how does a PTE say 'swapped out'?", c("present = 0") + ", " + c("ignored_2 = PTE_SWAPPED")
      + ", " + c("page_ppn = slot") + " – the CPU ignores non-present entries.", "task a2"),
     ("A2-01 swap-out order?", "1. present = 0 + flushTlb (nobody writes meanwhile) · 2. write to disk "
@@ -358,11 +360,11 @@ DECKS["7 POSIX"] = [
     ("Is pthread_join a cancellation point?", "yes – a cancelled thread sleeping in join must end. "
      "Your team's code (since 18 Oct): " + c("cancelThread") + " broadcasts, the wait loop returns "
      + c("JOIN_CANCELED") + ", " + c("Syscall::pthreadJoin") + " calls " + c("exitThread") + " outside the lock.", "posix"),
-    ("Deferred cancellation?", "the target only ends at a cancellation point (syscalls, "
-     + c("pthread_testcancel") + ", join) – never in the middle of a critical section.", "posix"),
+    ("Deferred cancellation?", "the target only ends at a cancellation point (your team: " + c("Syscall::isCancellationPoint")
+     + " – read/write/open/close, join, " + c("pthread_testcancel") + ", waitpid, nanosleep; not sched_yield) – never in the middle of a critical section.", "posix"),
     ("What does pthread_detach mean?", "nobody will join the thread: its resources are freed when it "
      "ends; joining it is an error.", "posix"),
-    ("waitpid(pid, &status, 0)?", "waits for child pid, returns its pid, status = how it ended; "
+    ("waitpid(pid, &status, 0)?", "waits for child pid, returns its pid, status = how it ended (exit code in bits 8–15: " + c("WEXITSTATUS") + "); "
      "−1 if pid is not a child.", "posix"),
     ("A zombie?", "a process that has ended, but its parent has not waited for it yet – only its "
      "exit status is kept.", "posix"),
@@ -404,15 +406,15 @@ FILES = [
     ("common/source/kernel/Syscall.cpp", "the syscall switch " + c("syscallException") + " and every syscall: exit, write, read, open, close, createprocess, pthreadCreate/Exit/Join/Cancel/Self, fork, execv, getpid, mkdir, getThreadCount; helper " + c("copyUserString"), "Which file has every syscall implementation?"),
     ("common/include/kernel/Syscall.h", "the declarations " + c("static size_t x(…)") + " of all syscalls", None),
     ("common/include/kernel/syscall-definitions.h", "the " + c("sc_…") + " numbers – shared by kernel and libc", None),
-    ("common/source/kernel/UserProcess.cpp", "the process: " + c("create, startProcess, fork, exec, createThread, registerThread, threadExited") + ", stacks (" + c("allocateNewStack, mapStackPage, isGuardPage") + "), " + c("exitThread, joinThread, cancelThread, exitProcess") + ", " + c("getAddressSpace, getLoader, getThreadLock") + ", destructor", "Which file creates processes and threads and ends them?"),
-    ("common/include/kernel/UserProcess.h", c("UserThreadData") + " struct, members " + c("arch_memory_, loader_, thread_lock_, thread_exited_, threads_") + ", " + c("USERSTACK_PAGES, GUARD_PAGE") + " – per-process state goes here", "Where do you add per-process state?"),
+    ("common/source/kernel/UserProcess.cpp", "the process: " + c("create, fork, exec, createThread, registerThread, threadExited, findThreadData, removeThreadData") + ", stacks (" + c("allocateNewStack, mapStackPage, isGuardPage") + "), " + c("exitThread, joinThread, cancelThread, exitProcess") + ", " + c("getAddressSpace, getLoader, getThreadLock") + ", destructor", "Which file creates processes and threads and ends them?"),
+    ("common/include/kernel/UserProcess.h", c("UserThreadData") + " struct, members " + c("arch_memory_, loader_, process_lock_, thread_lock_, child_lock_, thread_exited_, threads_, children_") + ", " + c("USERSTACK_PAGES, GUARD_PAGE") + " – per-process state goes here", "Where do you add per-process state?"),
     ("common/source/kernel/UserThread.cpp", "a user thread: the two constructors (new thread: user registers, stack top, address space; forked thread: copy of the parent's registers, rax = 0), " + c("Run, resetForExec") + ", stack vpns", None),
     ("common/include/kernel/UserThread.h", c("class UserThread : public Thread") + " – " + c("user_stack_top_, lowest_mapped_stack_vpn_") + "; per-thread state goes here", "Where do you add per-thread state of user threads?"),
     ("common/source/kernel/Thread.cpp", "base class of every thread: kernel stack (+ canary), " + c("kill()") + ", state, name, TID, terminal, " + c("printBacktrace") + ", " + c("threadStartHack") + " (start of kernel threads)", None),
     ("common/include/kernel/Thread.h", c("kernel_registers_, user_registers_, switch_to_userspace_, getProcess(), state_") + "; " + c("ThreadState") + " Running/Sleeping/ToBeDestroyed", None),
-    ("common/source/kernel/Scheduler.cpp", c("schedule") + " (round robin), " + c("addNewThread, yield, sleep, wake, cleanupDeadThreads, printThreadList (F12), incTicks/getTicks, getNextTid, lockScheduling"), "Which file decides which thread runs next?"),
-    ("common/source/kernel/Loader.cpp", "the ELF binary of a process: " + c("readHeaders, prepareHeaders, getEntryFunction, loadPage") + " (lazy loading, exit 666), debug info for backtraces", "Which file loads a program's pages from its file?"),
-    ("common/source/kernel/ProcessRegistry.cpp", "kernel thread: mounts /usr, starts the programs of " + c("user_progs.h") + " (the shell); " + c("createProcess, registerPID") + ", counts processes (" + c("processStart/Exit/Count") + "), waits for all at shutdown", "Which kernel thread starts the shell and counts processes?"),
+    ("common/source/kernel/Scheduler.cpp", c("schedule") + " (round robin), " + c("addNewThread, yield, sleep, wake, timedSleepUntil, wakeElapsedTimedSleepThreads, cleanupDeadThreads, printThreadList (F12), incTicks/getTicks, getNextTid, lockScheduling"), "Which file decides which thread runs next?"),
+    ("common/source/kernel/Loader.cpp", "the ELF binary of a process: " + c("readHeaders, prepareHeaders, getEntryFunction, loadPage") + " (lazy loading; returns false if no segment covers the address), debug info for backtraces", "Which file loads a program's pages from its file?"),
+    ("common/source/kernel/ProcessRegistry.cpp", "kernel thread: mounts /usr, starts the programs of " + c("user_progs.h") + " (the shell); " + c("createProcess, registerProcess, notifyChildExited, findProcess") + ", counts processes (" + c("processExited, processCount") + "), waits for all at shutdown", "Which kernel thread starts the shell and counts processes?"),
     ("common/include/kernel/user_progs.h", "the list of programs started at boot – only " + c("/usr/shell.sweb") + " (don't rename the variable: automated tests)", None),
     ("common/source/kernel/Mutex.cpp", "the sleeping lock: " + c("acquire, release, acquireNonBlocking, isFree") + " – waiters sleep in the scheduler", None),
     ("common/source/kernel/SpinLock.cpp", "the spinning lock (" + c("ArchThreads::testSetLock") + " + yield) – very short sections, no new/delete inside", None),
@@ -454,7 +456,7 @@ FILES = [
     ("arch/x86/common/include/ports.h", c("inportb/outportb") + " … – I/O port access", None),
     ("arch/x86/common/include/multiboot.h", "the multiboot structures GRUB passes to the kernel", None),
     # ---- console, debug output
-    ("common/source/console/Console.cpp", c("handleKey") + " (F9–F12 debug output, Shift+Fn terminal switch – add your F-key here), " + c("Run") + " (the Console kernel thread), terminals", None),
+    ("common/source/console/Console.cpp", c("handleKey") + " (F7–F12 debug output, Shift+Fn terminal switch – add your F-key on F1–F6), " + c("Run") + " (the Console kernel thread), terminals", None),
     ("common/source/console/Terminal.cpp", "one terminal: input buffer (" + c("read, readLine") + "), output (" + c("write, writeString") + "), scrolling, colors", "Which file reads a line the user typed in the shell?"),
     ("common/source/console/TextConsole.cpp + FrameBufferConsole.cpp", "the two screen backends: VGA text mode and a VESA framebuffer (with " + c("font_sun8x16.c") + ")", None),
     ("common/source/console/kprintf.cpp", c("kprintf") + " (screen + debug) and " + c("kprintfd") + " (debug output only)", None),
@@ -481,10 +483,10 @@ FILES = [
     ("userspace/libc/src/stdlib.c", c("atexit") + " (works: " + c("atexit_functions[], __runAtexitFunctions") + "); "
      + c("malloc, free, calloc, realloc") + " – stubs", None),
     ("userspace/libc/src/exec.c", c("exit") + " (runs the atexit handlers, then the syscall), " + c("_exit, fork, execv"), None),
-    ("userspace/libc/src/pthread.c", c("pthread_create") + " (+ the trampoline " + c("pthread_start") + "), " + c("exit, join, cancel, testcancel, self, equal, detach") + "; stubs: " + c("mutex_*, cond_*, spin_*, setcancelstate/type"), None),
+    ("userspace/libc/src/pthread.c", c("pthread_create") + " (+ the trampoline " + c("pthread_start") + "), " + c("exit, join, cancel, testcancel, self, equal, detach") + ", " + c("setcancelstate/type") + "; stubs: " + c("mutex_*, cond_*, spin_*"), None),
     ("userspace/libc/src/semaphore.c", c("sem_init/wait/trywait/post/destroy") + " – all stubs", None),
-    ("userspace/libc/src/unistd.c", c("getpid, getppid") + "; stubs " + c("brk, sbrk, sleep, ftruncate"), None),
-    ("userspace/libc/src/time.c + wait.c + mman.c", c("clock") + ", " + c("waitpid") + ", " + c("mmap, munmap, shm_open, shm_unlink, mprotect") + " – all stubs", None),
+    ("userspace/libc/src/unistd.c", c("getpid, getppid, sleep") + " (via nanosleep); stubs " + c("brk, sbrk, ftruncate"), None),
+    ("userspace/libc/src/time.c + wait.c + mman.c", c("clock, clock_gettime, nanosleep") + " / " + c("waitpid") + " – work (your team); " + c("mmap, munmap, shm_open, shm_unlink, mprotect") + " – stubs", None),
     ("userspace/libc/src/string.c", c("memcmp, memcpy, memset, strlen, strcmp, strstr") + " – no strcpy/strncpy/strcat", None),
     ("userspace/libc/src/printf.c + scanf.c", c("printf, putchar, puts") + " (format in user space, then one " + c("write") + "); " + c("scanf, sscanf, getchar, gets, fgets, strtoul"), None),
     ("userspace/libc/src/read.c, write.c, file_alloc.c", "thin syscall wrappers: " + c("read, lseek, write, open, close, mkdir, link, unlink, pipe, dup, dup2, rename"), None),
@@ -507,7 +509,7 @@ FILES = [
     ("userspace/libc/include/sys/stat.h", "file mode bits for " + c("mkdir / creat"), None),
     ("userspace/libc/include/pthread.h", "types (" + c("pthread_t") + " = size_t; mutex/cond/spinlock = unsigned int), " + c("PTHREAD_CANCELED") + ", the declarations – " + c("pthread_spin_*") + " are NOT declared (add them)", "Where are pthread_t and pthread_mutex_t defined?"),
     ("userspace/libc/include/stdlib.h + unistd.h", c("malloc, free, calloc, realloc, atexit, exit, atoi") + " / " + c("getpid, getppid, fork, _exit, brk, sbrk, sleep, read, write, close") + " declarations", None),
-    ("userspace/libc/include/wait.h + time.h + sched.h", c("waitpid") + " (" + c("WEXITED") + ") / " + c("clock, clock_t, CLOCKS_PER_SEC") + " (1000000) / " + c("sched_yield"), None),
+    ("userspace/libc/include/wait.h + time.h + sched.h", c("waitpid") + " (" + c("WNOHANG, WEXITSTATUS") + ") / " + c("clock, clock_t, CLOCKS_PER_SEC") + " (1000000) / " + c("sched_yield"), None),
     ("userspace/libc/include/sys/mman.h", c("PROT_NONE/READ/WRITE/EXEC, MAP_PRIVATE/SHARED/ANONYMOUS") + " and " + c("mmap, munmap, shm_open, shm_unlink, mprotect"), "Where are PROT_* and MAP_* defined?"),
     ("userspace/libc/include/semaphore.h + ctype.h", c("sem_t") + " (unsigned int) and the " + c("sem_*") + " declarations / " + c("isdigit, isalpha, toupper") + " …", None),
     ("the header of a .cpp file", c("common/source/X/Name.cpp") + " ↔ " + c("common/include/X/Name.h") + "; " + c("arch/x86/64/source/Name.cpp") + " ↔ " + c("arch/x86/64/include/") + " (64-bit only), " + c("arch/x86/common/include/") + " or " + c("arch/common/include/") + " (shared by all architectures) – CLion: Ctrl+Alt+Home switches between them", "Where is the header of a .cpp file?"),

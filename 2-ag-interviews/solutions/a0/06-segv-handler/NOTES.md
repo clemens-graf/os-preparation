@@ -6,9 +6,8 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 
 | File | What |
 |---|---|
-| `Loader.h/.cpp` | `loadPage(address, arch_memory)` returns `bool` (false = no segment) instead of `exit(666)` |
-| `UserProcess.h/.cpp` | `segv_entry_`, `segv_handler_` (per process, under `thread_lock_`); `deliverSegv()` |
-| `PageFaultHandler.cpp` | `loadPage` succeeded → `return`; otherwise (or for an invalid fault) `getProcess()->deliverSegv(...)`, only if that fails kill. A guard-page hit stays a kill |
+| `UserProcess.h/.cpp` | `segv_entry_`, `segv_handler_` (per process, under `thread_lock_`); `deliverSegv()` (takes `process_lock_`, then `thread_lock_`) |
+| `PageFaultHandler.cpp` | before each `Syscall::exit(9999)` (both run after the locks are released): `if (user && getProcess()->deliverSegv(...)) return;`. Your team's `loadPage` already returns `false` for "no segment" (since 15 Nov) |
 | `Syscall.h/.cpp`, `syscall-definitions.h` | `sc_setsegvhandler 1530`, `setSegvHandler(entry, handler)` on `currentThread->getProcess()` |
 | `nonstd.h/.c` | `set_segv_handler()` + the static `segvEntry()` |
 
@@ -16,8 +15,8 @@ Patch: [`solution.patch`](solution.patch) – for your team's code (`task soluti
 
 ```
 user: *(int*)0xDEAD000 = 1
- → #PF → handlePageFault: valid → loadPage: no segment → false
- → user && getProcess()->deliverSegv(user_registers_, address)
+ → #PF → handlePageFault: valid → loadPage: no segment → false → is_exit, locks released
+ → is_exit && user && getProcess()->deliverSegv(user_registers_, address)
       rsp' = rsp - 128, rounded down to a multiple of 16, minus 8   (red zone, alignment, return-address slot)
       slot mapped? (checkAddressValid)    no → false → kill as before
       *slot = 0; rsp = rsp'; rip = segv_entry_; rdi = address; rsi = segv_handler_
@@ -28,8 +27,9 @@ user: *(int*)0xDEAD000 = 1
 
 ## Key points
 
-- **Two places kill on a segfault** – the page fault handler (invalid fault: null, present+
-  write, kernel address) and the loader (no segment). Students usually find only the first.
+- **Two places kill on a segfault** – both `exit(9999)` in the page fault handler: the invalid
+  branch (null, present+write, kernel address) and `is_exit` (no segment, guard page, no stack
+  page). Base SWEB hides the second one in the loader (`exit(666)`); your team moved it out.
 - **Only user-mode faults.** A fault in kernel mode (e.g. `write()` with a bad buffer) happened
   in the middle of kernel code: redirecting the user registers would abandon that kernel code
   half-way (locks held, state inconsistent).
@@ -44,8 +44,8 @@ user: *(int*)0xDEAD000 = 1
 ## Locking
 
 `segv_entry_`/`segv_handler_` are written by the syscall and read + reset in the page
-fault path of possibly another thread → same lock for both (your team's `thread_lock_`, also
-needed for `checkAddressValid`). Read-check-reset in one critical section, otherwise two
+fault path of possibly another thread → same lock for both (your team's `thread_lock_`;
+`checkAddressValid` reads the page tables, so `deliverSegv` takes `process_lock_` first). Read-check-reset in one critical section, otherwise two
 threads faulting together could both get the one-shot handler.
 
 ## Variants the tutor could ask

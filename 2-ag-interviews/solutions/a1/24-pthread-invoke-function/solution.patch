@@ -83,10 +83,10 @@ index 439b092c..8e48eae8 100644
  }
  
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..3373501b 100644
+index 2973d144..2f265525 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
-@@ -936,3 +936,69 @@ void UserProcess::addCpuCycles(uint64 cycles)
+@@ -936,3 +936,70 @@ void UserProcess::addCpuCycles(uint64 cycles)
  {
    cpu_cycles_ += cycles;
  }
@@ -114,6 +114,7 @@ index 2973d144..3373501b 100644
 +void UserProcess::deliverInvoke(size_t return_value)
 +{
 +  UserThread* thread = static_cast<UserThread*>(currentThread);
++  ScopeLock process_lock(process_lock_);   // checkAddressValid: page tables first
 +  ScopeLock lock(thread_lock_);
 +  if (thread->invoke_function_ == 0 || thread->invoke_running_)
 +    return;

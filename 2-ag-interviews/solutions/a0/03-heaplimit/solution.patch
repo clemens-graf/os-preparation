@@ -13,7 +13,7 @@ index b82d8ca3..2390fe61 100644
  
      // process stuff
 diff --git a/common/include/kernel/UserProcess.h b/common/include/kernel/UserProcess.h
-index 33fc6354..3fa0d692 100644
+index 33fc6354..364cb21f 100644
 --- a/common/include/kernel/UserProcess.h
 +++ b/common/include/kernel/UserProcess.h
 @@ -25,6 +25,9 @@
@@ -50,7 +50,7 @@ index 33fc6354..3fa0d692 100644
      ustl::list<ChildData*> children_;
 +
 +    // A0-03: the lazy heap [HEAP_START, HEAP_START + heap_size_) - per process, so it lives here.
-+    // Protected by thread_lock_ (like the page tables): the limit and the mappings change together.
++    // Protected by process_lock_ (like the page tables): the limit and the mappings change together.
 +    size_t heap_size_ = 0;
  };
 diff --git a/common/include/kernel/syscall-definitions.h b/common/include/kernel/syscall-definitions.h
@@ -111,7 +111,7 @@ index 439b092c..474a7aef 100644
  {
    return Scheduler::instance()->getThreadCount();
 diff --git a/common/source/kernel/UserProcess.cpp b/common/source/kernel/UserProcess.cpp
-index 2973d144..4164ae22 100644
+index 2973d144..76420c07 100644
 --- a/common/source/kernel/UserProcess.cpp
 +++ b/common/source/kernel/UserProcess.cpp
 @@ -11,6 +11,7 @@
@@ -130,14 +130,14 @@ index 2973d144..4164ae22 100644
 +bool UserProcess::mapHeapPage(size_t vpn)
 +{
 +  size_t ppn = PageManager::instance()->allocPPN();
-+  thread_lock_.acquire();
++  process_lock_.acquire();   // page tables: process_lock_
 +  // check the limit and map in ONE critical section: setHeapLimit() could shrink the heap
 +  // between a check and a later mapPage(), leaving a page mapped above the limit
 +  bool inside = vpn * PAGE_SIZE < HEAP_START + heap_size_;
 +  bool mapped = false;
 +  if (inside)
 +    mapped = arch_memory_->mapPage(vpn, ppn, 1);       // false: another thread mapped it first
-+  thread_lock_.release();
++  process_lock_.release();
 +  if (!mapped)
 +    PageManager::instance()->freePPN(ppn);   // above the limit, or another thread mapped it first
 +  return inside;
@@ -145,7 +145,7 @@ index 2973d144..4164ae22 100644
 +
 +void UserProcess::setHeapLimit(size_t size)
 +{
-+  ScopeLock lock(thread_lock_);
++  ScopeLock lock(process_lock_);   // page tables: process_lock_
 +  size_t first_vpn = (HEAP_START + size) / PAGE_SIZE;       // first page above the new limit
 +  size_t end_vpn = (HEAP_START + heap_size_) / PAGE_SIZE;   // end of the old heap
 +  for (size_t vpn = first_vpn; vpn < end_vpn; vpn++)
@@ -157,7 +157,7 @@ index 2973d144..4164ae22 100644
 +  heap_size_ = size;
 +}
 diff --git a/common/source/mm/PageFaultHandler.cpp b/common/source/mm/PageFaultHandler.cpp
-index 6d909f90..cb120c30 100644
+index 6d909f90..f4414f4d 100644
 --- a/common/source/mm/PageFaultHandler.cpp
 +++ b/common/source/mm/PageFaultHandler.cpp
 @@ -5,6 +5,7 @@
@@ -174,7 +174,7 @@ index 6d909f90..cb120c30 100644
    {
 +    if (address >= HEAP_START && address < HEAP_START + HEAP_MAX_SIZE)  // A0-03: the lazy heap
 +    {
-+      if (!currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE))   // takes thread_lock_
++      if (!currentThread->getProcess()->mapHeapPage(address / PAGE_SIZE))   // takes process_lock_
 +      {
 +        debug(PAGEFAULT, "heap access above the limit\n");
 +        Syscall::exit(9998);                     // never exit while holding a lock!

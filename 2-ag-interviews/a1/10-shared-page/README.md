@@ -55,9 +55,9 @@ reference. At exit: the Loader's destructor unmaps the attached keys and drops t
 
 1. A global table (key → frame + reference count) in a new class with its own lock, created in `startup()` (no global constructors).
 2. `ArchMemory::unmapPage` gets a parameter "free the frame or not" (default: free).
-3. Per process: a bit mask of attached keys (under `thread_lock_`).
-4. `shm_attach(key)`: check the key (1–15); first take a **reference** in the global table (creates a zeroed frame if new); then under `thread_lock_`: not attached yet → map it at the key's fixed address and set the bit; if it was attached already → drop the extra reference. Return the address.
-5. `shm_detach(key)`: under `thread_lock_` unmap **without freeing** + TLB flush + clear the bit; then drop the reference (the table frees the frame at 0).
+3. Per process: a bit mask of attached keys (under `process_lock_`).
+4. `shm_attach(key)`: check the key (1–15); first take a **reference** in the global table (creates a zeroed frame if new); then under `process_lock_`: not attached yet → map it at the key's fixed address and set the bit; if it was attached already → drop the extra reference. Return the address.
+5. `shm_detach(key)`: under `process_lock_` unmap **without freeing** + TLB flush + clear the bit; then drop the reference (the table frees the frame at 0).
 6. In `~UserProcess` (before the address space is deleted): do the detach for every set bit.
 7. Never hold both locks at once. `task test`.
 
@@ -65,7 +65,7 @@ reference. At exit: the Loader's destructor unmaps the attached keys and drops t
 
 ## Your team's code
 
-`SharedPages` (new, `common/{include,source}/mm/`, created in `startup()`), `shm_attached_` bit mask + `shmAttach/shmDetach` in `UserProcess` (under `thread_lock_`), cleanup in `~UserProcess` **before** `delete arch_memory_` with `unmapPage(vpn, false)` – a new parameter of `ArchMemory::unmapPage`: do not free the shared frame.
+`SharedPages` (new, `common/{include,source}/mm/`, created in `startup()`), `shm_attached_` bit mask + `shmAttach/shmDetach` in `UserProcess` (under `process_lock_`, your team's page-table lock), cleanup in `~UserProcess` **before** `delete arch_memory_` with `unmapPage(vpn, false)` – a new parameter of `ArchMemory::unmapPage`: do not free the shared frame.
 
 ## Questions a tutor might ask
 
