@@ -36,34 +36,21 @@ index 290b5459..90ac154a 100644
  #define sc_process_count 1999
  #define PTHREAD_CANCELED ((void*) -1)
 diff --git a/common/source/kernel/Scheduler.cpp b/common/source/kernel/Scheduler.cpp
-index 97bdb6a5..edf15518 100644
+index 97bdb6a5..62de4c5b 100644
 --- a/common/source/kernel/Scheduler.cpp
 +++ b/common/source/kernel/Scheduler.cpp
-@@ -64,15 +64,15 @@ void Scheduler::schedule()
-     currentThread->setToDestroy();
+@@ -65,6 +65,11 @@ void Scheduler::schedule()
    }
  
--  auto it = threads_.begin();
--  for(; it != threads_.end(); ++it)
--  {
--    if((*it)->schedulable())
--    {
--      currentThread = *it;
--      break;
--    }
--  }
-+  auto it = threads_.end();
-+  for (auto c = threads_.begin(); c != threads_.end(); ++c)    // A1-05: the invoked thread first
-+    if (*c == preferred_ && (*c)->schedulable())
-+      it = c;
+   auto it = threads_.begin();
++  while (it != threads_.end() && *it != preferred_)     // A1-05: look for the invoked thread
++    ++it;
 +  preferred_ = nullptr;
-+  if (it == threads_.end())                                    // otherwise round robin as before
-+    for (it = threads_.begin(); it != threads_.end() && !(*it)->schedulable(); ++it) {}
-+  if (it != threads_.end())
-+    currentThread = *it;
- 
-   assert(it != threads_.end() && "No schedulable thread found");
-   ustl::rotate(threads_.begin(), it + 1, threads_.end()); // no new/delete here - important because interrupts are disabled
++  if (it == threads_.end() || !(*it)->schedulable())
++    it = threads_.begin();                              // not found / can't run: round robin as before
+   for(; it != threads_.end(); ++it)
+   {
+     if((*it)->schedulable())
 diff --git a/common/source/kernel/Syscall.cpp b/common/source/kernel/Syscall.cpp
 index 439b092c..c14387f1 100644
 --- a/common/source/kernel/Syscall.cpp
